@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Build every derived asset, in dependency order (NULL.md §5, §11).
+#
+# THIS IS THE PIECE THAT NEVER EXISTED. There were twenty bake scripts and no
+# statement anywhere of what order they run in -- the order lived in whoever
+# had run them last. A distribution cannot be installed by recalling that.
+#
+# Each stage declares WHAT IT PRODUCES. A stage whose outputs are all newer
+# than this tree's sources is skipped and says so, which is what makes this
+# safe to re-run and cheap to resume: the expensive one is the hero, and
+# nobody should pay for it twice by accident.
+#
+# It does NOT install anything and does not touch a running system. That is
+# null-install's job, and keeping them apart is what lets this run on a build
+# host that will never boot the result.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+cd "$ROOT"
+FORCE=0; ONLY=""; SKIP_HERO=0
+for a in "$@"; do
+  case $a in
+    --force)      FORCE=1 ;;
+    --skip-hero)  SKIP_HERO=1 ;;
+    --only=*)     ONLY=${a#--only=} ;;
+    -h|--help)
+      cat <<'USAGE'
+usage: null-build [--force] [--skip-hero] [--only=STAGE]
+
+  Builds every derived asset in dependency order. Re-runnable: a stage whose
+  outputs are newer than its inputs is skipped.
+
+  --skip-hero   use the analytic placeholder instead of raytracing the Kerr
+                hero. Minutes instead of hours, and the desktop is complete
+                except that the wallpaper is the placeholder.
+USAGE
+      exit 0 ;;
+    *) echo "null-build: unknown flag '$a'" >&2; exit 2 ;;
+  esac
+done
+
+STRIKE_IFACE=$(bin/machine get interface_strike) || exit 1
+STRIKE_BAKE=$(bin/machine get bake_strike)       || exit 1
+
+# A strike's file, from its name. ter-u* are the OTB bitmaps fontconfig sees;
+# ter-1* are the PSF2 console fonts. Which one a strike is, is visible in its
+# name, so it is read rather than configured.
+# A strike has TWO NAMES and they are not interchangeable.
+#
+# `ter-u18n` is what fontconfig calls it, and is what the terminal and the GTK
+# theme ask for. `ter-118n` is the same strike as a PSF2 console font, and is
+# the only form the atlas and ramp bakers can read -- they parse PSF2 and
+# nothing else. The profile stores the fontconfig name because that is the one
+# other software needs; this converts it, which is a `u` for a `1`.
+#
+# Getting this wrong produces "not a PSF2 file (magic 00010000)", which is the
+# atlas baker correctly refusing an OpenType bitmap.
+strike_psf() {
+  local n=$1
+  case $n in
+    ter-u*) n="ter-1${n#ter-u}" ;;
+  esac
+  echo "/usr/lib/kbd/consolefonts/$n.psf.gz"
+}
+
+fail=0
+stage() {  # stage <name> <outputs...> -- <command...>
+  local name=$1; shift
+  local outs=() cmd=()
+  while [ $# -gt 0 ] && [ "$1" != "--" ]; do outs+=("$1"); shift; done
+  shift || true
+  cmd=("$@")
+  if [ -n "$ONLY" ] && [ "$ONLY" != "$name" ]; then return 0; fi
+
+  # Fresh means: every output exists and is newer than every tracked source.
+  # `git ls-files` is the source list, so a stage cannot be fooled by its own
+  # output sitting in the same directory.
+  if [ "$FORCE" -eq 0 ] && [ ${#outs[@]} -gt 0 ]; then
+    local fresh=1 o
+    for o in "${outs[@]}"; do [ -e "$o" ] || { fresh=0; break; }; done
+    if [ "$fresh" -eq 1 ] && [ -z "$(find bake render/src machines -newer "${outs[0]}" -type f -print -quit 2>/dev/null)" ]; then
+      printf '  %-22s up to date\n' "$name"
+      return 0
+    fi
+  fi
+
+  printf '  %-22s ' "$name"
+  local log; log=$(mktemp)
+  if "${cmd[@]}" >"$log" 2>&1; then
+    printf 'ok\n'
+  else
+    printf 'FAILED\n'
+    sed 's/^/      /' "$log" | tail -12
+    fail=1
+  fi
+  rm -f "$log"
+}
+
+echo "null-build: $STRIKE_IFACE (interface) + $STRIKE_BAKE (bake)"
+echo
+
+echo "colour and glyphs"
+stage palette   assets/palette.bin assets/palette.json -- \
+  python3 bake/derive_palette.py
+stage ramp-iface assets/ramp-interface.json -- \
+  python3 bake/derive_ramp.py --font "$(strike_psf "$STRIKE_IFACE")" --out assets/ramp-interface.json
+stage ramp-bake  assets/ramp-bake.json -- \
+  python3 bake/derive_ramp.py --font "$(strike_psf "$STRIKE_BAKE")" --out assets/ramp-bake.json
+stage atlas-iface assets/atlas-interface.bin -- \
+  python3 bake/bake_atlas.py --font "$(strike_psf "$STRIKE_IFACE")" --out assets/atlas-interface.bin
+stage atlas-bake  assets/atlas-bake.bin -- \
+  python3 bake/bake_atlas.py --font "$(strike_psf "$STRIKE_BAKE")" --out assets/atlas-bake.bin
+stage theme config/sway/colours.conf -- python3 bake/export_theme.py
+
+echo
+echo "the hero"
+if [ "$SKIP_HERO" -eq 1 ]; then
+  stage placeholder assets/placeholder.cells -- \
+    python3 bake/placeholder.py --out assets/placeholder.cells
+  echo "  (hero skipped: the placeholder stands in for it)"
+else
+  stage hero assets/master.hdrcells -- python3 bake/bake.py
+  stage quantise assets/master.cells -- python3 bake/quantise.py
+  stage targets assets/target-2.cells assets/target-4.cells assets/tty.cells assets/logo.cells -- \
+    python3 bake/derive_targets.py
+fi
+
+echo
+echo "surfaces derived from the above"
+stage icons  assets/icons -- python3 bake/make_icons.py
+# The boot surfaces are RASTERISED FROM THE HERO'S TARGETS, so they cannot be
+# built without one. This is not a missing feature of --skip-hero; it is what
+# --skip-hero means, and saying so is better than a stack trace about a
+# missing .cells file.
+if [ "$SKIP_HERO" -eq 1 ]; then
+  printf '  %-22s skipped: it rasterises the hero, and the hero was skipped\n' boot
+else
+  stage boot system/plymouth-theme system/sddm-theme -- python3 bake/make_boot_assets.py
+fi
+
+echo
+echo "the renderer"
+stage render render/target/release/column -- cargo build --release --manifest-path render/Cargo.toml
+
+echo
+if [ "$fail" -eq 0 ]; then echo "null-build: every stage succeeded"; else
+  echo "null-build: STAGES FAILED -- the tree is not installable" >&2; fi
+exit $fail
