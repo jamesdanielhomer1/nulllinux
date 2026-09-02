@@ -1,0 +1,34 @@
+# The diff viewer (NULL.md §7.6).
+#
+# Plain git, in the palette, ASCII-only. No add-on diff pager: every popular
+# one defaults to Nerd Font glyphs or heavy box-drawing this console font does
+# not carry, and the whole point of this surface is that it draws only what the
+# font has.
+[color]
+    ui = true
+
+[color "diff"]
+    meta = "#232c40"
+    frag = "#b9ccff"
+    old  = "#ff8000"
+    new  = "#6ba368"
+    commit = "#ffb161"
+
+[color "status"]
+    added = "#6ba368"
+    changed = "#ffb161"
+    untracked = "#ff7800"
+    branch = "#b9ccff"
+
+[color "branch"]
+    current = "#b9ccff"
+    local = "#ffefe6"
+    remote = "#ff7800"
+
+[diff]
+    # The default +/- markers are already characters the font has, and nothing
+    # here replaces them with symbols.
+    colorMoved = plain
+
+[log]
+    date = iso

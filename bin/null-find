@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Locate a file anywhere on disk (NULL.md §8.4).
+#
+# NOT a filter over a list. The list is the whole disk, and building it up
+# front costs seconds before the first keystroke. So the picker's own matcher
+# is turned OFF and the finder is re-run on every keystroke instead.
+#
+# Results are shown RELATIVE to the search root: absolute paths spend a third
+# of every row on the same prefix and then truncate the part that identifies
+# the file.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+SEARCH_ROOT=${1:-$HOME}
+cd "$SEARCH_ROOT" || exit 1
+
+FD=$(command -v fd || command -v fdfind) || { echo "null-find: fd not installed" >&2; exit 1; }
+
+# The initial list is built first; the RELOAD binding is what makes every
+# keystroke re-run the finder, and a reload does not show the spinner the way a
+# slow initial stdin does.
+initial=$("$FD" --hidden --exclude .git --max-results 200 . 2>/dev/null || true)
+pick=$(fzf "${NULL_FZF[@]}" <<<"$initial" \
+        --prompt="find in ${SEARCH_ROOT/#$HOME/~} > " \
+        --header='the whole disk; every keystroke re-runs the finder' \
+        --disabled \
+        --bind "change:reload($FD --hidden --exclude .git --max-results 200 {q} 2>/dev/null || true)" \
+) || exit 0
+[ -n "$pick" ] || exit 0
+
+target="$SEARCH_ROOT/$pick"
+if [ -d "$target" ]; then
+  # Opening a directory means opening AT it.
+  exec "$ROOT/bin/null-open" dir "$target"
+else
+  # Opening a file means opening the file manager with that file SELECTED,
+  # which is a different verb from opening the file.
+  exec "$ROOT/bin/null-open" reveal "$target"
+fi

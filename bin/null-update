@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# Every update channel on this machine, and their state (NULL.md §8.4).
+#
+# IT REPORTS BEFORE IT ACTS. With no argument it changes nothing, so the safe
+# thing is also the shortest thing to type.
+#
+# That promise is STRUCTURAL, not a habit: every reporting path lives in a
+# function named report_*, and verify/check-report-first.sh reads the text of
+# those functions and fails the suite if a mutating command appears in one. A
+# promise that depends on remembering is not a promise.
+#
+# Firmware is the one channel that does not act by default. Everything else
+# here is undone by reinstalling a package; a bad flash is undone by buying a
+# motherboard. So refreshing metadata and reporting is the default, writing to
+# a device needs its own flag, and --apply deliberately SKIPS it.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+PKG="$ROOT/bin/pkg"
+
+UNKNOWN="$NULL_UNMEASURED"
+
+# ---------------------------------------------------------------- reporting
+# Everything below this line is read-only. See check-report-first.sh.
+
+report_packages() {
+  # Through the abstraction, always. §9.1: exactly one component names a
+  # package manager, and this is not it. The first version named one here and
+  # verify/check-package-abstraction.sh caught it.
+  # CHECK THE CATALOGUE'S FRESHNESS BEFORE REPORTING ITS VERDICT -- the same
+  # rule §8.4 states for firmware. "Up to date" against week-old metadata is
+  # not good news, it is an old answer wearing good news' clothes.
+  local age days note=""
+  if age=$("$PKG" metadata-age 2>/dev/null); then
+    days=$(( age / 86400 ))
+    [ "$days" -ge 1 ] && note="  (catalogue ${days}d old)"
+  else
+    null_row "PACKAGES" "NO CATALOGUE -- verdict meaningless"
+    return
+  fi
+  # ONE query, not two. upgrade-available and upgrade-count each run the
+  # package manager, and asking twice cost a second of the two and a half this
+  # topic took to open. The count answers both questions.
+  local n; n=$("$PKG" upgrade-count 2>/dev/null || echo "")
+  if [ -z "$n" ]; then
+    null_row "PACKAGES" "$UNKNOWN$note"
+  elif [ "$n" -gt 0 ]; then
+    null_row "PACKAGES" "$n pending$note"
+  else
+    null_row "PACKAGES" "up to date$note"
+  fi
+}
+
+report_orphans() {
+  local n
+  n=$("$PKG" what-is-orphaned 2>/dev/null | grep -c . || true)
+  null_row "ORPHANED" "${n:-0}"
+}
+
+report_cache() {
+  # The cache path is the package manager's business, not ours (§9.1).
+  null_row "PACKAGE CACHE" "$("$PKG" cache-size 2>/dev/null || echo "$UNKNOWN")"
+}
+
+report_firmware() {
+  if ! command -v fwupdmgr >/dev/null 2>&1; then
+    null_row "FIRMWARE" "no tool"; return
+  fi
+  # CHECK THE CATALOGUE BEFORE REPORTING ITS VERDICT. A firmware tool comparing
+  # devices against metadata it has never downloaded reports "no updates
+  # available", which is indistinguishable from good news and is not. That is
+  # the live state of THIS machine: lvfs is enabled, its metadata has never
+  # been fetched, and get-updates answers "No updatable devices".
+  #
+  # "Expects metadata" and "has metadata" are separate facts and are counted
+  # separately -- collapsing them makes a never-fetched remote and an absent
+  # one report the same thing.
+  local newest=0 expecting=0 present=0 f age
+  while read -r f; do
+    case "$f" in *.xml*|*.zst) ;; *) continue ;; esac   # download remotes only
+    expecting=$((expecting + 1))
+    [ -f "$f" ] || continue
+    present=$((present + 1))
+    age=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+    [ "$age" -gt "$newest" ] && newest=$age
+  done < <(fwupdmgr get-remotes 2>/dev/null | sed 's/[│├└─]//g' |
+           awk '/Enabled:/{en=($NF=="true")} /Filename:/{if(en){print $NF; en=0}}')
+
+  if [ "$expecting" -eq 0 ]; then
+    null_row "FIRMWARE" "no download remote enabled"
+    return
+  fi
+  if [ "$present" -eq 0 ]; then
+    # Not "up to date". There is nothing to be up to date against.
+    null_row "FIRMWARE" "NO METADATA -- verdict meaningless"
+    return
+  fi
+  local days=$(( ( $(date +%s) - newest ) / 86400 ))
+  # fwupd's own default refresh interval is one day; older than that and the
+  # verdict is stale, which is not the same as reassuring.
+  if [ "$days" -gt 1 ]; then
+    null_row "FIRMWARE" "metadata ${days}d old -- STALE"
+    return
+  fi
+  local n
+  n=$(fwupdmgr get-updates 2>/dev/null | grep -cE '^..[A-Za-z]' || true)
+  if fwupdmgr get-updates 2>&1 | grep -qi 'no updatable\|No updates available'; then
+    null_row "FIRMWARE" "up to date (metadata ${days}d)"
+  else
+    null_row "FIRMWARE" "${n:-$UNKNOWN} pending -- needs --firmware-write"
+  fi
+}
+
+report_fonts() {
+  # A TOOL WITH NO DRY RUN CANNOT BE ASKED. fc-cache rebuilds whatever it finds
+  # stale, so running it to find out answers the question by doing the thing.
+  # Compare modification times instead.
+  # ASK FONTCONFIG WHERE ITS CACHE IS rather than hard-coding a path. The first
+  # version guessed /var/cache/fontconfig, which does not exist on this
+  # distribution -- the cache is /usr/lib/fontconfig/cache -- so it found no
+  # cache at all and reported the font tree as 56 years stale. Reading the
+  # <cachedir> elements is config parsing, not a dry run, so it stays read-only.
+  local newest_font=0 newest_cache=0 t d
+  local cachedirs
+  cachedirs=$(grep -rhoE '<cachedir[^>]*>[^<]+</cachedir>' \
+                /etc/fonts/fonts.conf /etc/fonts/conf.d/*.conf 2>/dev/null |
+              sed -E 's/<[^>]*>//g')
+  for d in /usr/share/fonts /usr/local/share/fonts "$HOME/.local/share/fonts" "$HOME/.fonts"; do
+    [ -d "$d" ] || continue
+    t=$(find "$d" -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1 | cut -d. -f1)
+    [ -n "$t" ] && [ "$t" -gt "$newest_font" ] && newest_font=$t
+  done
+  for d in $cachedirs "$HOME/.cache/fontconfig"; do
+    case "$d" in
+      "~"*) d="$HOME${d#\~}" ;;
+      fontconfig) d="${XDG_CACHE_HOME:-$HOME/.cache}/fontconfig" ;;
+    esac
+    [ -d "$d" ] || continue
+    t=$(find "$d" -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1 | cut -d. -f1)
+    [ -n "$t" ] && [ "$t" -gt "$newest_cache" ] && newest_cache=$t
+  done
+  if [ "$newest_cache" -eq 0 ]; then
+    # No cache found anywhere is not "stale", it is "cannot tell".
+    null_row "FONT CACHE" "$UNKNOWN (no cache directory found)"
+    return
+  fi
+  if [ "$newest_font" -eq 0 ]; then
+    null_row "FONT CACHE" "$UNKNOWN"
+  elif [ "$newest_cache" -ge "$newest_font" ]; then
+    null_row "FONT CACHE" "current"
+  else
+    null_row "FONT CACHE" "stale by $(( (newest_font - newest_cache) / 86400 ))d"
+  fi
+}
+
+report_all() {
+  report_packages
+  report_orphans
+  report_cache
+  report_firmware
+  report_fonts
+}
+
+# ----------------------------------------------------------------- applying
+# Everything below THIS line may mutate. Nothing here is reachable without an
+# explicit flag.
+
+apply_packages() { echo "==> packages";      "$PKG" upgrade; }
+apply_orphans()  { echo "==> orphaned";      "$PKG" remove-orphans; }
+apply_cache()    { echo "==> package cache"; "$PKG" clean-cache; }
+apply_fonts()    { echo "==> font cache";     fc-cache -f; }
+apply_firmware() { echo "==> firmware";       fwupdmgr update; }
+
+usage() { cat <<'U'
+usage: null-update [--apply] [--firmware-write]
+
+  (no argument)      report every channel; change nothing
+  --apply            packages, orphans, caches -- SKIPS firmware by design
+  --firmware-write   flash firmware; the one thing a reinstall cannot undo
+
+Reporting paths are read-only and the verification suite enforces it.
+U
+}
+
+APPLY=0; FIRMWARE=0
+for a in "$@"; do
+  case "$a" in
+    --apply) APPLY=1 ;;
+    --firmware-write) FIRMWARE=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+
+report_all
+[ "$APPLY" -eq 0 ] && [ "$FIRMWARE" -eq 0 ] && exit 0
+
+echo
+if [ "$APPLY" -eq 1 ]; then
+  apply_packages; apply_orphans; apply_cache; apply_fonts
+  echo
+  echo "firmware deliberately NOT touched: --apply skips it (§8.4)."
+fi
+[ "$FIRMWARE" -eq 1 ] && apply_firmware
+echo
+echo "after:"
+report_all

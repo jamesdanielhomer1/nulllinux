@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Copy the HDR cell master somewhere that is not this machine (§11 Phase 9).
+#
+# The master is the ONE artefact that cannot be regenerated cheaply -- 240
+# frames, 95 s of GPU tracing, and it is the input every surface is derived
+# from. Everything else in this repository is either source or derivable.
+#
+# Report-first, and VERIFIES AFTER COPYING. An unverified backup is a belief
+# about a backup: the failure it exists to survive is exactly the kind that
+# also corrupts a copy made while it was happening.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+MASTER=${NULL_MASTER:-/opt/nulllinux-hdr-master-v4}
+DEST=${1:-}
+
+have_manifest() { [ -r "$MASTER/MANIFEST.sha256" ]; }
+
+echo "master:   $MASTER"
+if [ ! -d "$MASTER" ]; then echo "REFUSING: no master at $MASTER" >&2; exit 1; fi
+printf 'frames:   %s\n' "$(ls "$MASTER"/*.hdr 2>/dev/null | wc -l)"
+printf 'size:     %s\n' "$(du -sh "$MASTER" | cut -f1)"
+have_manifest && printf 'manifest: %s entries\n' "$(wc -l < "$MASTER/MANIFEST.sha256")" \
+              || echo "manifest: MISSING -- run: (cd $MASTER && sha256sum *.hdr > MANIFEST.sha256)"
+
+# Report which volumes are even candidates. "Not this machine" is the whole
+# requirement, so a destination on the same physical disk is refused.
+echo
+echo "removable volumes:"
+found=0
+while read -r name size label mount tran; do
+  case "$tran" in usb|ieee1394) ;; *) continue ;; esac
+  found=1
+  printf '  /dev/%-10s %-8s %-16s %s\n' "$name" "$size" "${label:--}" "${mount:-not mounted}"
+done < <(lsblk -rno NAME,SIZE,LABEL,MOUNTPOINT,TRAN 2>/dev/null)
+[ "$found" -eq 0 ] && echo "  none attached"
+
+if [ -z "$DEST" ]; then
+  echo
+  echo "usage: null-backup <destination-directory>"
+  echo "  reports only with no destination; nothing has been copied."
+  exit 0
+fi
+
+# A destination on this machine's own disk does not satisfy the gate.
+src_dev=$(df --output=source "$MASTER" | tail -1)
+dst_dev=$(df --output=source "$DEST" 2>/dev/null | tail -1)
+if [ "$src_dev" = "$dst_dev" ]; then
+  echo "REFUSING: $DEST is on $dst_dev, the same device as the master." >&2
+  echo "  The gate is 'somewhere that is not this machine' (§11 Phase 9)." >&2
+  exit 1
+fi
+
+have_manifest || { echo "REFUSING: no manifest to verify against" >&2; exit 1; }
+target="$DEST/null-hdr-master-$(basename "$MASTER")"
+echo
+echo "copying to $target ..."
+mkdir -p "$target"
+cp -a "$MASTER"/. "$target"/ || { echo "copy failed" >&2; exit 1; }
+sync
+
+echo "verifying the COPY against the manifest ..."
+if ( cd "$target" && sha256sum --quiet -c MANIFEST.sha256 ); then
+  echo "all $(wc -l < "$target/MANIFEST.sha256") frames verified at the destination"
+else
+  echo "VERIFICATION FAILED -- the copy is not trustworthy" >&2
+  exit 1
+fi

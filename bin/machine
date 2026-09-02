@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+# machine -- machine identity, output geometry, and runtime hardware probes
+#            (NULL.md §0.2)
+#
+# Selection is by hostname, with an explicit override via $NULL_MACHINE.
+#
+# The profile carries identity and geometry. It does NOT carry hardware
+# capability: §0.2 requires components to degrade by absence of hardware,
+# discovered at runtime. `machine probe <capability>` is that discovery.
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)
+
+die() { printf 'machine: %s\n' "$*" >&2; exit 1; }
+
+profile_path() {
+  local n=${NULL_MACHINE:-$(hostname -s 2>/dev/null || hostname)}
+  local p="$ROOT/machines/$n.conf"
+  [ -r "$p" ] || die "no profile for '$n' (expected $p; set NULL_MACHINE to override)"
+  echo "$p"
+}
+
+# Read one key. Strips comments and surrounding whitespace. Fails loudly on a
+# key that is not there, rather than returning empty -- an empty geometry that
+# silently becomes zero is worse than a stopped program.
+get() {
+  local key=$1 val
+  val=$(sed -e 's/#.*//' "$(profile_path)" \
+        | awk -F= -v k="$key" '$1 ~ "^[[:space:]]*"k"[[:space:]]*$" {sub(/^[[:space:]]*/,"",$2); sub(/[[:space:]]*$/,"",$2); print $2; found=1} END{exit !found}') \
+    || die "profile has no key '$key'"
+  printf '%s\n' "$val"
+}
+
+# Derived, never stored. A grid that is written down in two places is a grid
+# that will eventually disagree with itself.
+derive() {
+  local w h cw ch
+  case $1 in
+    interface_cols) w=$(get width);  cw=$(get interface_cell_w); echo $(( w / cw )) ;;
+    interface_rows) h=$(get height); ch=$(get interface_cell_h); echo $(( h / ch )) ;;
+    bake_cols)      w=$(get width);  cw=$(get bake_cell_w);      echo $(( w / cw )) ;;
+    bake_rows)      h=$(get height); ch=$(get bake_cell_h);      echo $(( h / ch )) ;;
+    *) die "unknown derived value '$1'" ;;
+  esac
+}
+
+# Does the geometry divide exactly? §2.1 requires it: a grid that does not
+# divide leaves a partial cell, and a partial cell is either clipped or
+# scaled. Both are wrong.
+# The strikes this font ships, cell width x height, measured from the files
+# rather than remembered: `fc-query` gives the pixel size and the advance is
+# the width. Terminus is a bitmap face and comes in exactly these.
+STRIKES="6x12:ter-u12n:ter-112n 8x14:ter-u14n:ter-114n 8x16:ter-u16n:ter-116n
+         10x18:ter-u18n:ter-118n 10x20:ter-u20n:ter-120n 11x22:ter-u22n:ter-122n
+         12x24:ter-u24n:ter-124n 14x28:ter-u28n:ter-128n 16x32:ter-u32n:ter-132n"
+
+# Detect the output WITHOUT a compositor if need be, because this has to run on
+# a machine that has not started one yet -- which is every machine, once, and
+# is the whole difficulty of installing onto hardware nobody has seen.
+detect_output() {
+  if command -v swaymsg >/dev/null 2>&1 && swaymsg -t get_version >/dev/null 2>&1; then
+    swaymsg -t get_outputs -r | python3 -c '
+import json, sys
+o = json.load(sys.stdin)[0]
+m = o.get("current_mode") or {}
+print(o["name"], m.get("width", 0), m.get("height", 0), o.get("scale", 1.0))'
+    return 0
+  fi
+  # No compositor: ask DRM directly. The connector that is "connected" and has
+  # a mode is the one a compositor would pick too.
+  local d
+  for d in /sys/class/drm/card*-*/; do
+    [ -r "$d/status" ] || continue
+    [ "$(cat "$d/status" 2>/dev/null)" = connected ] || continue
+    local mode; mode=$(head -1 "$d/modes" 2>/dev/null)
+    [ -n "$mode" ] || continue
+    local name; name=$(basename "$d"); name=${name#card*-}
+    echo "$name ${mode%x*} ${mode#*x} 1.0"
+    return 0
+  done
+  return 1
+}
+
+# Choose the strike pair for a given geometry.
+#
+# EXACT DIVISION IS PREFERRED AND NOT ALWAYS POSSIBLE. 1366x768 -- one of the
+# commonest laptop panels ever made -- is divided exactly by none of these
+# strikes, because 1366 = 2 x 683 and 683 is prime. The old rule said both
+# strikes must divide the output exactly, which is true of this machine and
+# cannot be true of every machine.
+#
+# So: prefer exact, and where nothing is exact take the smallest leftover and
+# SAY how many pixels it is. The remainder is painted background; it is not a
+# defect to hide, it is a strip of screen the grid does not reach.
+choose_strike() {
+  local w=$1 h=$2 want_cols=$3
+  local best="" best_score=""
+  local e cell iface console cw ch cols rem score
+  for e in $STRIKES; do
+    cell=${e%%:*}; iface=${e#*:}; console=${iface#*:}; iface=${iface%%:*}
+    cw=${cell%x*}; ch=${cell#*x}
+    cols=$(( w / cw ))
+    [ "$cols" -ge 40 ] || continue
+    rem=$(( (w % cw) + (h % ch) ))
+    # Legibility first, exactness as a tiebreak -- both in the same unit, so
+    # neither can swamp the other.
+    #
+    # Weighting the remainder heavily was the first attempt and it was wrong:
+    # on 1366x768 it chose a 6x12 strike for 227 columns of tiny text, to save
+    # four pixels at the screen edge that nobody can see. A dozen unreached
+    # pixels behind the frame cost nothing; text too small to read costs the
+    # whole desktop.
+    score=$(( (cols > want_cols ? cols - want_cols : want_cols - cols) + rem ))
+    if [ -z "$best_score" ] || [ "$score" -lt "$best_score" ]; then
+      best_score=$score; best="$cell:$iface:$console:$rem:$cols"
+    fi
+  done
+  [ -n "$best" ] || return 1
+  echo "$best"
+}
+
+generate() {
+  local out w h scale name
+  read -r out w h scale < <(detect_output) || die "cannot detect an output (no compositor, no connected DRM connector)"
+  [ "${w:-0}" -gt 0 ] && [ "${h:-0}" -gt 0 ] || die "detected output has no mode ($out ${w}x${h})"
+  name=${NULL_MACHINE:-$(hostname -s 2>/dev/null || hostname)}
+  local p="$ROOT/machines/$name.conf"
+
+  local i b icell iname icon irem icols bcell bname bcon brem bcols
+  i=$(choose_strike "$w" "$h" 190) || die "no strike gives a usable grid at ${w}x${h}"
+  b=$(choose_strike "$w" "$h" 320) || die "no bake strike at ${w}x${h}"
+  IFS=: read -r icell iname icon irem icols <<<"$i"
+  IFS=: read -r bcell bname bcon brem bcols <<<"$b"
+
+  cat > "$p" <<PROFILE
+# Machine profile: $name
+#
+# GENERATED by \`machine generate\` from the hardware, on $(date +%Y-%m-%d).
+# Identity, hero and output geometry ONLY -- hardware capability is probed at
+# runtime, never declared here (NULL.md 0.2).
+
+name    = $name
+hero    = null
+
+output  = $out
+width   = $w
+height  = $h
+scale   = $scale
+
+interface_strike = $iname
+interface_cell_w = ${icell%x*}
+interface_cell_h = ${icell#*x}
+
+bake_strike      = $bcon
+bake_cell_w      = ${bcell%x*}
+bake_cell_h      = ${bcell#*x}
+PROFILE
+  printf 'wrote %s\n' "$p"
+  printf '  output     %s  %sx%s  scale %s\n' "$out" "$w" "$h" "$scale"
+  printf '  interface  %-9s %s  %s cols%s\n' "$iname" "$icell" "$icols" \
+    "$([ "$irem" -eq 0 ] && echo ", exact" || echo ", ${irem}px not reached")"
+  printf '  bake       %-9s %s  %s cols%s\n' "$bcon" "$bcell" "$bcols" \
+    "$([ "$brem" -eq 0 ] && echo ", exact" || echo ", ${brem}px not reached")"
+}
+
+check_grid() {
+  local w h ok=0
+  w=$(get width); h=$(get height)
+  for s in interface bake; do
+    local cw ch
+    cw=$(get "${s}_cell_w"); ch=$(get "${s}_cell_h")
+    # A REMAINDER IS NOT A FAILURE, and used to be treated as one.
+    #
+    # The rule was that both strikes divide the output exactly. That is true of
+    # this machine and cannot be true of every machine: 1366x768 is divided
+    # exactly by none of Terminus's nine strikes, because 1366 = 2 x 683 and
+    # 683 is prime. A rule no hardware can satisfy is a rule that stops the
+    # desktop from installing rather than one that keeps it honest.
+    #
+    # So the remainder is REPORTED, in pixels, and the grid must simply fit.
+    # Those pixels are painted background: a strip the grid does not reach, not
+    # a defect to hide.
+    if [ $(( w / cw )) -lt 40 ] || [ $(( h / ch )) -lt 20 ]; then
+      printf '  %-10s %sx%s px  ->  TOO FEW CELLS (%s x %s)\n' \
+        "$s" "$cw" "$ch" "$(( w / cw ))" "$(( h / ch ))"
+      ok=1
+    elif [ $(( w % cw )) -ne 0 ] || [ $(( h % ch )) -ne 0 ]; then
+      printf '  %-10s %sx%s px  ->  %s x %s cells, %s px unreached\n' \
+        "$s" "$cw" "$ch" "$(( w / cw ))" "$(( h / ch ))" \
+        "$(( (w % cw) + (h % ch) ))"
+    else
+      printf '  %-10s %sx%s px  ->  %s x %s cells, exact\n' \
+        "$s" "$cw" "$ch" "$(( w / cw ))" "$(( h / ch ))"
+    fi
+  done
+  return $ok
+}
+
+# --- runtime hardware probes -------------------------------------------
+# Each answers by looking at the machine, never at a configuration value.
+# Exit 0 = present, 1 = absent. A component that draws a row for absent
+# hardware is drawing a permanent complaint about a missing feature (§8.4).
+
+probe() {
+  case $1 in
+    battery)      compgen -G '/sys/class/power_supply/BAT*'        >/dev/null ;;
+    mains)        compgen -G '/sys/class/power_supply/A[CD]*'      >/dev/null ;;
+    backlight)    compgen -G '/sys/class/backlight/*'              >/dev/null ;;
+    # The keyboard's own light, which is a LED class device and not a
+    # backlight -- a machine can have either, both or neither, and this one
+    # has the screen's and not the keyboard's. Probed rather than assumed so
+    # the settings panel does not offer a control for a light that is not
+    # there (§8.4).
+    kbd-backlight) compgen -G '/sys/class/leds/*kbd_backlight*'      >/dev/null ;;
+    lid)          [ -e /proc/acpi/button/lid ] || compgen -G '/proc/acpi/button/lid/*' >/dev/null ;;
+    wireless)     compgen -G '/sys/class/net/*/wireless'           >/dev/null ;;
+    bluetooth)    compgen -G '/sys/class/bluetooth/*'              >/dev/null ;;
+    discrete-gpu) [ "$(ls -d /sys/class/drm/card[0-9] 2>/dev/null | wc -l)" -gt 1 ] ;;
+    *) die "unknown capability '$1' (try: machine capabilities)" ;;
+  esac
+}
+
+CAPABILITIES="battery mains backlight kbd-backlight lid wireless bluetooth discrete-gpu"
+
+usage() {
+  cat <<'USAGE'
+usage: machine <verb> [argument]
+
+  get <key>            read a key from the profile
+  derive <name>        interface_cols | interface_rows | bake_cols | bake_rows
+  probe <capability>   exit 0 if the hardware is present, 1 if absent
+  capabilities         list probeable capabilities, with their current state
+  check-grid           verify the grid fits, and report any unreached pixels
+  generate             write machines/<hostname>.conf from the detected hardware
+  profile              path to the profile in use
+  show                 everything
+USAGE
+}
+
+[ $# -ge 1 ] || { usage; exit 2; }
+verb=$1; shift
+
+case $verb in
+  get)      [ $# -eq 1 ] || die "get needs a key";        get "$1" ;;
+  derive)   [ $# -eq 1 ] || die "derive needs a name";    derive "$1" ;;
+  probe)    [ $# -eq 1 ] || die "probe needs a capability"; probe "$1" ;;
+  profile)  profile_path ;;
+  check-grid) check_grid ;;
+  generate)   generate ;;
+  capabilities)
+      for c in $CAPABILITIES; do
+        if probe "$c"; then printf '  %-14s present\n' "$c"; else printf '  %-14s absent\n' "$c"; fi
+      done ;;
+  show)
+      printf 'profile   %s\n' "$(profile_path)"
+      for k in name hero output width height scale interface_strike bake_strike; do
+        printf '  %-18s %s\n' "$k" "$(get "$k")"
+      done
+      printf '\ngrid\n'; check_grid || true
+      printf '\nhardware (probed now, not declared)\n'
+      for c in $CAPABILITIES; do
+        if probe "$c"; then printf '  %-14s present\n' "$c"; else printf '  %-14s absent\n' "$c"; fi
+      done ;;
+  -h|--help|help) usage ;;
+  *) die "unknown verb '$verb'" ;;
+esac

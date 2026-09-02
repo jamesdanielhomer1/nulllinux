@@ -1,0 +1,38 @@
+# Derived files are never committed (NULL.md §5.7). Anything listed here must
+# be rebuildable, byte-identically, from a committed source.
+#
+# A DISTRIBUTION SHIPS THEM ANYWAY (§0.5): the bake runs once on the build
+# host and its output goes into the package, not into git. The rule is about
+# history, not about what reaches a user's disk.
+
+/bake/out/
+/bake/frames/
+*.hdr
+/assets/master.hdrcells
+/assets/palette.bin
+/assets/*.png
+/assets/*.ans
+/target/
+/render/target/
+/bake/gpu/target/
+*.o
+__pycache__/
+*.pyc
+*.swp
+.DS_Store
+/assets/placeholder.cells
+/assets/placeholder-report.json
+/assets/atlas-*.bin
+/config/sway/colours.conf
+/assets/master.cells
+/assets/target-*.cells
+/assets/tty.cells
+/assets/logo.cells
+/assets/*-report.json
+/system/plymouth-theme/
+/system/sddm-theme/
+
+# Build products of the distribution itself.
+/packaging/build/
+/packaging/*.iso
+/packaging/rpmbuild/

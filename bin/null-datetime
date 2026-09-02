@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# The clock (NULL.md §8.4).
+#
+# IT OWNS NOTHING: systemd-timedated owns the timezone and whether the clock is
+# synchronised, and this reads and writes that. There is no local copy.
+set -uo pipefail
+NULL_UNMEASURED_LOCAL="--"
+
+tz()   { timedatectl show -p Timezone --value 2>/dev/null || echo "$NULL_UNMEASURED_LOCAL"; }
+ntp()  { case "$(timedatectl show -p NTP --value 2>/dev/null)" in
+           yes) echo on ;; no) echo off ;; *) echo "$NULL_UNMEASURED_LOCAL" ;; esac; }
+sync() { case "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" in
+           yes) echo synchronised ;; no) echo "not synchronised" ;;
+           *) echo "$NULL_UNMEASURED_LOCAL" ;; esac; }
+
+case "${1:-show}" in
+  show)
+    printf '%-14s %s\n' now "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+    printf '%-14s %s\n' timezone "$(tz)"
+    printf '%-14s %s\n' ntp "$(ntp)"
+    printf '%-14s %s\n' state "$(sync)"
+    ;;
+  timezone) tz ;;
+  ntp)      ntp ;;
+  state)    sync ;;
+  zones)    timedatectl list-timezones 2>/dev/null ;;
+  set-timezone)
+    z=${2:?timezone}
+    # Checked against the list rather than passed through, so a typo is
+    # refused here instead of being reported by systemd in its own words.
+    if ! timedatectl list-timezones 2>/dev/null | grep -qx -- "$z"; then
+      echo "null-datetime: no such timezone '$z'" >&2; exit 2
+    fi
+    timedatectl set-timezone "$z" && echo "timezone is now $z" ;;
+  set-ntp)
+    case ${2:?on|off} in
+      on)  timedatectl set-ntp true  && echo "clock synchronisation on" ;;
+      off) timedatectl set-ntp false && echo "clock synchronisation off" ;;
+      *)   echo "null-datetime: set-ntp takes on or off" >&2; exit 2 ;;
+    esac ;;
+  -h|--help|help)
+    cat <<'USAGE'
+usage: null-datetime [show|timezone|ntp|state|zones
+                     |set-timezone ZONE|set-ntp on|off]
+USAGE
+    ;;
+  *) echo "null-datetime: unknown verb '$1'" >&2; exit 2 ;;
+esac

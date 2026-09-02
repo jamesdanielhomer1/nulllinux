@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# Install this desktop SYSTEM-WIDE, for every user (NULL.md §9.4).
+#
+# The point is that a NEW USER GETS THIS WITH NO SETUP AT ALL. Not "runs a
+# script once" -- nothing. A desktop that belongs to one account is a desktop
+# that has to be reinstalled per person, and the reinstall is where it drifts.
+#
+# So each piece goes where the system already looks for it:
+#
+#   sway     /etc/sway/config is what sway reads when a user has no
+#            ~/.config/sway/config of their own.
+#   GTK      a real theme in /usr/share/themes, selected by a settings key --
+#            not a per-user gtk.css, which only exists in one home.
+#   icons    /usr/share/icons, not ~/.local/share/icons.
+#   settings /etc/dconf/db/local.d, which the dconf profile here already reads
+#            (`system-db:local`), so the keys are DEFAULTS rather than writes
+#            into one person's database. A user can still override them.
+#   thunar   its own system-wide xfconf defaults.
+#
+# Same promises as bin/null-system: reports with no --apply, snapshots first,
+# backs up what it replaces, and refuses rather than guesses.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+STAMP=$(date +%Y%m%d-%H%M%S)
+BACKUP=/root/.null-install-backup-$STAMP
+APPLY=0
+[ "${1:-}" = "--apply" ] && APPLY=1
+
+say()  { printf '  %s\n' "$*"; }
+head_(){ printf '\n== %s\n' "$*"; }
+refuse(){ printf 'REFUSING: %s\n' "$*" >&2; exit 1; }
+[ "$(id -u)" -eq 0 ] || refuse "must run as root -- it writes under /etc and /usr"
+
+backup() {
+  [ -e "$1" ] || return 0
+  [ "$APPLY" -eq 1 ] || { say "would back up $1"; return 0; }
+  mkdir -p "$BACKUP$(dirname "$1")"; cp -a "$1" "$BACKUP$1"; say "backed up $1"
+}
+snapshot() {
+  [ "$APPLY" -eq 1 ] || { say "would snapshot / first"; return 0; }
+  command -v btrfs >/dev/null || { say "no btrfs; skipping the snapshot"; return 0; }
+  mkdir -p /.null-snapshots
+  local s=/.null-snapshots/install-$STAMP
+  btrfs subvolume snapshot -r / "$s" >/dev/null 2>&1 && say "snapshot: $s" \
+    || say "snapshot failed; continuing without one"
+}
+restore_selinux() { command -v restorecon >/dev/null && restorecon -RF "$1" 2>/dev/null || true; }
+
+# The checkout must be readable by every user, or none of this works.
+head_ "the checkout"
+say "location: $ROOT"
+mode=$(stat -c %a "$ROOT")
+case "$ROOT" in
+  /home/*|/root/*) refuse "$ROOT is inside a home directory. Other users cannot read it,
+          which is the whole problem this is meant to solve. Put it somewhere
+          shared -- /opt/nulllinux -- and run this again." ;;
+esac
+say "mode $mode, owner $(stat -c '%U:%G' "$ROOT")"
+sudo -u nobody test -r "$ROOT/config/sway/config" 2>/dev/null \
+  && say "readable by an unprivileged user" \
+  || refuse "not readable by an unprivileged user; every other step would be pointless"
+
+head_ "sway, for users with no configuration of their own"
+say "/etc/sway/config is what sway reads when ~/.config/sway/config is absent"
+if [ "$APPLY" -eq 1 ]; then
+  snapshot; backup /etc/sway/config
+  cat > /etc/sway/config <<EOF
+# Installed by $ROOT/bin/null-install -- do not edit.
+#
+# This is sway's fallback: it is read by any user who has no
+# ~/.config/sway/config of their own, which is how a new account gets this
+# desktop without running anything.
+#
+# A user who wants to diverge creates their own file, and this stops applying
+# to them -- which is the correct escape hatch, and the reason this is a
+# fallback rather than something forced into every home directory.
+include $ROOT/config/sway/config
+EOF
+  say "installed /etc/sway/config -> includes $ROOT/config/sway/config"
+else
+  say "would replace /etc/sway/config with an include of $ROOT/config/sway/config"
+fi
+
+head_ "the GTK theme, as a theme"
+say "a per-user gtk.css lives in one home; a theme in /usr/share/themes is everyone's"
+for v in 3.0 4.0; do
+  src="$ROOT/config/gtk-$v/gtk.css"
+  [ -r "$src" ] || { say "no $src -- skipping gtk-$v"; continue; }
+  if [ "$APPLY" -eq 1 ]; then
+    mkdir -p "/usr/share/themes/nulllinux/gtk-$v"
+    cp -a "$src" "/usr/share/themes/nulllinux/gtk-$v/gtk.css"
+    say "installed /usr/share/themes/nulllinux/gtk-$v/gtk.css"
+  else
+    say "would install /usr/share/themes/nulllinux/gtk-$v/gtk.css"
+  fi
+done
+if [ "$APPLY" -eq 1 ]; then
+  printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=nullLinux\nComment=Derived from the hero\n' \
+    > /usr/share/themes/nulllinux/index.theme
+  restore_selinux /usr/share/themes/nulllinux
+fi
+
+head_ "the icon theme"
+if [ "$APPLY" -eq 1 ]; then
+  if python3 "$ROOT/bake/make_icons.py" --out /usr/share/icons/nulllinux 2>&1 | sed 's/^/    /'; then
+    gtk-update-icon-cache -f -t /usr/share/icons/nulllinux >/dev/null 2>&1 || true
+    restore_selinux /usr/share/icons/nulllinux
+    say "installed /usr/share/icons/nulllinux"
+  else
+    say "icon generation FAILED -- the theme key below would name a theme that is not there"
+  fi
+else
+  say "would generate /usr/share/icons/nulllinux"
+fi
+
+head_ "settings keys, as system DEFAULTS"
+say "written to /etc/dconf/db/local.d, which this machine's dconf profile reads"
+say "as system-db:local -- so they are defaults a user may still override"
+if [ "$APPLY" -eq 1 ]; then
+  backup /etc/dconf/db/local.d/00-nulllinux
+  mkdir -p /etc/dconf/db/local.d
+  cat > /etc/dconf/db/local.d/00-nulllinux <<'EOF'
+# Installed by null-install -- do not edit.
+[org/gnome/desktop/interface]
+gtk-theme='nullLinux'
+icon-theme='nullLinux'
+cursor-theme='Adwaita'
+cursor-size=24
+font-name='Terminus 12'
+document-font-name='Terminus 12'
+monospace-font-name='Terminus 12'
+color-scheme='prefer-dark'
+enable-animations=false
+EOF
+  dconf update && say "dconf database rebuilt"
+else
+  say "would write /etc/dconf/db/local.d/00-nulllinux and run dconf update"
+fi
+
+head_ "the other applications' configuration, system-wide"
+say "each reads /etc/xdg as well as the user's own directory (XDG_CONFIG_DIRS),"
+say "so this is a DEFAULT a user can still override by writing their own"
+# fzf is deliberately absent: it is configured by environment variables from
+# the shell profile, not by a file, so it comes in through the shell join.
+for app in btop dunst foot; do
+  src="$ROOT/config/$app"
+  [ -d "$src" ] || { say "no $src -- skipping $app"; continue; }
+  if [ "$APPLY" -eq 1 ]; then
+    backup "/etc/xdg/$app"
+    mkdir -p "/etc/xdg/$app"
+    cp -a "$src"/. "/etc/xdg/$app"/
+    restore_selinux "/etc/xdg/$app"
+    say "installed /etc/xdg/$app/ ($(ls "$src" | tr '\n' ' '))"
+  else
+    say "would install /etc/xdg/$app/"
+  fi
+done
+
+head_ "file manager defaults"
+xd=/etc/xdg/xfce4/xfconf/xfce-perchannel-xml
+if [ "$APPLY" -eq 1 ]; then
+  mkdir -p "$xd"; backup "$xd/thunar.xml"
+  cat > "$xd/thunar.xml" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Installed by null-install -- do not edit. -->
+<channel name="thunar" version="1.0">
+  <property name="default-view" type="string" value="ThunarDetailsView"/>
+  <property name="misc-date-style" type="string" value="THUNAR_DATE_STYLE_YYYYMMDD"/>
+  <property name="misc-single-click" type="bool" value="false"/>
+  <property name="last-show-hidden" type="bool" value="true"/>
+  <property name="misc-text-beside-icons" type="bool" value="false"/>
+</channel>
+EOF
+  say "installed $xd/thunar.xml"
+else
+  say "would install $xd/thunar.xml"
+fi
+
+echo
+if [ "$APPLY" -eq 0 ]; then
+  echo "Nothing was written. Re-run with --apply."
+else
+  echo "Done. A NEW USER NOW NEEDS NO SETUP: sway, the GTK theme, the icons,"
+  echo "the settings keys and the file manager defaults are all system-wide."
+  echo
+  echo "The one thing that is still per-user is the browser chrome, because"
+  echo "Firefox reads userChrome.css only from inside a profile. Run"
+  echo "  $ROOT/bin/null-firefox --apply"
+  echo "as that user, or skip it and the browser is simply untouched."
+fi

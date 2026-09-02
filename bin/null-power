@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# The power profile (NULL.md §8.4, §9.1).
+#
+# IT OWNS NOTHING, like every other settings tool here: the profile lives in
+# whichever daemon the distribution ships, and this reads and writes that.
+#
+# WHICH daemon is DISCOVERED, not declared. Fedora ships tuned; a great many
+# other systems ship power-profiles-daemon; some ship neither. Naming one here
+# would be naming this machine's, which is the mistake §0.2 exists to prevent
+# and the same mistake that had the notification controls calling makoctl on a
+# machine that has only ever had dunst.
+#
+# The two also disagree about vocabulary -- tuned calls it "powersave", ppd
+# calls it "power-saver" -- so the names are passed through rather than
+# translated. A translation table is a third vocabulary to keep in step, and
+# the daemon's own names are the ones its own documentation uses.
+set -uo pipefail
+
+NULL_UNMEASURED_LOCAL="--"
+
+backend() {
+  if   command -v powerprofilesctl >/dev/null 2>&1 \
+    && systemctl is-active --quiet power-profiles-daemon 2>/dev/null; then echo ppd
+  elif command -v tuned-adm >/dev/null 2>&1 \
+    && systemctl is-active --quiet tuned 2>/dev/null; then echo tuned
+  else echo none; fi
+}
+
+# A daemon that is INSTALLED but not RUNNING is not a backend. tuned-adm
+# answers "No current active profile" rather than failing, so testing for the
+# binary alone reports a profile system that cannot change anything.
+list() {
+  case "$(backend)" in
+    ppd)   powerprofilesctl list 2>/dev/null | sed -n 's/^[* ] \([a-z-]*\):$/\1/p' ;;
+    tuned) tuned-adm list 2>/dev/null | sed -n 's/^- \([a-z0-9-]*\) .*/\1/p' ;;
+    none)  return 1 ;;
+  esac
+}
+
+get() {
+  case "$(backend)" in
+    ppd)   powerprofilesctl get 2>/dev/null ;;
+    tuned) tuned-adm active 2>/dev/null | sed -n 's/^Current active profile: //p' ;;
+    none)  echo "$NULL_UNMEASURED_LOCAL"; return 1 ;;
+  esac
+}
+
+set_profile() {
+  local want=${1:?profile}
+  # Checked against the list rather than passed through, so a typo is refused
+  # here instead of being reported by the daemon in its own words.
+  if ! list | grep -qx -- "$want"; then
+    echo "null-power: no such profile '$want'" >&2
+    echo "available:" >&2; list | sed 's/^/  /' >&2
+    return 2
+  fi
+  case "$(backend)" in
+    ppd)   powerprofilesctl set "$want" ;;
+    tuned) tuned-adm profile "$want" ;;
+    none)  echo "null-power: no power profile daemon is running" >&2; return 1 ;;
+  esac
+}
+
+case "${1:-show}" in
+  backend) backend ;;
+  list)    list || { echo "null-power: no power profile daemon is running" >&2; exit 1; } ;;
+  get)     get ;;
+  set)     set_profile "${2:?profile}" ;;
+  show)
+    b=$(backend)
+    printf 'backend   %s\n' "$b"
+    printf 'active    %s\n' "$(get)"
+    if [ "$b" != none ]; then printf 'available\n'; list | sed 's/^/  /'; fi ;;
+  # Exit 0 when a profile system is present, 1 when not -- so a menu can ask
+  # before drawing a row, the same way `machine probe` is asked about hardware.
+  probe)   [ "$(backend)" != none ] ;;
+  -h|--help|help)
+    cat <<'USAGE'
+usage: null-power [show|backend|list|get|set PROFILE|probe]
+
+  Reads and writes the running power profile daemon, whichever it is.
+  Profile names are the daemon's own; they differ between backends.
+USAGE
+    ;;
+  *) echo "null-power: unknown verb '${1}'" >&2; exit 2 ;;
+esac

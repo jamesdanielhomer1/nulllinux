@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# The PipeWire mixer, hosted in the column (NULL.md §8.4, §10.5).
+#
+# A thin wrapper around wiremix that exists for ONE reason: wiremix with no
+# daemon to talk to prints "Initializing..." and sits there for ever. That is
+# the worst of the three possible failures -- worse than a crash, which at
+# least ends, and far worse than a message. It looks like it is working.
+#
+# ABSENT IS STATED (§8.4). If there is no daemon, say so, say WHY, and say what
+# to do about it.
+set -uo pipefail
+
+if ! command -v wiremix >/dev/null 2>&1; then
+  printf 'wiremix is not installed.\n\n  pkg install wiremix\n'
+  read -r -n 1 -s -p $'\npress any key' || true
+  exit 0
+fi
+
+if ! wpctl status >/dev/null 2>&1; then
+  printf 'The audio daemon is not running for this session.\n\n'
+  if [ "$(id -u)" -eq 0 ]; then
+    # The same explanation the audio menu gives, because it is the same cause
+    # and two different accounts of one fact is how they come to disagree.
+    printf '  This session is ROOT, and pipewire.service carries\n'
+    printf '  ConditionUser=!root, so systemd skips it entirely.\n'
+    printf '  Log in as an ordinary user.\n'
+  else
+    printf '  systemctl --user status pipewire wireplumber\n'
+  fi
+  read -r -n 1 -s -p $'\npress any key' || true
+  exit 0
+fi
+
+# --char-set compat keeps it to codepoints this console font carries; the
+# column refuses to host anything it cannot draw (§10.5) and this is how that
+# promise is kept for a program that defaults to finer symbols.
+exec wiremix --char-set compat "$@"

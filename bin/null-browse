@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Browse the filesystem in the column (NULL.md §7.4, §8.7).
+#
+# ONE FILTER-PICKER, like every other topic -- not a hosted third-party file
+# manager. Hosting one was tried: it drew its chrome and not its listing,
+# because this column's terminal implements the subset of escape sequences
+# that was MEASURED as needed (§6.2) and a foreign TUI is entitled to use
+# anything. Rather than grow the terminal to chase one program, the browser is
+# built from the primitive this system already renders correctly.
+#
+# This is the SIDEBAR half. It navigates. The full file manager is a window
+# (§8.7) and remains the thing you do work in.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+B="$ROOT/bin"
+
+dir=${1:-$HOME}
+[ -d "$dir" ] || dir=$HOME
+
+while :; do
+  dir=$(cd "$dir" 2>/dev/null && pwd) || dir=$HOME
+  # Directories first, then files. Trailing / marks a directory, which is the
+  # one piece of type information worth a character here.
+  list=$( { printf '../\n'
+            find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f/\n' 2>/dev/null | sort
+            find "$dir" -mindepth 1 -maxdepth 1 ! -type d -printf '%f\n' 2>/dev/null | sort
+          } )
+  pick=$(fzf "${NULL_FZF[@]}" --prompt='files > ' \
+           --header="$dir" <<<"$list") || exit 0
+  [ -n "$pick" ] || exit 0
+  case $pick in
+    '../')  dir=$(dirname "$dir") ;;
+    */)     dir="$dir/${pick%/}" ;;
+    *)      # Opening a file is the file's business, not this component's.
+            setsid "$B/null-open" "$dir/$pick" >/dev/null 2>&1 &
+            exit 0 ;;
+  esac
+done

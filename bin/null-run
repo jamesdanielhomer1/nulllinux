@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Launch an installed application (NULL.md §8.4).
+#
+# Reads the desktop entries the system already has rather than keeping a list.
+# A list would be a second copy of what is installed, and it would be wrong the
+# first time anything changed.
+#
+# NoDisplay entries are omitted: they exist precisely to say "do not offer me".
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+
+DIRS=(/usr/share/applications /usr/local/share/applications
+      "$HOME/.local/share/applications" /var/lib/flatpak/exports/share/applications)
+
+# Built into a variable BEFORE the picker starts (§7.4): a slow producer piped
+# into fzf leaves it in its loading state, and its spinner is braille.
+list=$(python3 - "${DIRS[@]}" <<'PY'
+import configparser, os, sys
+seen, rows = set(), []
+for d in sys.argv[1:]:
+    if not os.path.isdir(d):
+        continue
+    for f in sorted(os.listdir(d)):
+        if not f.endswith(".desktop") or f in seen:
+            continue
+        seen.add(f)
+        c = configparser.RawConfigParser(strict=False)
+        try:
+            c.read(os.path.join(d, f), encoding="utf-8")
+            e = c["Desktop Entry"]
+        except Exception:
+            continue
+        if e.get("NoDisplay", "false").lower() == "true":
+            continue
+        if e.get("Type", "Application") != "Application":
+            continue
+        name = e.get("Name", f[:-8])
+        # Field codes are placeholders for files and URLs the launcher would
+        # substitute; run with none, so they are stripped rather than passed on
+        # as literal arguments.
+        exe = " ".join(w for w in e.get("Exec", "").split() if not w.startswith("%"))
+        if not exe:
+            continue
+        term = e.get("Terminal", "false").lower() == "true"
+        rows.append("%-30s %s%s" % (name[:30], "[term] " if term else "", exe))
+for r in sorted(rows):
+    print(r)
+PY
+)
+[ -n "$list" ] || { echo "no desktop entries found" >&2; exit 1; }
+
+pick=$(fzf "${NULL_FZF[@]}" --prompt='run > ' \
+         --header='every installed application, read from its desktop entry' \
+         <<<"$list") || exit 0
+[ -n "$pick" ] || exit 0
+
+cmd=${pick#* }
+cmd=$(sed -E 's/^ +//' <<<"$cmd")
+case $cmd in
+  '[term] '*) exec foot -e ${cmd#'[term] '} ;;
+  *)          exec setsid $cmd ;;
+esac

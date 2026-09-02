@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Start the wallpaper surface (NULL.md §6.3, §6.4).
+#
+# Stops any instance of ITSELF first, matched on the EXECUTABLE rather than the
+# command line: a command-line match catches any shell that merely mentions the
+# name, including the one doing the matching (§8.6).
+set -euo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+RENDER="$ROOT/render/target/release/render"
+[ -x "$RENDER" ] || { echo "null-wallpaper: $RENDER not built" >&2; exit 1; }
+
+SELF=$(readlink -f "$RENDER")
+for pid in $(pgrep -x render 2>/dev/null || true); do
+  # A rebuild replaces the inode, so the instance that most needs stopping is
+  # exactly the one whose /proc/pid/exe no longer resolves -- strip the marker.
+  exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || continue
+  [ "$exe" = "$SELF" ] && kill "$pid" 2>/dev/null || true
+done
+
+exec "$RENDER" --file "$ROOT/assets/target-2.cells" \
+               --atlas "$ROOT/assets/atlas-bake.bin" layershell

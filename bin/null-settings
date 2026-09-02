@@ -1,0 +1,382 @@
+#!/usr/bin/env bash
+# The settings panel (NULL.md §8.4).
+#
+# IT OWNS NOTHING. Every row reads from, and writes to, whatever already owns
+# that setting -- the backlight, the audio daemon, the notification daemon, the
+# network daemon, the idle daemon, the power daemon, timedated, the compositor.
+# There is no local copy of any value, so nothing can drift.
+#
+# It LOOPS AND RE-READS rather than exiting on a pick, because hardware keys
+# and timers move these behind its back, and a panel showing what it last wrote
+# is worse than no panel.
+#
+# A row whose hardware is ABSENT is not drawn.
+#
+# CATEGORIES, because a flat list stopped scaling. James asked for something as
+# complete as Windows' settings and less bloated than it, and the honest survey
+# is that Fedora has no such program: setuptool is a menu whose fourteen
+# entries all point at tools removed from the distribution years ago, and every
+# live TUI -- nmtui, wiremix -- covers exactly one subsystem. So the tree is
+# here, and the single-subsystem tools are hosted from inside it rather than
+# reimplemented.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+MACHINE="$ROOT/bin/machine"
+B="$ROOT/bin"
+COLUMN="$ROOT/render/target/release/column"
+
+# ------------------------------------------------------------------ reading
+
+read_backlight() {
+  local cur max
+  cur=$(brightnessctl -m get 2>/dev/null) || return 1
+  max=$(brightnessctl -m max 2>/dev/null) || return 1
+  [ "$max" -gt 0 ] || return 1
+  echo $(( cur * 100 / max ))
+}
+kbd_device() { basename "$(compgen -G '/sys/class/leds/*kbd_backlight*' | head -1)" 2>/dev/null; }
+read_kbd() {
+  local d cur max; d=$(kbd_device) || return 1; [ -n "$d" ] || return 1
+  cur=$(brightnessctl -d "$d" -m get 2>/dev/null) || return 1
+  max=$(brightnessctl -d "$d" -m max 2>/dev/null) || return 1
+  [ "$max" -gt 0 ] || return 1
+  echo $(( cur * 100 / max ))
+}
+read_volume() {
+  local v; v=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) || return 1
+  case "$v" in *MUTED*) echo "muted"; return 0 ;; esac
+  awk '{printf "%d%%", $2*100}' <<<"$v"
+}
+read_mic() {
+  local v; v=$(wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null) || return 1
+  case "$v" in *MUTED*) echo "muted"; return 0 ;; esac
+  awk '{printf "%d%%", $2*100}' <<<"$v"
+}
+read_notifications() {
+  case "$(dunstctl is-paused 2>/dev/null)" in
+    true)  echo silenced ;;  false) echo on ;;  *) echo "$NULL_UNMEASURED" ;;
+  esac
+}
+read_wifi_radio() { nmcli radio wifi 2>/dev/null || echo "$NULL_UNMEASURED"; }
+read_bt_radio()   {
+  if rfkill list bluetooth 2>/dev/null | grep -q 'Soft blocked: yes'; then echo off; else echo on; fi
+}
+read_ssid() { nmcli -t -f NAME,TYPE con show --active 2>/dev/null |
+                awk -F: '$2 ~ /wireless/ {print $1; exit}'; }
+read_idle_stage() { "$B/null-idle" show | awk -v s="$1" '$1==s {print $2}'; }
+read_lid() {
+  local v; v=$(sed -n 's/^ *HandleLidSwitch=//p' /etc/systemd/logind.conf 2>/dev/null | tail -1)
+  # An unset key is not "nothing" -- it is systemd's default, which is suspend.
+  echo "${v:-suspend (default)}"
+}
+read_output() {
+  # No f-strings with quotes inside a shell single-quoted heredoc: the first
+  # version of this line was unparseable python and reported "--" for a display
+  # that was working perfectly.
+  swaymsg -t get_outputs -r 2>/dev/null | python3 -c '
+import json, sys
+try:
+    o = json.load(sys.stdin)[0]
+    m = o.get("current_mode") or {}
+    w = m.get("width", "?"); h = m.get("height", "?")
+    hz = round(m.get("refresh", 0) / 1000)
+    print("%sx%s @%sHz  scale %s" % (w, h, hz, o.get("scale", 1)))
+except Exception:
+    print("--")' 2>/dev/null || echo "$NULL_UNMEASURED"
+}
+
+human_secs() {
+  local s=${1:-0}
+  if   [ "$s" -eq 0 ]          2>/dev/null; then echo "off"
+  elif [ $((s % 3600)) -eq 0 ] 2>/dev/null && [ "$s" -ge 3600 ]; then echo "$((s/3600))h"
+  elif [ $((s % 60)) -eq 0 ]   2>/dev/null && [ "$s" -ge 60 ];   then echo "$((s/60))m"
+  else echo "${s}s"; fi
+}
+
+pick_value() {
+  local prompt=$1 header=$2; shift 2
+  printf '%s\n' "$@" | fzf "${NULL_FZF[@]}" --prompt="$prompt > " \
+      --header="$header" --no-sort | awk '{print $1}'
+}
+pick_from() {  # prompt header  < lines on stdin
+  fzf "${NULL_FZF[@]}" --prompt="$1 > " --header="$2" | awk '{print $1}'
+}
+
+# --------------------------------------------------------------- categories
+
+CATEGORIES="DISPLAY SOUND NETWORK BLUETOOTH POWER KEYBOARD NOTIFICATIONS CLOCK SYSTEM"
+
+rows_DISPLAY() {
+  if "$MACHINE" probe backlight 2>/dev/null; then
+    local b; b=$(read_backlight) || b="$NULL_UNMEASURED"
+    null_row "BRIGHTNESS" "${b}%"
+  fi
+  if "$MACHINE" probe kbd-backlight 2>/dev/null; then
+    local k; k=$(read_kbd) || k="$NULL_UNMEASURED"
+    null_row "KEYBOARD-LIGHT" "${k}%"
+  fi
+  null_row "NIGHTLIGHT" "$("$B/null-nightlight" state 2>/dev/null || echo "$NULL_UNMEASURED")"
+  # READ-ONLY, and it says so. The cell grid is derived from the output's size
+  # and scale, and `machine check-grid` asserts both strikes divide it exactly
+  # -- so changing the mode from here would break the nullLinux's own geometry
+  # rather than merely resize a desktop. It belongs in the machine profile.
+  null_row "MODE" "$(read_output)"
+}
+act_DISPLAY() {
+  case $1 in
+    BRIGHTNESS) local c; c=$(pick_value brightness "the screen's own backlight" \
+                  1% 5% 10% 25% 50% 75% 100%) || return 0
+                [ -n "$c" ] && brightnessctl set "$c" >/dev/null 2>&1 ;;
+    KEYBOARD-LIGHT) local d c; d=$(kbd_device)
+                c=$(pick_value keyboard "the keyboard's own light" 0% 33% 66% 100%) || return 0
+                [ -n "$c" ] && brightnessctl -d "$d" set "$c" >/dev/null 2>&1 ;;
+    NIGHTLIGHT) local c; c=$(pick_value nightlight "warmer colour after dark" on off) || return 0
+                [ -n "$c" ] && { "$B/null-nightlight" "$c" >/dev/null 2>&1 \
+                                 || "$B/null-nightlight" toggle >/dev/null 2>&1; } ;;
+    MODE)       say "the display mode comes from the machine profile" "" \
+                    "The cell grid is derived from it, and machine check-grid" \
+                    "asserts both strikes divide the output exactly. Change it" \
+                    "in machines/$(hostname).conf, then re-run: machine check-grid" ;;
+  esac
+}
+
+rows_SOUND() {
+  local v m; v=$(read_volume) || v="$NULL_UNMEASURED"; m=$(read_mic) || m="$NULL_UNMEASURED"
+  null_row "VOLUME" "$v"
+  null_row "MICROPHONE" "$m"
+  null_row "OUTPUT" "$(wpctl status 2>/dev/null | awk '/Sinks:/{f=1;next} f&&/\*/{sub(/.*\. /,""); sub(/ \[vol.*/,""); print; exit}' || echo "$NULL_UNMEASURED")"
+  null_row "MIXER" "per-stream volume and routing"
+}
+act_SOUND() {
+  case $1 in
+    VOLUME) local c; c=$(pick_value volume output "mute       toggle" 0% 25% 50% 75% 100%) || return 0
+            case $c in "") : ;; mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle >/dev/null 2>&1 ;;
+              *) wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 >/dev/null 2>&1
+                 wpctl set-volume @DEFAULT_AUDIO_SINK@ "${c%\%}%" >/dev/null 2>&1 ;; esac ;;
+    MICROPHONE) local c; c=$(pick_value microphone input "mute       toggle" 0% 25% 50% 75% 100%) || return 0
+            case $c in "") : ;; mute) wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle >/dev/null 2>&1 ;;
+              *) wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 0 >/dev/null 2>&1
+                 wpctl set-volume @DEFAULT_AUDIO_SOURCE@ "${c%\%}%" >/dev/null 2>&1 ;; esac ;;
+    OUTPUT) exec "$ROOT/bin/null-menu" audio ;;
+    MIXER)  exec "$COLUMN" --send open mixer ;;
+  esac
+}
+
+rows_NETWORK() {
+  if "$MACHINE" probe wireless 2>/dev/null; then
+    null_row "WIFI" "$(read_wifi_radio)"
+    null_row "NETWORK" "$(read_ssid || echo "not connected")"
+  fi
+  null_row "HOSTNAME" "$(hostnamectl hostname 2>/dev/null || hostname)"
+  null_row "FIREWALL" "$(firewall-cmd --get-default-zone 2>/dev/null || echo "$NULL_UNMEASURED")"
+  null_row "ADVANCED" "NetworkManager's own editor"
+}
+act_NETWORK() {
+  case $1 in
+    WIFI)     local c; c=$(pick_value wifi "the radio itself, not a network" on off) || return 0
+              [ -n "$c" ] && nmcli radio wifi "$c" >/dev/null 2>&1 ;;
+    NETWORK)  exec "$ROOT/bin/null-menu" network ;;
+    HOSTNAME) say "the hostname selects the machine profile" "" \
+                  "machines/<hostname>.conf is chosen by it, so the two must" \
+                  "move together. Change it with:" "" \
+                  "  hostnamectl set-hostname NAME" ;;
+    FIREWALL) local c; c=$(firewall-cmd --get-zones 2>/dev/null | tr ' ' '\n' |
+                           pick_from firewall "default zone -- now $(firewall-cmd --get-default-zone 2>/dev/null)")
+              [ -n "$c" ] && firewall-cmd --set-default-zone="$c" >/dev/null 2>&1 ;;
+    ADVANCED) exec "$COLUMN" --send open netconfig ;;
+  esac
+}
+
+rows_BLUETOOTH() {
+  null_row "BLUETOOTH" "$(read_bt_radio)"
+  null_row "DEVICES" "pair, connect, forget"
+}
+act_BLUETOOTH() {
+  case $1 in
+    BLUETOOTH) local c; c=$(pick_value bluetooth "the radio itself, not a device" on off) || return 0
+               case $c in on) rfkill unblock bluetooth ;; off) rfkill block bluetooth ;; esac >/dev/null 2>&1 ;;
+    DEVICES)   exec "$B/null-bluetooth" ;;
+  esac
+}
+
+IDLE_STAGES="dim screensaver lock screenoff suspend"
+rows_POWER() {
+  if "$B/null-power" probe 2>/dev/null; then
+    null_row "PROFILE" "$("$B/null-power" get 2>/dev/null || echo "$NULL_UNMEASURED")"
+  fi
+  if "$MACHINE" probe battery 2>/dev/null; then
+    local p; p=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1)
+    null_row "BATTERY" "${p:-$NULL_UNMEASURED}%  $(cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -1)"
+  fi
+  "$MACHINE" probe lid 2>/dev/null && null_row "LID-CLOSE" "$(read_lid)"
+  null_row "IDLE" "$("$B/null-idle" state 2>/dev/null || echo "$NULL_UNMEASURED")"
+  local st
+  for st in $IDLE_STAGES; do
+    null_row "IDLE-${st^^}" "$(human_secs "$(read_idle_stage "$st")")"
+  done
+}
+act_POWER() {
+  case $1 in
+    PROFILE) local c; c=$(pick_value power "$("$B/null-power" backend) profiles, its own names" \
+               $("$B/null-power" list 2>/dev/null)) || return 0
+             [ -n "$c" ] && "$B/null-power" set "$c" >/dev/null 2>&1 ;;
+    BATTERY) say "battery" "" "$( "$B/null-menu" --battery 2>/dev/null ||
+               for f in /sys/class/power_supply/BAT*/; do
+                 printf '  %-16s %s\n' capacity "$(cat "$f/capacity" 2>/dev/null)%"
+                 printf '  %-16s %s\n' status "$(cat "$f/status" 2>/dev/null)"
+                 printf '  %-16s %s\n' health "$(( $(cat "$f/charge_full" 2>/dev/null || echo 0) * 100 /
+                                                  $(cat "$f/charge_full_design" 2>/dev/null || echo 1) ))%"
+                 printf '  %-16s %s\n' cycles "$(cat "$f/cycle_count" 2>/dev/null)"
+               done)" ;;
+    LID-CLOSE)
+      local c; c=$(pick_value lid "what closing the lid does" \
+        "suspend    sleep" "lock       lock and stay awake" \
+        "ignore     do nothing" "poweroff   shut down") || return 0
+      [ -n "$c" ] || return 0
+      # logind owns this, and it is a drop-in rather than an edit of the
+      # shipped file, so a package update does not silently revert it.
+      mkdir -p /etc/systemd/logind.conf.d
+      printf '# GENERATED by null-settings.\n[Login]\nHandleLidSwitch=%s\nHandleLidSwitchExternalPower=%s\n' \
+        "$c" "$c" > /etc/systemd/logind.conf.d/50-null-lid.conf
+      systemctl kill -s HUP systemd-logind 2>/dev/null || true ;;
+    IDLE) local c; c=$(pick_value idle "the whole ladder; the timings are kept either way" on off) || return 0
+          case $c in
+            on)  [ "$("$B/null-idle" state)" = off ] && "$B/null-idle" toggle >/dev/null 2>&1 ;;
+            off) [ "$("$B/null-idle" state)" = on  ] && "$B/null-idle" toggle >/dev/null 2>&1 ;;
+          esac ;;
+    IDLE-*)
+      local stage; stage=$(tr '[:upper:]' '[:lower:]' <<<"${1#IDLE-}")
+      local cur; cur=$(read_idle_stage "$stage")
+      local c; c=$(pick_value "$stage" "now ${cur}s -- later stages are dragged with it (§8.5)" \
+        "off        never" "30         30 seconds" "60         1 minute" "120        2 minutes" \
+        "300        5 minutes" "600        10 minutes" "900        15 minutes" \
+        "1800       30 minutes" "3600       1 hour") || return 0
+      [ -n "$c" ] || return 0
+      [ "$c" = off ] && c=0
+      "$B/null-idle" set "$stage" "$c" >/dev/null 2>&1
+      "$B/null-idle" apply >/dev/null 2>&1 ;;
+  esac
+}
+
+rows_KEYBOARD() {
+  null_row "LAYOUT" "$("$B/null-input" get layout) $("$B/null-input" name "$("$B/null-input" get layout)")"
+  null_row "REPEAT-DELAY" "$("$B/null-input" get delay) ms"
+  null_row "REPEAT-RATE" "$("$B/null-input" get rate) /s"
+  null_row "TAP-TO-CLICK" "$("$B/null-input" get tap)"
+  null_row "NATURAL-SCROLL" "$("$B/null-input" get natural)"
+  null_row "POINTER-SPEED" "$("$B/null-input" get speed)"
+}
+act_KEYBOARD() {
+  case $1 in
+    LAYOUT) local c; c=$("$B/null-input" layouts | pick_from layout \
+              "sets the console, the greeter AND the session -- all three (§9.5)")
+            [ -n "$c" ] && "$B/null-input" layout "$c" >/dev/null 2>&1 ;;
+    REPEAT-DELAY) local c; c=$(pick_value delay "before a held key repeats" \
+              200 300 400 500 600 800 1000) || return 0
+            [ -n "$c" ] && "$B/null-input" delay "$c" >/dev/null 2>&1 ;;
+    REPEAT-RATE)  local c; c=$(pick_value rate "repeats per second" 10 15 20 25 30 40 50) || return 0
+            [ -n "$c" ] && "$B/null-input" rate "$c" >/dev/null 2>&1 ;;
+    TAP-TO-CLICK) local c; c=$(pick_value tap "tapping the touchpad clicks" enabled disabled) || return 0
+            [ -n "$c" ] && "$B/null-input" tap "$c" >/dev/null 2>&1 ;;
+    NATURAL-SCROLL) local c; c=$(pick_value natural "content follows the fingers" enabled disabled) || return 0
+            [ -n "$c" ] && "$B/null-input" natural "$c" >/dev/null 2>&1 ;;
+    POINTER-SPEED) local c; c=$(pick_value speed "-1 slowest, 0 default, 1 fastest" \
+              -1 -0.5 -0.25 0 0.25 0.5 1) || return 0
+            [ -n "$c" ] && "$B/null-input" speed "$c" >/dev/null 2>&1 ;;
+  esac
+}
+
+rows_NOTIFICATIONS() {
+  null_row "NOTIFICATIONS" "$(read_notifications)"
+  null_row "HISTORY" "$(dunstctl count history 2>/dev/null || echo "$NULL_UNMEASURED") waiting"
+}
+act_NOTIFICATIONS() {
+  case $1 in
+    NOTIFICATIONS) local c; c=$(pick_value notifications dunst \
+                     "on         show them" "silenced   hold them back") || return 0
+                   case $c in on) dunstctl set-paused false ;; silenced) dunstctl set-paused true ;;
+                   esac >/dev/null 2>&1 ;;
+    HISTORY) dunstctl history-pop >/dev/null 2>&1 ;;
+  esac
+}
+
+rows_CLOCK() {
+  null_row "NOW" "$(date '+%Y-%m-%d %H:%M %Z')"
+  null_row "TIMEZONE" "$("$B/null-datetime" timezone)"
+  null_row "SYNCHRONISE" "$("$B/null-datetime" ntp) -- $("$B/null-datetime" state)"
+}
+act_CLOCK() {
+  case $1 in
+    NOW) : ;;
+    TIMEZONE) local c; c=$("$B/null-datetime" zones |
+                pick_from timezone "now $("$B/null-datetime" timezone)")
+              [ -n "$c" ] && "$B/null-datetime" set-timezone "$c" >/dev/null 2>&1 ;;
+    SYNCHRONISE) local c; c=$(pick_value clock "network time" on off) || return 0
+              [ -n "$c" ] && "$B/null-datetime" set-ntp "$c" >/dev/null 2>&1 ;;
+  esac
+}
+
+rows_SYSTEM() {
+  null_row "MACHINE" "$(hostnamectl hostname 2>/dev/null || hostname)"
+  null_row "KERNEL" "$(uname -r)"
+  null_row "DISTRIBUTION" "$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")"
+  null_row "UPTIME" "$(uptime -p 2>/dev/null | sed 's/^up //')"
+  null_row "STORAGE" "map and unmap network shares"
+  null_row "UPDATES" "$("$ROOT/bin/pkg" upgrade-count 2>/dev/null || echo "$NULL_UNMEASURED") waiting"
+  null_row "ABOUT" "what this machine is"
+}
+act_SYSTEM() {
+  case $1 in
+    STORAGE) exec "$B/null-storage" ;;
+    UPDATES) exec "$ROOT/bin/null-menu" update ;;
+    ABOUT)   exec "$ROOT/bin/null-menu" about ;;
+    *)       : ;;
+  esac
+}
+
+# --------------------------------------------------------------------- run
+
+panel() {  # one category, looping
+  local cat=$1
+  while true; do
+    local body; body=$("rows_$cat")
+    [ -n "$body" ] || return 0
+    local pick
+    pick=$(fzf "${NULL_FZF[@]}" <<<"$body" --prompt="${cat,,} > " \
+            --header='reads and writes whatever already owns each setting' --no-sort) || return 0
+    [ -n "$pick" ] || return 0
+    "act_$cat" "$(awk '{print $1}' <<<"$pick")"
+  done
+}
+
+# --once prints every category's rows, for the coverage check and for eyes.
+if [ "${1:-}" = "--once" ]; then
+  for c in $CATEGORIES; do printf '%s\n' "$c"; "rows_$c" | sed 's/^/  /'; done
+  exit 0
+fi
+
+# A category can be opened straight from a binding or the menu.
+if [ $# -ge 1 ]; then
+  c=${1^^}
+  case " $CATEGORIES " in *" $c "*) panel "$c"; exit 0 ;; esac
+  echo "null-settings: no such category '$1' (try: $CATEGORIES)" >&2; exit 2
+fi
+
+while true; do
+  sel=$(printf '%s\n' \
+    "$(null_row DISPLAY       'brightness, night light, mode')" \
+    "$(null_row SOUND         'volume, devices, per-stream mixer')" \
+    "$(null_row NETWORK       'wifi, hostname, firewall, advanced')" \
+    "$(null_row BLUETOOTH     'radio and devices')" \
+    "$(null_row POWER         'profile, battery, lid, idle ladder')" \
+    "$(null_row KEYBOARD      'layout, repeat, touchpad, pointer')" \
+    "$(null_row NOTIFICATIONS 'show or hold back')" \
+    "$(null_row CLOCK         'timezone and synchronisation')" \
+    "$(null_row SYSTEM        'machine, updates, storage, about')" \
+    | fzf "${NULL_FZF[@]}" --prompt='settings > ' \
+        --header='every value read live from whatever owns it' --no-sort) || exit 0
+  [ -n "$sel" ] || exit 0
+  panel "$(awk '{print $1}' <<<"$sel")"
+done

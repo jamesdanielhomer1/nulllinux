@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Join a file that is not ours (NULL.md §9.8).
+#
+# Adds ONE line pointing at a file this system owns, guarded by a marker so a
+# second run is a no-op, backing up first. Never overwrites.
+#
+# The corresponding check is phrased as "is the join still there", not "does
+# our file exist" -- the second is true in every case that matters and in the
+# failure case too.
+set -euo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+MARK="# >>> nullLinux >>>"
+
+join_one() {  # <target> <line>
+  local target=$1 line=$2
+  if [ -e "$target" ] && grep -qF "$MARK" "$target"; then
+    echo "  already joined: $target"; return 0
+  fi
+  if [ -e "$target" ]; then
+    cp -a "$target" "$target.null-backup.$(date +%Y%m%d-%H%M%S)"
+  fi
+  { echo ""; echo "$MARK"; echo "$line"; echo "# <<< nullLinux <<<"; } >> "$target"
+  echo "  joined: $target"
+}
+
+check_one() {  # is the JOIN still there
+  local target=$1
+  if [ -e "$target" ] && grep -qF "$MARK" "$target"; then
+    echo "  present: $target"; return 0
+  fi
+  echo "  MISSING: $target"; return 1
+}
+
+case "${1:-join}" in
+  join)
+    join_one "$HOME/.bashrc" "NULL_ROOT=$ROOT . \"$ROOT/config/shell/nullLinux.sh\""
+    join_one "$HOME/.gitconfig" "[include]
+	path = $ROOT/config/git/config"
+    ;;
+  check)
+    fail=0
+    check_one "$HOME/.bashrc" || fail=1
+    check_one "$HOME/.gitconfig" || fail=1
+    exit $fail ;;
+  *) echo "usage: null-join [join|check]" >&2; exit 2 ;;
+esac

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Clipboard history, and re-copy (NULL.md §8.4).
+#
+# The history is kept by a watcher started with the session, not by this
+# component: a picker that only remembers what it saw while open remembers
+# nothing, because it is not open when you copy.
+#
+# Entries are shown as ONE LINE each. A clipboard holds whole files and whole
+# paragraphs, and a picker that lets a multi-line entry occupy nine rows makes
+# the list unusable exactly when it is longest.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+
+have() { command -v "$1" >/dev/null 2>&1; }
+have cliphist || { echo "null-clipboard: cliphist is not installed" >&2; exit 1; }
+have wl-copy  || { echo "null-clipboard: wl-clipboard is not installed" >&2; exit 1; }
+
+case "${1:-list}" in
+  watch)
+    # Started by the compositor. Two watchers, because text and images are
+    # separate selections and a single watcher silently covers only one.
+    have wl-paste || exit 1
+    pkill -f 'wl-paste .*--watch cliphist' 2>/dev/null || true
+    setsid wl-paste --type text  --watch cliphist store >/dev/null 2>&1 &
+    setsid wl-paste --type image --watch cliphist store >/dev/null 2>&1 &
+    ;;
+
+  list)
+    # Matched with .* because the real command line is
+    # `wl-paste --type text --watch cliphist store` -- the literal pattern
+    # never matched the process it was looking for, so the component reported
+    # its own watcher missing while it was running.
+    if ! pgrep -f 'wl-paste .*--watch cliphist' >/dev/null 2>&1; then
+      # Say it. An empty history and an unwatched clipboard look identical.
+      printf '%s\n' \
+        "the clipboard watcher is not running" \
+        "" \
+        "It starts with the session. Nothing copied before it started is here." \
+        | fzf "${NULL_FZF[@]}" --prompt='clipboard > ' \
+              --header='no history is being kept' >/dev/null || true
+      exit 0
+    fi
+    list=$(cliphist list 2>/dev/null || true)
+    if [ -z "$list" ]; then
+      printf '%s\n' "nothing copied yet this session" \
+        | fzf "${NULL_FZF[@]}" --prompt='clipboard > ' >/dev/null || true
+      exit 0
+    fi
+    pick=$(fzf "${NULL_FZF[@]}" --prompt='clipboard > ' \
+             --header='Enter copies it back; newest first' <<<"$list") || exit 0
+    [ -n "$pick" ] || exit 0
+    # Decoded through cliphist, not from the displayed row: the row is a
+    # one-line PREVIEW, and copying the preview would silently truncate.
+    printf '%s' "$pick" | cliphist decode | wl-copy
+    ;;
+
+  clear) cliphist wipe && echo "  clipboard history cleared" ;;
+  *) echo "usage: null-clipboard [list|watch|clear]" >&2; exit 2 ;;
+esac

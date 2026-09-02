@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# Map and unmap network storage (NULL.md §8.4).
+#
+# Through GVFS, not /etc/fstab and not mount.cifs. Three reasons, and they are
+# the difference between this and a thing you only use once:
+#
+#   * NO ROOT. A user mapping their own drive should not need a password for
+#     the machine as well as one for the share.
+#   * THE FILE MANAGER SEES IT IMMEDIATELY. A gvfs mount appears in Thunar's
+#     sidebar by itself, which is the behaviour people mean when they say "map
+#     a network drive" -- the drive shows up where files are.
+#   * UNMAPPING CANNOT WEDGE THE MACHINE. A dead fstab CIFS mount hangs every
+#     process that touches the path, including the file manager that was going
+#     to show you the problem.
+#
+# Mappings are REMEMBERED so they can be remounted, and remembering is a plain
+# text file, not a database.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+
+BOOK="${XDG_CONFIG_HOME:-$HOME/.config}/nullLinux/network-drives"
+GTKMARKS="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/bookmarks"
+mkdir -p "$(dirname "$BOOK")"
+touch "$BOOK"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+have gio || { echo "null-storage: gio is not installed" >&2; exit 1; }
+
+gvfs_root() { echo "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gvfs"; }
+
+# Currently mounted network locations, read from gio rather than remembered.
+mounted() {
+  gio mount -l 2>/dev/null | awk '
+    /^Mount\(/ { name=$0; sub(/^Mount\([0-9]+\): /,"",name) }
+    /-> smb:|-> ftp:|-> sftp:|-> dav/ { print name }' 2>/dev/null || true
+}
+
+# The local path a mounted share is reachable at -- the answer to "where did it
+# go", which is the question every mapping tool forgets to answer.
+local_path() {  # <smb-uri>
+  local g; g=$(gvfs_root)
+  [ -d "$g" ] || return 1
+  local frag; frag=$(sed -E 's|^smb://||; s|/|,share=|; s|$||' <<<"$1")
+  ls -d "$g"/smb-share:server="${frag%%,*}"* 2>/dev/null | head -1
+}
+
+add_gtk_bookmark() {  # <uri> <label>
+  mkdir -p "$(dirname "$GTKMARKS")"; touch "$GTKMARKS"
+  grep -qF "$1" "$GTKMARKS" || printf '%s %s\n' "$1" "$2" >> "$GTKMARKS"
+}
+drop_gtk_bookmark() { [ -f "$GTKMARKS" ] && grep -vF "$1" "$GTKMARKS" > "$GTKMARKS.tmp" && mv "$GTKMARKS.tmp" "$GTKMARKS" || true; }
+
+ask() {  # <prompt> [default]
+  local q=$1 d=${2:-}
+  printf '' | fzf "${NULL_FZF[@]}" --print-query --prompt="$q > " \
+      --header="${d:+default: $d}   type, then Enter" --query="$d" | head -1
+}
+
+do_map() {  # <uri>
+  local uri=$1
+  echo "mounting $uri ..."
+  # gio prompts for credentials on the terminal it is run from, which is why
+  # this is run in a terminal window rather than silently in the background:
+  # a share that needs a password and cannot ask for one just fails.
+  if gio mount "$uri"; then
+    local p; p=$(local_path "$uri" || true)
+    add_gtk_bookmark "$uri" "$(sed -E 's|^smb://||' <<<"$uri")"
+    grep -qxF "$uri" "$BOOK" || echo "$uri" >> "$BOOK"
+    echo
+    echo "mapped:      $uri"
+    echo "reachable at ${p:-under $(gvfs_root)}"
+    echo "It is now in the file manager's sidebar."
+  else
+    echo "failed to mount $uri" >&2
+    return 1
+  fi
+}
+
+case "${1:-menu}" in
+  menu)
+    sel=$(printf '%s\n' \
+      "$(null_row 'mapped'   "$(mounted | wc -l) network location(s)")" \
+      "$(null_row 'map'      'connect to a share')" \
+      "$(null_row 'remap'    'a share you have used before')" \
+      "$(null_row 'discover' 'look for servers on this network')" \
+      "$(null_row 'unmap'    'disconnect a share')" \
+      | fzf "${NULL_FZF[@]}" --prompt='storage > ' --no-sort \
+            --header='network drives, through gvfs -- no root, no fstab' \
+      | awk '{print $1}')
+    [ -n "$sel" ] || exit 0
+    exec "$0" "$sel" ;;
+
+  mapped)
+    list=$(mounted)
+    [ -n "$list" ] || list="(nothing mapped)"
+    fzf "${NULL_FZF[@]}" --prompt='mapped > ' \
+        --header="reachable under $(gvfs_root)" <<<"$list" >/dev/null || true ;;
+
+  map)
+    host=$(ask 'server' ''); [ -n "$host" ] || exit 0
+    # Offer the server's own share list rather than making the name up.
+    shares=""
+    if have smbclient; then
+      shares=$(smbclient -L "$host" -N 2>/dev/null \
+               | awk '/Disk/ && $1 !~ /\$$/ {print $1}' || true)
+    fi
+    if [ -n "$shares" ]; then
+      share=$(fzf "${NULL_FZF[@]}" --prompt='share > ' \
+                --header="shares advertised by $host" <<<"$shares")
+    else
+      share=$(ask 'share' '')
+    fi
+    [ -n "$share" ] || exit 0
+    user=$(ask 'user (blank for guest)' '')
+    if [ -n "$user" ]; then uri="smb://$user@$host/$share"; else uri="smb://$host/$share"; fi
+    exec foot -e "$0" mount-now "$uri" ;;
+
+  mount-now) shift; do_map "$1"; echo; read -rp "press Enter to close " _ ;;
+
+  remap)
+    [ -s "$BOOK" ] || { echo "nothing remembered yet"; exit 0; }
+    uri=$(fzf "${NULL_FZF[@]}" --prompt='remap > ' \
+            --header='shares you have mapped before' < "$BOOK")
+    [ -n "$uri" ] || exit 0
+    exec foot -e "$0" mount-now "$uri" ;;
+
+  discover)
+    # Ask the network rather than guessing. avahi finds what advertises itself;
+    # a share that does not advertise is still reachable by name under `map`.
+    list=""
+    if have avahi-browse; then
+      list=$(timeout 6 avahi-browse -tpr _smb._tcp 2>/dev/null \
+             | awk -F';' '/^=/{printf "%-24s %s\n", $7, $8}' | sort -u || true)
+    fi
+    [ -n "$list" ] || list="(nothing advertised -- use 'map' with the server name)"
+    fzf "${NULL_FZF[@]}" --prompt='discover > ' \
+        --header='servers advertising themselves on this network' \
+        <<<"$list" >/dev/null || true ;;
+
+  unmap)
+    list=$(mounted)
+    [ -n "$list" ] || { echo "nothing mapped"; exit 0; }
+    name=$(fzf "${NULL_FZF[@]}" --prompt='unmap > ' --header='disconnect' <<<"$list")
+    [ -n "$name" ] || exit 0
+    uri=$(grep -iF "$(sed -E 's/ on .*//' <<<"$name")" "$BOOK" | head -1 || true)
+    if [ -n "$uri" ]; then gio mount -u "$uri" && drop_gtk_bookmark "$uri"; fi
+    echo "unmapped ${uri:-$name}" ;;
+
+  *) echo "usage: null-storage [menu|mapped|map|remap|discover|unmap]" >&2; exit 2 ;;
+esac

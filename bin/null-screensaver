@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# The screensaver (NULL.md §8.6).
+#
+# It IS the wallpaper: same asset, same renderer, same atlas, same delta blit.
+# Only its layer and its dismissal differ.
+#
+# The wallpaper and the screensaver are the same binary on the same asset, so
+# matching on the process NAME would take the desktop's background down with
+# the screensaver. A pidfile identifies which one this is, and the identity is
+# confirmed before signalling because process ids are recycled.
+set -euo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/null-screensaver.pid"
+RENDER="$ROOT/render/target/release/render"
+
+running() {
+  [ -r "$PIDFILE" ] || return 1
+  local pid; pid=$(cat "$PIDFILE" 2>/dev/null) || return 1
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  # Confirm it is OURS before signalling it: pids are recycled, and this
+  # script's whole job is to send a signal to one particular process.
+  local exe; exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || return 1
+  [ "$exe" = "$(readlink -f "$RENDER")" ] || return 1
+  echo "$pid"
+}
+
+case "${1:-start}" in
+  start)
+    if running >/dev/null; then exit 0; fi
+    # --layer overlay implies forced animation, decided in the renderer rather
+    # than here: an overlay sits ABOVE every window, so what covers the
+    # background says nothing about what covers it (§8.6).
+    "$RENDER" --file "$ROOT/assets/target-2.cells" \
+              --atlas "$ROOT/assets/atlas-bake.bin" \
+              layershell --layer overlay >/dev/null 2>&1 &
+    echo $! > "$PIDFILE"
+    ;;
+  stop)
+    pid=$(running) || exit 0
+    kill "$pid" 2>/dev/null || true
+    rm -f "$PIDFILE"
+    ;;
+  status|state)
+    # `state` as well as `status`: every toggle in the menu is asked the same
+    # verb, and a component that answers a different one is a component the
+    # menu silently reports as unmeasured.
+    if pid=$(running); then echo "running ($pid)"; else echo "stopped"; fi
+    ;;
+  *) echo "usage: null-screensaver [start|stop|status|state]" >&2; exit 2 ;;
+esac

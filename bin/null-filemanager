@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# The file manager (NULL.md §8.7).
+#
+# A WINDOW, not a column. It is a thing you resize, drag out of, and put beside
+# another window, and a narrow strip that holds the keyboard can do none of
+# that. Hosting one in the column is a mistake worth not repeating.
+#
+# These settings are not decoration -- they are the differences people actually
+# feel, and each is named in §8.7.
+set -uo pipefail
+Q=xfconf-query
+command -v $Q >/dev/null || { echo "null-filemanager: xfconf-query is not installed" >&2; exit 1; }
+
+set_one() { $Q -c thunar -p "$1" -n -t "$2" -s "$3" 2>/dev/null || $Q -c thunar -p "$1" -t "$2" -s "$3"; }
+
+case "${1:-open}" in
+  open)
+    # A WINDOW, not a column (§8.7, and the note above). Settings are applied
+    # first so a fresh profile opens configured rather than opening wrong once.
+    "$0" apply >/dev/null 2>&1 || true
+    shift || true
+    exec thunar "$@"
+    ;;
+  apply)
+    # Details view: name, size, type, date -- not icons.
+    set_one /default-view string ThunarDetailsView
+    # ISO dates. Any other format is ambiguous between two continents.
+    set_one /misc-date-style string THUNAR_DATE_STYLE_YYYYMMDD
+    # DOUBLE-click to open. Single-click is the default in several toolkits and
+    # it is the one setting that makes a file manager feel unlike every other
+    # desktop.
+    set_one /misc-single-click bool false
+    # A path breadcrumb, and a places sidebar.
+    set_one /last-location-bar string ThunarLocationButtons
+    set_one /last-side-pane string ThunarShortcutsPane
+    set_one /misc-show-about-templates bool false
+    set_one /last-details-view-visible-columns string \
+      'THUNAR_COLUMN_NAME,THUNAR_COLUMN_SIZE,THUNAR_COLUMN_TYPE,THUNAR_COLUMN_DATE_MODIFIED'
+    echo "applied"
+    ;;
+  check)
+    fail=0
+    want() {
+      local got; got=$($Q -c thunar -p "$1" 2>/dev/null || echo "<unset>")
+      if [ "$got" = "$2" ]; then printf '  %-34s %s\n' "${1#/}" "$got"
+      else printf '  %-34s %s   WANTED %s\n' "${1#/}" "$got" "$2"; fail=1; fi
+    }
+    want /default-view ThunarDetailsView
+    want /misc-date-style THUNAR_DATE_STYLE_YYYYMMDD
+    want /misc-single-click false
+    want /last-location-bar ThunarLocationButtons
+    want /last-side-pane ThunarShortcutsPane
+    exit $fail ;;
+  *) echo "usage: null-filemanager [apply|check]" >&2; exit 2 ;;
+esac

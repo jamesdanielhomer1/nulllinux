@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# pkg -- the package abstraction (NULL.md §9.1)
+#
+# Exactly one component may name a package manager. This is it. Everything
+# else in the repository asks this program for verbs, so that the distribution
+# is a parameter rather than an assumption spread across every component.
+#
+# Package LISTS are per-distribution data (packages/<distro>.list), because
+# the names genuinely differ and no abstraction can fix that.
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)
+
+die() { printf 'pkg: %s\n' "$*" >&2; exit 1; }
+
+# --- backend selection --------------------------------------------------
+# The distribution is discovered, never assumed. Adding a distribution means
+# adding one file to lib/pkg/ and nothing else anywhere.
+
+select_backend() {
+  local b
+  for b in "$ROOT"/lib/pkg/*.sh; do
+    [ -e "$b" ] || continue
+    # shellcheck source=/dev/null
+    . "$b"
+    if backend_detect; then BACKEND=$b; return 0; fi
+  done
+  die "no package backend matches this system (looked in $ROOT/lib/pkg/)"
+}
+
+usage() {
+  cat <<'USAGE'
+usage: pkg <verb> [argument ...]
+
+read verbs (no changes, no privileges beyond reading):
+  search <term ...>            search available packages
+  is-installed <package>       exit 0 if installed, 1 if not
+  what-owns-this-file <path>   which package owns a path
+  what-is-orphaned             installed as a dependency, now needed by nothing
+  list-explicitly-installed    the user-installed set, not everything installed
+  upgrade-available            exit 0 if upgrades are pending, 1 if not
+  upgrade-count                how many upgrades are pending
+  cache-size                   size of the downloaded-package cache
+  metadata-age                 seconds since the catalogue was refreshed
+  refresh-metadata             refresh the catalogue; does NOT upgrade
+  backend                      name the backend in use
+
+mutating verbs:
+  install <package ...>        install
+  install-list <name>          install every package in packages/<name>.list
+  remove <package ...>         remove
+  upgrade                      upgrade everything
+  remove-orphans               remove packages nothing needs any more
+  clean-cache                  drop downloaded packages
+
+Package lists live in packages/ and are per-distribution data.
+USAGE
+}
+
+# --- package lists ------------------------------------------------------
+# One list per distribution per purpose. Comments and blank lines ignored, so
+# a list can say WHY a package is there -- which is the only thing that makes
+# a package list reviewable a year later.
+
+read_list() {
+  local name=$1 distro f
+  distro=$(list_distro)
+  f="$ROOT/packages/$distro/$name.list"
+  [ -r "$f" ] || die "no package list '$name' for $distro (expected $f)"
+  sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$f"
+}
+
+list_distro() {
+  if [ -r /etc/os-release ]; then ( . /etc/os-release; echo "${ID:-unknown}" ); else echo unknown; fi
+}
+
+# --- dispatch -----------------------------------------------------------
+
+[ $# -ge 1 ] || { usage; exit 2; }
+verb=$1; shift
+select_backend
+
+case $verb in
+  backend)                    backend_name ;;
+  search)                     [ $# -ge 1 ] || die "search needs a term"; backend_search "$@" ;;
+  is-installed)               [ $# -eq 1 ] || die "is-installed needs one package"; backend_is_installed "$1" ;;
+  what-owns-this-file)        [ $# -eq 1 ] || die "what-owns-this-file needs one path"; backend_what_owns_this_file "$1" ;;
+  what-is-orphaned)           backend_what_is_orphaned ;;
+  list-explicitly-installed)  backend_list_explicitly_installed ;;
+  refresh-metadata)           backend_refresh_metadata ;;
+  upgrade-available)          backend_upgrade_available ;;
+  install)                    [ $# -ge 1 ] || die "install needs a package"; backend_install "$@" ;;
+  install-list)               [ $# -eq 1 ] || die "install-list needs a list name"
+                              mapfile -t pkgs < <(read_list "$1")
+                              [ ${#pkgs[@]} -gt 0 ] || die "list '$1' is empty"
+                              backend_install "${pkgs[@]}" ;;
+  remove)                     [ $# -ge 1 ] || die "remove needs a package"; backend_remove "$@" ;;
+  upgrade)                    backend_upgrade ;;
+  upgrade-count)              backend_upgrade_count ;;
+  cache-size)                 backend_cache_size ;;
+  metadata-age)               backend_metadata_age ;;
+  remove-orphans)             backend_remove_orphans ;;
+  clean-cache)                backend_clean_cache ;;
+  -h|--help|help)             usage ;;
+  *)                          die "unknown verb '$verb' (try: pkg --help)" ;;
+esac

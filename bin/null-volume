@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Volume, with a readout (NULL.md §7.5, §8.3).
+#
+# The key changes something invisible, so it says what it changed it to. It
+# owns no value: it asks the audio daemon and reports what the daemon says,
+# not what it just tried to set.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+SINK=@DEFAULT_AUDIO_SINK@
+SRC=@DEFAULT_AUDIO_SOURCE@
+
+case "${1:-}" in
+  up)      wpctl set-volume -l 1.0 "$SINK" 5%+ 2>/dev/null ;;
+  down)    wpctl set-volume "$SINK" 5%- 2>/dev/null ;;
+  mute)    wpctl set-mute "$SINK" toggle 2>/dev/null ;;
+  micmute) wpctl set-mute "$SRC" toggle 2>/dev/null ;;
+  *) echo "usage: null-volume [up|down|mute|micmute]" >&2; exit 2 ;;
+esac
+
+# Re-read from the owner. If the daemon is unreachable the readout says so
+# rather than reporting a number nobody set.
+what=$([ "${1}" = micmute ] && echo MICROPHONE || echo VOLUME)
+dev=$([ "${1}" = micmute ] && echo "$SRC" || echo "$SINK")
+if out=$(wpctl get-volume "$dev" 2>/dev/null); then
+  case "$out" in
+    *MUTED*) exec "$ROOT/bin/null-osd" "$what  muted" ;;
+    *) pct=$(awk '{printf "%d", $2*100}' <<<"$out"); exec "$ROOT/bin/null-osd" "$what" "$pct" ;;
+  esac
+fi
+exec "$ROOT/bin/null-osd" "$what  --"

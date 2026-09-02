@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# The month, and anything with a date attached (NULL.md §8.4).
+#
+# "Anything with a date attached" is read from what this machine ACTUALLY
+# knows: the timers systemd will run, and the reminders this desktop keeps.
+# There is no calendar service here, and inventing an empty one would be a
+# panel that is permanently blank -- which §8.4 says not to draw.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+REMINDERS="${XDG_DATA_HOME:-$HOME/.local/share}/nullLinux/reminders"
+mkdir -p "$(dirname "$REMINDERS")" 2>/dev/null || true
+
+month() {
+  # Highlighting today is the whole reason to draw a month rather than print a
+  # date, and `cal` does it with a reverse-video escape the atlas has no glyph
+  # for. --color=never drops it (-h is --help on util-linux, which printed the
+  # help text into the calendar); the marker below puts it back as a character.
+  local today; today=$(date +%-d)
+  cal --color=never 2>/dev/null | awk -v d="$today" '
+    NR<=2 { print; next }
+    { line=$0; gsub("(^| )" d "( |$)", " [" d "]", line); print line }'
+}
+
+dated() {
+  # Timers first: these are the things that will happen without anyone doing
+  # them, which is the part of a calendar that matters on a machine.
+  systemctl list-timers --all --no-pager --no-legend 2>/dev/null \
+    | awk 'NF{printf "%-22s %-10s %s\n", $1" "$2, $3, $NF}' | head -12
+  if [ -s "$REMINDERS" ]; then
+    echo
+    sort "$REMINDERS" | while IFS='|' read -r when what; do
+      printf '%-22s %-10s %s\n' "$when" "reminder" "$what"
+    done
+  fi
+}
+
+case "${1:-menu}" in
+  menu)
+    { month; echo; echo "-- dated, on this machine --"; dated; } \
+      | fzf "${NULL_FZF[@]}" --prompt='calendar > ' --no-sort \
+            --header="$(date '+%A %-d %B %Y')" >/dev/null || true ;;
+  add)
+    shift
+    when=${1:?when}; shift
+    printf '%s|%s\n' "$when" "$*" >> "$REMINDERS"
+    echo "  noted: $when  $*" ;;
+  list) [ -s "$REMINDERS" ] && cat "$REMINDERS" || echo "  no reminders" ;;
+  clear) : > "$REMINDERS"; echo "  reminders cleared" ;;
+  *) echo "usage: null-calendar [menu|add <when> <what>|list|clear]" >&2; exit 2 ;;
+esac

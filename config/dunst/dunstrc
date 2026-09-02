@@ -1,0 +1,42 @@
+# Notification chrome (NULL.md §7.5, §7.1).
+#
+# dunst rather than mako because dunst already owns the notification bus name
+# on this machine, and a second daemon cannot take it. §7.5 asks for THE
+# notification daemon, not a particular one.
+#
+# progress_bar is OFF. It draws a filled rounded rectangle, which is banned on
+# every surface (I1) -- and null-osd draws its meter with the same ramp
+# everything else uses instead.
+
+[global]
+    font = Terminus 12
+    markup = no
+    format = "%s\n%b"
+    frame_width = 1
+    frame_color = "#232c40"
+    separator_color = frame
+    corner_radius = 0
+    progress_bar = false
+    icon_position = off
+    enable_recursive_icon_lookup = false
+    width = 420
+    origin = top-right
+    offset = 8x8
+    padding = 6
+    horizontal_padding = 8
+    layer = overlay
+    stack_duplicates = true
+    show_indicators = false
+
+[urgency_low]
+    background = "#05060a"
+    foreground = "#ff7800"
+
+[urgency_normal]
+    background = "#05060a"
+    foreground = "#ffefe6"
+
+[urgency_critical]
+    background = "#05060a"
+    foreground = "#ff8000"
+    frame_color = "#ff8000"

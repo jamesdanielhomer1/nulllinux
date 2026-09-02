@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# What is playing, and its transport (NULL.md §8.4).
+#
+# Read from whatever is actually playing over MPRIS, so there is no local copy
+# of the state and nothing to drift. A player that has gone away is absent, not
+# a stale row.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+command -v playerctl >/dev/null || { echo "null-player: playerctl is not installed" >&2; exit 1; }
+
+players() {
+  # ONE source of the number. `grep -c .` prints 0 AND exits non-zero when the
+  # count is zero, so `|| echo 0` fired as well and the function returned two
+  # lines -- which `[ ... -eq 0 ]` then rejected as not an integer.
+  playerctl -l 2>/dev/null | grep -c . 2>/dev/null || true
+}
+
+now_playing() {
+  local st; st=$(playerctl status 2>/dev/null) || return 1
+  local meta; meta=$(playerctl metadata --format '{{artist}} — {{title}}' 2>/dev/null)
+  [ -n "$meta" ] && [ "$meta" != " — " ] || meta=$(playerctl metadata --format '{{title}}' 2>/dev/null)
+  printf '%s|%s' "${st,,}" "${meta:-$NULL_UNMEASURED}"
+}
+
+case "${1:-menu}" in
+  menu)
+    if [ "$(players | head -1)" -eq 0 ] 2>/dev/null || [ -z "$(playerctl -l 2>/dev/null)" ]; then
+      # ABSENT IS STATED (§8.4). An empty transport is not a transport.
+      printf '%s\n' "nothing is playing" "" \
+        "No player is on the bus. Start one and this fills in." \
+        | fzf "${NULL_FZF[@]}" --prompt='player > ' \
+              --header='read live over MPRIS' >/dev/null || true
+      exit 0
+    fi
+    IFS='|' read -r st meta <<<"$(now_playing)"
+    sel=$(printf '%s\n' \
+      "$(null_row 'now' "${meta:-$NULL_UNMEASURED}")" \
+      "$(null_row 'state' "${st:-$NULL_UNMEASURED}")" \
+      "$(null_row 'play-pause' 'toggle')" \
+      "$(null_row 'next' 'the next track')" \
+      "$(null_row 'previous' 'the previous track')" \
+      | fzf "${NULL_FZF[@]}" --prompt='player > ' --no-sort \
+            --header="$(players) player(s) on the bus" | awk '{print $1}')
+    case $sel in
+      play-pause) playerctl play-pause ;;
+      next)       playerctl next ;;
+      previous)   playerctl previous ;;
+    esac ;;
+  status) now_playing | tr '|' ' ' ;;
+  *) echo "usage: null-player [menu|status]" >&2; exit 2 ;;
+esac

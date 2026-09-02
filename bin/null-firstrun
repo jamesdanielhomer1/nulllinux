@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# What is left for one user, after null-install has done the rest.
+#
+# ALMOST NOTHING IS LEFT, and that is the point. bin/null-install puts the
+# compositor configuration, the GTK theme, the icon theme, the settings-key
+# defaults, the terminal, notifier and monitor configuration, and the file
+# manager defaults where the SYSTEM looks for them -- so a new account gets
+# this desktop by logging in, not by running a script.
+#
+# One thing genuinely cannot be done that way: a browser reads userChrome.css
+# only from inside a profile, and a profile belongs to a person. So that is
+# what this does, and it is optional -- skip it and the browser is simply left
+# alone.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+
+if [ "$(id -u)" -eq 0 ]; then
+  echo "REFUSING: run this as the user whose browser profile it is." >&2
+  exit 1
+fi
+
+echo "user: $(id -un)"
+echo "system install: $ROOT"
+echo
+
+if [ ! -r /etc/sway/config ] || ! grep -q "$ROOT" /etc/sway/config 2>/dev/null; then
+  echo "NOTE: /etc/sway/config does not point at $ROOT."
+  echo "      Run 'sudo $ROOT/bin/null-install --apply' first -- otherwise this"
+  echo "      account gets the distribution's desktop, not this one."
+  echo
+fi
+
+echo "== browser chrome (the one per-user piece)"
+"$ROOT/bin/null-firefox" --apply || echo "  skipped"
+
+echo
+echo "== audio, which is why the session is not root"
+if command -v wpctl >/dev/null && wpctl status >/dev/null 2>&1; then
+  echo "  the audio daemon answers"
+else
+  echo "  the audio daemon does not answer -- if this is a root session, that is why"
+fi
+
+echo
+echo "Nothing else is per-user. If you want to diverge from the system"
+echo "configuration, write your own ~/.config/sway/config and it takes over."

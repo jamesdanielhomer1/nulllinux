@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# The toolkit theme's SETTINGS KEYS (NULL.md §8.10).
+#
+# The stylesheet and settings.ini are linked into place like any other
+# configuration. This is the other half, and it is the half that decides:
+#
+#   DESKTOP-SETTINGS KEYS OUTRANK CONFIGURATION FILES wherever both exist.
+#
+# A settings.ini can be applied in full, be syntactically perfect, and be
+# silently overridden by a value some previous desktop left in the settings
+# database. That is not a hypothetical: on this machine the monospace key was
+# found still holding a font this system never chose.
+#
+# Report-first: with no --apply it prints current against intended and changes
+# nothing.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+APPLY=0
+[ "${1:-}" = "--apply" ] && APPLY=1
+
+IFACE=org.gnome.desktop.interface
+FONT="Terminus 12"
+
+# §8.11: there is no way to derive a pointer from the asset, so this is an
+# honest exception -- the least-wrong existing set, CHOSEN AND RECORDED rather
+# than left at the toolkit default and called finished.
+#
+# Of what is installed: Bluecurve and oxygen are period pieces with gradients
+# and colour; AdwaitaLegacy is the pre-2023 bitmap set, softer and lower
+# contrast. Adwaita is the current vector set -- flat, near-monochrome, and the
+# closest thing available to a shape with no opinion. It is not derived from
+# the hero and does not pretend to be.
+CURSOR=Adwaita
+CURSOR_SIZE=24
+
+# §8.10 trap: NAMING A THEME THAT IS NOT INSTALLED FALLS BACK TO A BUILT-IN
+# LIGHT PALETTE, SILENTLY. So every name below is checked against the disk
+# before it is written, and a missing one is a refusal rather than a warning.
+GTK_THEME=Default
+ICON_THEME=nullLinux
+
+fail=0
+check_exists() {  # <kind> <name> <dir ...>
+  local kind=$1 name=$2; shift 2
+  for d in "$@"; do
+    if [ -d "$d/$name" ]; then printf '  %-22s %-18s found in %s\n' "$kind" "$name" "$d"; return 0; fi
+  done
+  printf '  %-22s %-18s NOT INSTALLED\n' "$kind" "$name"
+  fail=1; return 1
+}
+
+echo "== names must exist before they are written (§8.10)"
+check_exists "gtk theme"    "$GTK_THEME"  /usr/share/themes "$HOME/.themes"
+check_exists "icon theme"   "$ICON_THEME" /usr/share/icons  "$HOME/.icons" "$HOME/.local/share/icons"
+check_exists "cursor theme" "$CURSOR"     /usr/share/icons  "$HOME/.icons" "$HOME/.local/share/icons"
+# A cursor theme directory can exist without actually being a cursor theme.
+for d in /usr/share/icons "$HOME/.icons" "$HOME/.local/share/icons"; do
+  [ -d "$d/$CURSOR/cursors" ] && { echo "  cursor theme has a cursors/ directory: $d/$CURSOR/cursors"; break; }
+done
+if [ "$fail" -ne 0 ]; then
+  echo "REFUSING: a name above is not installed. Writing it would fall back to" >&2
+  echo "          the built-in light palette without saying so." >&2
+  exit 1
+fi
+
+# key <schema-key> <value>
+declare -a KEYS=(
+  "gtk-theme|$GTK_THEME"
+  "icon-theme|$ICON_THEME"
+  "cursor-theme|$CURSOR"
+  "cursor-size|$CURSOR_SIZE"
+  "font-name|$FONT"
+  "document-font-name|$FONT"
+  "monospace-font-name|$FONT"
+  "color-scheme|prefer-dark"
+  "enable-animations|false"
+)
+
+echo
+echo "== settings keys"
+changed=0
+for kv in "${KEYS[@]}"; do
+  k=${kv%%|*}; want=${kv#*|}
+  cur=$(gsettings get "$IFACE" "$k" 2>/dev/null) || { printf '  %-22s (no such key)\n' "$k"; continue; }
+  curp=${cur#\'}; curp=${curp%\'}
+  if [ "$curp" = "$want" ]; then
+    printf '  %-22s %s\n' "$k" "$curp"
+  else
+    printf '  %-22s %-22s -> %s\n' "$k" "$curp" "$want"
+    changed=$((changed + 1))
+    if [ "$APPLY" -eq 1 ]; then
+      case "$want" in
+        true|false|[0-9]*) gsettings set "$IFACE" "$k" "$want" ;;
+        *)                 gsettings set "$IFACE" "$k" "$want" ;;
+      esac
+    fi
+  fi
+done
+
+echo
+if [ "$APPLY" -eq 0 ]; then
+  echo "$changed key(s) would change. Re-run with --apply."
+  exit 0
+fi
+
+# Read back. A set that did not take is the whole failure mode being guarded
+# against, so it is not assumed to have worked.
+echo "== reading back"
+bad=0
+for kv in "${KEYS[@]}"; do
+  k=${kv%%|*}; want=${kv#*|}
+  cur=$(gsettings get "$IFACE" "$k" 2>/dev/null); curp=${cur#\'}; curp=${curp%\'}
+  [ "$curp" = "$want" ] || { printf '  FAIL %-22s is %s, wanted %s\n' "$k" "$curp" "$want"; bad=1; }
+done
+[ "$bad" -eq 0 ] && echo "  all keys hold the intended value"
+exit "$bad"

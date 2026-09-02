@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Show every key binding (NULL.md §8.3).
+#
+# Generated from the configuration the compositor actually loaded, so it cannot
+# drift from the keys themselves. It is a PARSE rather than a query, because
+# this compositor exposes no binding list -- and it follows includes, because
+# the configuration text the compositor does expose omits them (§8.1).
+set -euo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+# SEARCHED IN SWAY'S OWN ORDER, not assumed to be the user's own file.
+#
+# This looked only in ~/.config/sway/config, so on a machine where the desktop
+# is installed system-wide -- which is the whole point of it being system-wide
+# -- every user without a personal copy got "no configuration" instead of the
+# key list. The list was reading a file the compositor was not.
+resolve_config() {
+  local c
+  for c in ${NULL_SWAY_CONFIG:-} \
+           "${XDG_CONFIG_HOME:-$HOME/.config}/sway/config" \
+           "$HOME/.sway/config" \
+           /etc/sway/config \
+           /etc/xdg/sway/config; do
+    [ -n "$c" ] && [ -r "$c" ] && { echo "$c"; return 0; }
+  done
+  return 1
+}
+CONF=$(resolve_config) || {
+  echo "null-keys: no sway configuration found in any of the places sway looks" >&2
+  exit 1
+}
+exec python3 "$ROOT/verify/check_binds.py" "$CONF" --list

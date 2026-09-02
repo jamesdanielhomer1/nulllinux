@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Pick the best available tool per ROLE, rather than hard-coding binaries
+# (NULL.md §8.4-adjacent).
+#
+# A binding that silently does nothing is worse than one that opens a lesser
+# tool, so each role degrades through what is actually installed.
+set -euo pipefail
+role=${1:?usage: null-open ROLE TARGET}
+target=${2:-}
+
+first() { for c in "$@"; do if command -v "${c%% *}" >/dev/null 2>&1; then echo "$c"; return 0; fi; done; return 1; }
+
+case $role in
+  dir)    cmd=$(first "nemo" "dolphin" "thunar" "nautilus" "yazi" "foot -e ls -la") ;;
+  reveal) # Selecting a file is a DIFFERENT verb from opening it, and the tools
+          # that can do it say so with a flag.
+          if command -v nemo   >/dev/null; then exec nemo   --no-desktop "$target"; fi
+          if command -v nautilus >/dev/null; then exec nautilus --select "$target"; fi
+          if command -v dolphin >/dev/null; then exec dolphin --select "$target"; fi
+          cmd=$(first "foot -e ls -la") ; target=$(dirname "$target") ;;
+  editor) cmd=$(first "nvim" "vim" "nano") ;;
+  *) echo "null-open: unknown role $role" >&2; exit 2 ;;
+esac
+[ -n "${cmd:-}" ] || { echo "null-open: nothing installed for role $role" >&2; exit 1; }
+exec $cmd "$target"

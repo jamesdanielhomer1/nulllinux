@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# The on-screen readout (NULL.md §7.5).
+#
+# A key that changes something invisible must say what it changed it to,
+# especially one that repeats.
+#
+# Uses the notification daemon rather than adding a fourth layer surface, with
+# a STACK TAG so repeats replace rather than accumulate. The meter is drawn
+# with the same ramp everything else uses, and the daemon's own progress-bar
+# hint is deliberately NOT passed -- that draws a filled rectangle (I1).
+set -euo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+
+label=${1:?usage: null-osd LABEL [PERCENT]}
+value=${2:-}
+
+meter() {  # <percent> -> a run of ramp glyphs against a dotted track
+  local pct=$1 width=20 ramp dense i filled out=""
+  ramp=$(python3 -c "
+import json,sys
+print(json.load(open('$ROOT/assets/ramp-interface.json'))['ramp'])" 2>/dev/null) || ramp=' .:-=+*#%@'
+  dense=${ramp: -1}
+  filled=$(( pct * width / 100 ))
+  for ((i=0;i<width;i++)); do
+    if [ "$i" -lt "$filled" ]; then out+="$dense"; else out+="·"; fi
+  done
+  printf '%s' "$out"
+}
+
+if [ -n "$value" ]; then
+  body="$(meter "$value")  ${value}%"
+else
+  body=""
+fi
+
+# The stack tag: a repeat REPLACES rather than stacking, which is what makes a
+# held volume key legible instead of a column of notifications.
+#
+# Both spellings are sent because the two common daemons disagree on the name
+# and each ignores the other's. Sending both is one line; detecting which
+# daemon is running would be a second thing to keep true.
+exec notify-send \
+  -h "string:x-dunst-stack-tag:null-osd" \
+  -h "string:x-canonical-private-synchronous:null-osd" \
+  -t 1200 \
+  "$label" "$body"

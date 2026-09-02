@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Backlight, with a readout (NULL.md §7.5, §8.3).
+#
+# Not drawn at all on a machine with no backlight: absence of hardware is
+# discovered, and a readout for a feature the machine lacks is a complaint.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+if ! "$ROOT/bin/machine" probe backlight 2>/dev/null; then exit 0; fi
+case "${1:-}" in
+  up)   brightnessctl set 5%+ >/dev/null 2>&1 ;;
+  down) brightnessctl set 5%- >/dev/null 2>&1 ;;
+  *) echo "usage: null-brightness [up|down]" >&2; exit 2 ;;
+esac
+cur=$(brightnessctl -m get 2>/dev/null) || exit 0
+max=$(brightnessctl -m max 2>/dev/null) || exit 0
+[ "$max" -gt 0 ] || exit 0
+exec "$ROOT/bin/null-osd" "BRIGHTNESS" $(( cur * 100 / max ))

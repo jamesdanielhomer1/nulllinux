@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Stills and recordings, in one place (NULL.md §8.4).
+#
+# A RECORDING YOU CANNOT SEE IS THE FAILURE MODE. A screen recorder draws
+# nothing and makes no sound, so starting one raises a notification that
+# PERSISTS until it stops, and stopping one names the file.
+#
+# The recorder is sent an INTERRUPT, not a terminate. Many finalise the
+# container on interrupt and truncate on terminate, and a truncated recording
+# will not play -- which is discovered later, by which time the thing being
+# recorded has gone.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+OUT=${NULL_CAPTURE_DIR:-$HOME/Pictures}
+VID=${NULL_RECORD_DIR:-$HOME/Videos}
+PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/null-recording.pid
+mkdir -p "$OUT" "$VID"
+stamp() { date +%Y%m%d-%H%M%S; }
+notify() { command -v notify-send >/dev/null && notify-send "$@" || true; }
+
+need() { command -v "$1" >/dev/null || { echo "null-capture: $1 is not installed" >&2; exit 1; }; }
+
+recording_pid() { [ -r "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null && cat "$PIDFILE"; }
+
+stop_recording() {
+  local pid; pid=$(recording_pid) || return 1
+  # SIGINT, never SIGTERM. See the note at the top.
+  kill -INT "$pid" 2>/dev/null
+  for _ in $(seq 1 40); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+  local f; f=$(cat "$PIDFILE.file" 2>/dev/null || echo "")
+  rm -f "$PIDFILE" "$PIDFILE.file"
+  command -v dunstctl >/dev/null && dunstctl close >/dev/null 2>&1 || true
+  # Stopping NAMES THE FILE. "Recording stopped" tells you nothing you can act on.
+  notify -u normal "Recording saved" "${f:-unknown file}"
+  echo "${f:-}"
+}
+
+case "${1:-screenshot}" in
+  screenshot)
+    need grim
+    f="$OUT/screen-$(stamp).png"; grim "$f"
+    command -v wl-copy >/dev/null && wl-copy < "$f" || true
+    notify "Screenshot" "$f" ;;
+
+  region)
+    need grim; need slurp
+    r=$(slurp) || exit 0
+    f="$OUT/region-$(stamp).png"; grim -g "$r" "$f"
+    command -v wl-copy >/dev/null && wl-copy < "$f" || true
+    notify "Screenshot" "$f" ;;
+
+  window)
+    need grim
+    r=$(swaymsg -t get_tree | python3 -c '
+import json,sys
+def f(v):
+    if v.get("focused"): return v
+    for k in ("nodes","floating_nodes"):
+        for c in v.get(k) or []:
+            r=f(c)
+            if r: return r
+n=f(json.load(sys.stdin))
+if n:
+    r=n["rect"]; print("%d,%d %dx%d" % (r["x"],r["y"],r["width"],r["height"]))') || exit 1
+    [ -n "$r" ] || { echo "no focused window" >&2; exit 1; }
+    f="$OUT/window-$(stamp).png"; grim -g "$r" "$f"
+    command -v wl-copy >/dev/null && wl-copy < "$f" || true
+    notify "Screenshot" "$f" ;;
+
+  colour|color)
+    need grim; need slurp
+    # One pixel, read back rather than guessed at.
+    p=$(slurp -p) || exit 0
+    hex=$(grim -g "$p" -t ppm - | python3 -c '
+import sys
+d=sys.stdin.buffer.read()
+i=0; fields=[]
+while len(fields)<4:
+    while d[i:i+1].isspace(): i+=1
+    if d[i:i+1]==b"#":
+        while d[i:i+1] not in (b"\n",b""): i+=1
+        continue
+    j=i
+    while not d[j:j+1].isspace(): j+=1
+    fields.append(d[i:j]); i=j
+i+=1
+print("#%02x%02x%02x" % (d[i],d[i+1],d[i+2]))')
+    command -v wl-copy >/dev/null && printf '%s' "$hex" | wl-copy || true
+    notify "Colour" "$hex (copied)" ;;
+
+  record)
+    need wf-recorder
+    if recording_pid >/dev/null; then stop_recording; exit 0; fi
+    f="$VID/record-$(stamp).mp4"
+    case "${2:-silent}" in
+      silent)  setsid wf-recorder -f "$f" >/dev/null 2>&1 & ;;
+      desktop) setsid wf-recorder -f "$f" --audio >/dev/null 2>&1 & ;;
+      both)    setsid wf-recorder -f "$f" --audio >/dev/null 2>&1 & ;;
+      *) echo "null-capture: record takes silent|desktop|both" >&2; exit 2 ;;
+    esac
+    pid=$!
+    sleep 0.6
+    if ! kill -0 "$pid" 2>/dev/null; then
+      notify -u critical "Recording failed to start" "$f"
+      exit 1
+    fi
+    echo "$pid" > "$PIDFILE"; echo "$f" > "$PIDFILE.file"
+    # PERSISTS until it stops: a recording nobody can see is the failure mode.
+    notify -u critical -t 0 -h string:x-canonical-private-synchronous:null-recording \
+           "Recording" "$f -- press the capture key again to stop" ;;
+
+  stop)    stop_recording ;;
+  state)   recording_pid >/dev/null && echo recording || echo idle ;;
+  *) echo "usage: null-capture screenshot|region|window|colour|record [silent|desktop|both]|stop|state" >&2; exit 2 ;;
+esac

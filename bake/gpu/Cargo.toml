@@ -1,0 +1,16 @@
+[package]
+name = "kerr-gpu"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kerr-gpu"
+path = "src/main.rs"
+
+[dependencies]
+wgpu = "22"
+pollster = "0.3"
+bytemuck = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = 3

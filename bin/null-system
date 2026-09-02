@@ -1,0 +1,321 @@
+#!/usr/bin/env bash
+# Root-owned changes (NULL.md §9.4, §9.5, §9.6, §9.7).
+#
+# Each is a SEPARATE, REVERSIBLE, DELIBERATELY INVOKED subcommand. None is ever
+# part of a bulk install, and every one:
+#
+#   * reports first -- with no --apply it prints every change and touches
+#     nothing, so the safe thing is also the shortest thing to type;
+#   * takes a btrfs snapshot, which on this filesystem is instantaneous and is
+#     a complete rollback for anything here;
+#   * backs up what it replaces, to a timestamped path;
+#   * derives from the RUNNING SYSTEM rather than from a document, prints what
+#     it derived, and refuses on anything unexpected.
+#
+# A refusal that turns out to be over-cautious costs a minute. The alternative
+# costs a boot.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+STAMP=$(date +%Y%m%d-%H%M%S)
+BACKUP=/root/.null-system-backup-$STAMP
+APPLY=0
+SNAPDIR=/.null-snapshots
+
+say()  { printf '  %s\n' "$*"; }
+head_() { printf '\n== %s\n' "$*"; }
+refuse() { printf 'REFUSING: %s\n' "$*" >&2; exit 1; }
+
+need_root() { [ "$(id -u)" -eq 0 ] || refuse "must run as root"; }
+
+snapshot() {  # <label>
+  [ "$APPLY" -eq 1 ] || { say "would snapshot / before changing anything"; return 0; }
+  if ! command -v btrfs >/dev/null 2>&1; then
+    say "no btrfs tooling; skipping the snapshot"; return 0
+  fi
+  mkdir -p "$SNAPDIR"
+  local snap="$SNAPDIR/$1-$STAMP"
+  if btrfs subvolume snapshot -r / "$snap" >/dev/null 2>&1; then
+    say "snapshot: $snap"
+    say "  roll back with:  btrfs subvolume delete /  &&  btrfs subvolume snapshot $snap /"
+  else
+    say "snapshot failed (not a btrfs subvolume?) -- continuing without one"
+  fi
+}
+
+backup() {  # <path>
+  [ -e "$1" ] || return 0
+  [ "$APPLY" -eq 1 ] || { say "would back up $1"; return 0; }
+  mkdir -p "$BACKUP$(dirname "$1")"
+  cp -a "$1" "$BACKUP$1"
+  say "backed up $1 -> $BACKUP$1"
+}
+
+install_file() {  # <src> <dst>
+  if [ "$APPLY" -eq 0 ]; then say "would install $2"; return 0; fi
+  backup "$2"
+  mkdir -p "$(dirname "$2")"
+  cp -a "$1" "$2"
+  # Fedora enforces SELinux, and a file COPIED into a system path keeps the
+  # SOURCE's label rather than acquiring the destination's -- so it can be
+  # present, correct, and unreadable by the service that needs it (§9.2).
+  if command -v restorecon >/dev/null 2>&1; then
+    restorecon -F "$2" 2>/dev/null && say "restored SELinux context on $2"
+  fi
+  say "installed $2"
+}
+
+# ---------------------------------------------------------------- fallback
+cmd_fallback() {
+  head_ "fallback boot entry (§9.6)"
+  local entries rescue
+  entries=$(ls /boot/loader/entries/*.conf 2>/dev/null | wc -l)
+  rescue=$(ls /boot/loader/entries/*rescue*.conf 2>/dev/null | head -1)
+  say "boot entries: $entries"
+  [ -n "$rescue" ] || refuse "no rescue entry -- there is nothing to fall back to"
+  say "rescue entry: $(basename "$rescue")"
+  local img
+  img=$(awk '/^initrd/{print $2}' "$rescue")
+  say "rescue initramfs: $img"
+  [ -e "/boot/${img#/}" ] || refuse "the rescue entry names an initramfs that does not exist"
+  say "rescue initramfs size: $(stat -c%s "/boot/${img#/}" | numfmt --to=iec)"
+  local kernels
+  kernels=$(ls /boot/vmlinuz-* 2>/dev/null | grep -vc rescue || true)
+  say "non-rescue kernels installed: $kernels"
+  if [ "$kernels" -le 1 ]; then
+    say ""
+    say "NOTE: only one ordinary kernel is installed, so the rescue entry is"
+    say "      the ONLY fallback (§9.6). It is a real one -- its own kernel,"
+    say "      its own initramfs, its own entry -- and regenerating the running"
+    say "      kernel's image does not touch it. Recorded as a deviation."
+  fi
+  say ""
+  say "STRUCTURALLY PRESENT -- but that is not the check §9.6 asks for."
+  say "The fallback must be confirmed by REBOOTING INTO IT, once, before"
+  say "anything touches an initramfs. Nothing here can do that for you."
+}
+
+# -------------------------------------------------------------------- tty
+cmd_tty() {
+  head_ "console (§9.5)"
+  local font=ter-118n
+  local src=/usr/lib/kbd/consolefonts/$font.psf.gz
+  [ -r "$src" ] || refuse "console font $src not found"
+  say "font: $font  (10x18 -- the interface strike, giving 192x60 at 1920x1080)"
+
+  # At or below 256 glyphs, or the console loses bright background colours:
+  # the ninth bit is reallocated from the attribute to the glyph index (§9.5).
+  local glyphs
+  glyphs=$(python3 - "$src" <<'PY'
+import gzip,struct,sys
+d=gzip.open(sys.argv[1],'rb').read()
+print(struct.unpack_from('<I', d, 16)[0])
+PY
+)
+  say "glyphs: $glyphs"
+  [ "$glyphs" -le 256 ] || refuse "$font has $glyphs glyphs; above 256 the console loses bright backgrounds"
+
+  say "derive /etc/issue from the bake, so a re-bake reaches the console too"
+  local issue=/tmp/null-issue.$$
+  "$ROOT/render/target/release/render" --file "$ROOT/assets/logo.cells" \
+      still --frame 0 --out "$issue" >/dev/null || refuse "could not render the banner"
+  # Trim blank rows. /etc/issue prints above the login prompt on every tty,
+  # so rows the hero does not occupy are rows the prompt is pushed down by.
+  python3 - "$issue" <<'TRIM'
+import re, sys
+rows = open(sys.argv[1]).read().split("\n")
+bare = lambda r: re.sub(r"\x1b\[[0-9;]*m", "", r).strip()
+lo = next((i for i, r in enumerate(rows) if bare(r)), 0)
+hi = next((i for i in range(len(rows) - 1, -1, -1) if bare(rows[i])), 0)
+open(sys.argv[1], "w").write("\n".join(rows[lo:hi + 1]) + "\n")
+TRIM
+  { echo; cat "$issue"; echo; echo '\S  \r  \l'; echo; } > "$issue.full"
+
+  snapshot console
+  if [ "$APPLY" -eq 1 ]; then
+    backup /etc/vconsole.conf
+    sed -i "s/^FONT=.*/FONT=\"$font\"/" /etc/vconsole.conf 2>/dev/null \
+      || echo "FONT=\"$font\"" >> /etc/vconsole.conf
+    grep -q '^FONT=' /etc/vconsole.conf || echo "FONT=\"$font\"" >> /etc/vconsole.conf
+    say "set FONT=$font in /etc/vconsole.conf"
+    install_file "$issue.full" /etc/issue
+    setfont "$font" 2>/dev/null && say "applied to the current console" \
+      || say "setfont did not apply here (no console on this tty); it applies at boot"
+  else
+    say "would set FONT=\"$font\" in /etc/vconsole.conf"
+    say "would install a $(wc -l < "$issue") line banner as /etc/issue"
+  fi
+  rm -f "$issue" "$issue.full"
+}
+
+# ------------------------------------------------------------------ sddm
+cmd_sddm() {
+  head_ "login greeter (§9.7)"
+  command -v sddm >/dev/null || refuse "sddm is not installed"
+  systemctl is-enabled sddm >/dev/null 2>&1 || refuse "sddm is not the enabled display manager"
+  say "sddm is the enabled display manager -- the greeter is a THEME, not a swap"
+  local theme="$ROOT/system/sddm-theme"
+  [ -d "$theme" ] || refuse "no theme at $theme (run bake/make_boot_assets.py first)"
+  say "theme source: $theme"
+  snapshot greeter
+  if [ "$APPLY" -eq 1 ]; then
+    backup /etc/sddm.conf.d/10-nulllinux.conf
+    rm -rf /usr/share/sddm/themes/nulllinux
+    mkdir -p /usr/share/sddm/themes
+    cp -a "$theme" /usr/share/sddm/themes/nulllinux
+    command -v restorecon >/dev/null && restorecon -RF /usr/share/sddm/themes/nulllinux 2>/dev/null
+    mkdir -p /etc/sddm.conf.d
+    printf '[Theme]\nCurrent=nullLinux\n' > /etc/sddm.conf.d/10-nulllinux.conf
+    say "installed /usr/share/sddm/themes/nulllinux and selected it"
+    say ""
+    say "NOT yet confirmed. A greeter that fails to start is a machine with no"
+    say "graphical login, and the way out is a virtual console -- which is why"
+    say "the console is done first. Verify before rebooting into it."
+  else
+    say "would install /usr/share/sddm/themes/nulllinux"
+    say "would write /etc/sddm.conf.d/10-nulllinux.conf selecting it"
+  fi
+}
+
+# -------------------------------------------------------------- plymouth
+cmd_plymouth() {
+  head_ "boot splash (§9.6)"
+  command -v plymouth-set-default-theme >/dev/null || refuse "plymouth is not installed"
+  say "current theme: $(plymouth-set-default-theme 2>/dev/null)"
+  local theme="$ROOT/system/plymouth-theme"
+  [ -d "$theme" ] || refuse "no theme at $theme (run bake/make_boot_assets.py first)"
+
+  # The check that matters most, and the cheapest one to skip. A theme naming a
+  # module whose .so is absent does not degrade gracefully: the initramfs build
+  # refuses, or the splash silently falls back to the text plugin. `script` is
+  # NOT installed on Fedora by default -- only two-step, text, details, tribar.
+  local module plug=/usr/lib64/plymouth
+  module=$(sed -n 's/^ModuleName *= *//p' "$theme"/*.plymouth | head -1)
+  say "module: $module"
+  [ -f "$plug/$module.so" ] || refuse "plymouth module '$module' is not installed ($plug/$module.so). Installed: $(ls $plug/*.so | xargs -n1 basename | tr '\n' ' ')"
+  say "module plugin present: $plug/$module.so"
+
+  local frames
+  frames=$(ls "$theme"/throbber-*.png 2>/dev/null | wc -l)
+  say "frames: $frames"
+  [ "$frames" -gt 0 ] || refuse "no throbber frames; refusing to install a black screen that looks like a boot failure"
+
+  # Font handling here is not what it looks like. plymouth-populate-initrd
+  # installs the named Font= at its real path, but it ALSO always installs the
+  # bare `fc-match` default and symlinks THAT to /usr/share/fonts/Plymouth.ttf
+  # -- and it installs only label-freetype.so, which reads exactly that path.
+  # So inside the initramfs the message face is the fontconfig default whatever
+  # Font= says; Font= governs the size, and the later real-root phase.
+  #
+  # Which is the whole reason the hero is a frame sequence and not text: the
+  # face that draws text here is not one the theme gets to choose (§9.6.1).
+  local font
+  font=$(sed -n 's/^Font *= *//p' "$theme"/*.plymouth | head -1)
+  say "Font= declares:      ${font:-<unset>}"
+  say "initramfs will draw: $(fc-match -f '%{family}' ) (via Plymouth.ttf, label-freetype)"
+  say "  -- messages only. The hero is images, so this cannot reach it."
+
+  if [ "$CHECK" -eq 1 ]; then
+    head_ "check: build a THROWAWAY initramfs and inspect it"
+    say "this writes theme files under /usr/share/plymouth/themes/nulllinux, which"
+    say "nothing references until the default is changed, and an image in /tmp."
+    say "NO boot path is touched."
+    rm -rf /usr/share/plymouth/themes/nulllinux
+    cp -a "$theme" /usr/share/plymouth/themes/nulllinux
+    command -v restorecon >/dev/null && restorecon -RF /usr/share/plymouth/themes/nulllinux 2>/dev/null
+    local img=/tmp/null-initramfs-check.img
+    say "running dracut (this takes a minute) ..."
+    if ! PLYMOUTH_THEME_NAME=nullLinux dracut --force --quiet \
+           --kver "$(uname -r)" "$img" 2>/tmp/null-dracut.log; then
+      say "dracut FAILED:"; sed 's/^/    /' /tmp/null-dracut.log | tail -20
+      refuse "the initramfs could not be built -- do not proceed"
+    fi
+    say "built $(stat -c%s "$img" | numfmt --to=iec)"
+    local got_theme got_mod
+    got_theme=$(lsinitrd "$img" 2>/dev/null | grep -c 'themes/nulllinux/' || true)
+    got_mod=$(lsinitrd "$img" 2>/dev/null | grep -c "plymouth/$module.so" || true)
+    say "theme files in the image: $got_theme"
+    say "module in the image:      $got_mod"
+    # Files being PRESENT is not the same as the image BOOTING them. There is no
+    # default.plymouth on Fedora; the daemon reads Theme= from plymouthd.conf
+    # (admin, what plymouth-set-default-theme writes) falling back to
+    # plymouthd.defaults (distribution). Check the pair, else a green tick here
+    # would sit happily beside the old splash at boot.
+    local img_default
+    img_default=$(lsinitrd "$img" -f etc/plymouth/plymouthd.conf 2>/dev/null \
+                  | sed -n 's/^ *Theme *= *//p' | head -1)
+    [ -n "$img_default" ] || img_default=$(lsinitrd "$img" -f usr/share/plymouth/plymouthd.defaults \
+                  2>/dev/null | sed -n 's/^ *Theme *= *//p' | head -1)
+    say "image will boot theme:    ${img_default:-<none>}"
+    rm -f "$img"
+    if [ "$got_theme" -eq 0 ] || [ "$got_mod" -eq 0 ]; then
+      refuse "the built image does not contain the theme and its module"
+    fi
+    case "$img_default" in
+      nullLinux) say "the image would boot the nullLinux theme." ;;
+      *) say ""
+         say "NOTE: the image contains the theme but its default still points at"
+         say "      '${img_default:-<none>}'. That is expected for --check, which"
+         say "      deliberately does not change the system default; --apply runs"
+         say "      plymouth-set-default-theme before dracut." ;;
+    esac
+    say "the initramfs path works. That is not the same as booting it."
+    return 0
+  fi
+
+  say ""
+  say "This is the one component that can leave the machine unbootable."
+  say "It regenerates an initramfs, and §9.6 requires the fallback entry to be"
+  say "confirmed BY AN ACTUAL REBOOT before that happens."
+  say ""
+  say "  null-system plymouth --check                      build a throwaway image"
+  say "  null-system plymouth --apply --fallback-verified  commit"
+  if [ "$APPLY" -eq 1 ] && [ "$FALLBACK_VERIFIED" -eq 1 ]; then
+    snapshot splash
+    rm -rf /usr/share/plymouth/themes/nulllinux
+    cp -a "$theme" /usr/share/plymouth/themes/nulllinux
+    command -v restorecon >/dev/null && restorecon -RF /usr/share/plymouth/themes/nulllinux 2>/dev/null
+    plymouth-set-default-theme nullLinux
+    say "regenerating ONLY the running kernel's initramfs; the rescue image is untouched"
+    dracut --force --kver "$(uname -r)"
+    say "done"
+  else
+    say ""
+    say "DRY RUN: nothing was changed."
+  fi
+}
+
+usage() { cat <<'U'
+usage: null-system [--apply] [--fallback-verified] [--check] <fallback|tty|sddm|plymouth>
+
+  fallback   check the fallback boot entry (never changes anything)
+  tty        console font and banner
+  sddm       login greeter theme
+  plymouth   boot splash -- refuses without --fallback-verified
+             --check builds a throwaway initramfs and inspects it
+
+Without --apply every subcommand reports and touches nothing.
+U
+}
+
+FALLBACK_VERIFIED=0
+CHECK=0
+CMD=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --apply) APPLY=1 ;;
+    --fallback-verified) FALLBACK_VERIFIED=1 ;;
+    --check) CHECK=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) CMD=$1 ;;
+  esac
+  shift
+done
+[ -n "$CMD" ] || { usage; exit 2; }
+need_root
+case $CMD in
+  fallback) cmd_fallback ;;
+  tty)      cmd_tty ;;
+  sddm)     cmd_sddm ;;
+  plymouth) cmd_plymouth ;;
+  *) usage; exit 2 ;;
+esac

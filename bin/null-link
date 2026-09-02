@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Link this system's configuration into place (NULL.md §9.9).
+#
+# Symlinks, backs up anything real already there, and ROLLS BACK AUTOMATICALLY:
+# a configuration that fails to parse leaves a desktop with no keys at all, and
+# the user's only input device is the one that just stopped working.
+set -uo pipefail
+ROOT=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)
+STAMP=$(date +%Y%m%d-%H%M%S)
+BACKUP="$HOME/.config/.null-backup-$STAMP"
+MIN_BINDS=${MIN_BINDS:-40}
+
+link_one() {  # <source> <target>
+  local src=$1 dst=$2
+  mkdir -p "$(dirname "$dst")"
+  if [ -e "$dst" ] && [ ! -L "$dst" ]; then
+    mkdir -p "$(dirname "$BACKUP/${dst#$HOME/}")"
+    cp -a "$dst" "$BACKUP/${dst#$HOME/}"
+    echo "  backed up $dst"
+  fi
+  ln -sfn "$src" "$dst"
+  echo "  linked $dst -> $src"
+}
+
+case "${1:-}" in
+  --restore)
+    latest=$(ls -d "$HOME"/.config/.null-backup-* 2>/dev/null | tail -1)
+    [ -n "$latest" ] || { echo "null-link: no backup found" >&2; exit 1; }
+    echo "restoring from $latest"
+    (cd "$latest" && find . -type f -exec cp -a {} "$HOME/.config/{}" \;)
+    swaymsg reload >/dev/null 2>&1 || true
+    exit 0 ;;
+esac
+
+# Never install a configuration that does not parse. Validation reports errors
+# on stdout while still exiting 0, so the OUTPUT is the evidence (§10.1).
+echo "validating before touching anything..."
+out=$(sway --validate --config "$ROOT/config/sway/config" 2>&1)
+if grep -q ERROR <<<"$out"; then
+  echo "REFUSING: the configuration does not parse:" >&2
+  grep ERROR <<<"$out" | head -5 >&2
+  exit 1
+fi
+
+# And never install one whose bindings are broken.
+if ! python3 "$ROOT/verify/check_binds.py" "$ROOT/config/sway/config" >/dev/null; then
+  echo "REFUSING: the binding audit fails:" >&2
+  python3 "$ROOT/verify/check_binds.py" "$ROOT/config/sway/config" >&2
+  exit 1
+fi
+echo "  validates, and the binding audit passes"
+
+# Link the config and EVERY include it names, discovered by reading it rather
+# than from a list maintained here. A hand-maintained list is a silent failure
+# waiting to happen: sway carries on without a missing include, so an unlinked
+# one costs the setting and produces no error. That is exactly how the keyboard
+# layout stayed US while the configuration said gb.
+LINKED=()
+link_one "$ROOT/config/sway/config" "$HOME/.config/sway/config"
+LINKED+=("$HOME/.config/sway/config")
+while read -r inc; do
+  # Absolute includes are the distribution's own files; they are already where
+  # they belong and are not ours to link.
+  case "$inc" in /*) continue ;; esac
+  if [ ! -e "$ROOT/config/sway/$inc" ]; then
+    echo "REFUSING: the configuration includes '$inc', which does not exist" >&2
+    exit 1
+  fi
+  link_one "$ROOT/config/sway/$inc" "$HOME/.config/sway/$inc"
+  LINKED+=("$HOME/.config/sway/$inc")
+done < <(sed -n 's/^[[:space:]]*include[[:space:]]\+//p' "$ROOT/config/sway/config")
+
+# EVERY config directory this repository owns, discovered rather than listed.
+#
+# The GTK links were never made by this script at all -- they had been created
+# by hand during an earlier phase, so they existed on the machine that built
+# the system and would have existed nowhere else. That is exactly the class of
+# thing that only surfaces when a second user, or a second machine, tries it.
+#
+# The exclusions are named, with reasons, rather than the inclusions:
+#   sway     handled above, because its includes must be followed
+#   firefox  a browser profile is joined, not linked (bin/null-firefox, §9.8)
+#   shell    joined into the user's own rc file (bin/null-join, §9.8)
+#   git      joined into the user's own config (bin/null-join, §9.8)
+for d in "$ROOT"/config/*/; do
+  name=$(basename "$d")
+  case "$name" in sway|firefox|shell|git) continue ;; esac
+  link_one "$d" "$HOME/.config/$name"
+  LINKED+=("$HOME/.config/$name")
+done
+
+if [ -n "${SWAYSOCK:-}" ] && swaymsg -t get_version >/dev/null 2>&1; then
+  echo "reloading..."
+  swaymsg reload >/dev/null 2>&1
+  sleep 1
+  # --count, not `--list | wc -l`: the second counts DECORATION as well as
+  # bindings, so a formatting change moves a safety threshold.
+  n=$(python3 "$ROOT/verify/check_binds.py" "$HOME/.config/sway/config" --count 2>/dev/null)
+  echo "  $n bindings loaded"
+  if [ "$n" -lt "$MIN_BINDS" ]; then
+    echo "ROLLING BACK: only $n bindings (< $MIN_BINDS)" >&2
+    rm -f "${LINKED[@]}"
+    swaymsg reload >/dev/null 2>&1
+    exit 1
+  fi
+else
+  echo "  (no compositor socket; not reloading)"
+fi
+echo "done. backup: ${BACKUP}"

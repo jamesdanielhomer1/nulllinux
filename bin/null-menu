@@ -1,0 +1,360 @@
+#!/usr/bin/env bash
+# Every menu is one filter-picker in the column (NULL.md §7.4).
+#
+# The tree follows OMARCHY's menu, because that is the shape in this user's
+# hands. What is NOT here, and why:
+#
+#   * ICONS AND COLOUR PICKERS. Removed on request -- and they could not have
+#     worked anyway: this desktop draws one glyph ramp and one derived palette.
+#   * THEMES, FONTS, BACKGROUNDS. There is nothing to pick. The palette is
+#     derived from the Planckian locus, the ramp from the font's own measured
+#     ink coverage, and the background IS the hero (§1). A font picker here
+#     would be a control that breaks the system it appears in.
+#   * ARCH-SPECIFIC ENTRIES -- that distribution's user repository, its release
+#     channels, its language installers. Packages go through bin/pkg (§9.1).
+#
+# A leaf with no component SAYS SO. An entry that silently does nothing is
+# worse than an absent one: it costs a keystroke to discover, twice.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+
+topic=${1:-main}
+
+# Nothing is invoked by BARE NAME. A name resolves through an interactive
+# shell's search path and through nothing the compositor starts (§9.9).
+B="$ROOT/bin"
+COLUMN="$ROOT/render/target/release/column"
+
+# choose <prompt> <header> <row...> -- prints the first field of the pick
+choose() {
+  local prompt=$1 header=$2; shift 2
+  printf '%s\n' "$@" \
+    | fzf "${NULL_FZF[@]}" --prompt="$prompt > " --no-sort --header="$header" \
+    | awk '{print $1}'
+}
+
+# Absent is STATED, never drawn as an empty list (§8.4).
+say() {
+  printf '%s\n' "$@" | fzf "${NULL_FZF[@]}" --prompt='note > ' \
+    --header='nothing to pick here' >/dev/null || true
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+go()   { [ -n "$1" ] && exec "$0" "$1" || exit 0; }
+
+case $topic in
+
+  main)
+    go "$(choose menu 'one picker, one topic' \
+      "apps       launch an installed application" \
+      "files      browse, here or in a window" \
+      "clipboard  history, and copy it back" \
+      "player     what is playing, and its transport" \
+      "calendar   the month, and anything with a date attached" \
+      "learn      the bindings, and this system's own documentation" \
+      "settings   brightness, power plan, idle timers, radios" \
+      "netconfig  NetworkManager's own editor -- static IPs, VPNs" \
+      "mixer      the PipeWire mixer -- per-stream volume and routing" \
+      "trigger    capture, toggles, hardware" \
+      "setup      audio, network, displays, storage, input" \
+      "install    add software" \
+      "remove     take software away" \
+      "update     every update channel, and their state" \
+      "about      what this machine is" \
+      "system     the session verbs")" ;;
+
+  # §8.4 calls this component `run`; Omarchy's menu calls it `apps`. Both
+  # names reach it, because the specification and the muscle memory disagree
+  # and neither is wrong.
+  apps|run) exec "$B/null-run" ;;
+  browse)   exec "$B/null-browse" ;;
+  clipboard) exec "$B/null-clipboard" list ;;
+  player)    exec "$B/null-player" ;;
+  calendar)  exec "$B/null-calendar" ;;
+  files)
+    # BOTH halves, because they are different jobs (§8.7). The column one is
+    # for getting somewhere; the window one is for doing everything, and a
+    # 63-column strip cannot be the second no matter how it is dressed.
+    sel=$(choose files 'the column one navigates; the window one does the work' \
+      "sidebar    browse in the column" \
+      "window     the full file manager" \
+      "storage    map and unmap network drives")
+    case $sel in
+      sidebar) exec "$COLUMN" --send open browse ;;
+      window)  exec "$B/null-filemanager" open ;;
+      storage) exec "$B/null-storage" ;;
+    esac ;;
+  find)     exec "$B/null-find" ;;
+  settings) exec "$B/null-settings" ;;
+  # settings-<category> opens one panel of the tree directly, so a binding can
+  # land on the thing it names rather than on the top of the menu.
+  settings-*) exec "$B/null-settings" "${topic#settings-}" ;;
+
+  learn)
+    go "$(choose learn 'what this system can tell you about itself' \
+      "keys       every binding, read live" \
+      "about      what this machine is" \
+      "plan       the specification this was built from")" ;;
+
+  plan)
+    [ -r "$ROOT/NULL.md" ] || { say "no NULL.md in $ROOT"; exit 0; }
+    grep -nE '^#{1,3} ' "$ROOT/NULL.md" | sed 's/:#* / /' \
+      | fzf "${NULL_FZF[@]}" --prompt='plan > ' \
+            --header='every section of the specification' >/dev/null || true ;;
+
+  about)
+    "$B/machine" show 2>/dev/null | fzf "${NULL_FZF[@]}" --prompt='about > ' \
+      --header='derived at runtime, never stored' >/dev/null || true ;;
+
+  # --------------------------------------------------------------- trigger
+  trigger)
+    go "$(choose trigger 'things that happen when you ask' \
+      "capture    stills and recordings" \
+      "toggle     the switches" \
+      "hardware   the machine's own devices")" ;;
+
+  capture)
+    sel=$(choose capture 'stills and recordings' \
+      "screenshot   the whole screen" \
+      "region       a rectangle you draw" \
+      "window       the focused window" \
+      "record       a recording, with or without sound" \
+      "colour       the colour under the pointer")
+    [ -n "$sel" ] || exit 0
+    case $sel in
+      record) go record ;;
+      *)      exec "$B/null-capture" "$sel" ;;
+    esac ;;
+
+  record)
+    sel=$(choose record 'a recording stops with the same key that started it' \
+      "silent     no audio" \
+      "desktop    desktop audio" \
+      "both       desktop audio and the microphone")
+    [ -n "$sel" ] || exit 0
+    exec "$B/null-capture" record "$sel" ;;
+
+  toggle)
+    sel=$(choose toggle 'reads the live state, never a remembered one' \
+      "$(null_row 'screensaver'   "$("$B/null-screensaver" state 2>/dev/null || echo "$NULL_UNMEASURED")")" \
+      "$(null_row 'nightlight'    "$("$B/null-nightlight" state 2>/dev/null || echo "$NULL_UNMEASURED")")" \
+      "$(null_row 'idle-lock'     "$("$B/null-idle" state 2>/dev/null || echo "$NULL_UNMEASURED")")" \
+      "$(null_row 'notifications' "$(dunstctl is-paused 2>/dev/null | sed 's/true/silenced/; s/false/on/' || echo "$NULL_UNMEASURED")")" \
+      "$(null_row 'column'        'pinned or not')")
+    case $sel in
+      screensaver)   "$B/null-screensaver" start ;;
+      nightlight)    "$B/null-nightlight" toggle ;;
+      idle-lock)     "$B/null-idle" toggle ;;
+      notifications) dunstctl set-paused toggle >/dev/null 2>&1 ;;
+      column)        "$COLUMN" --send pin ;;
+    esac ;;
+
+  hardware)
+    sel=$(choose hardware 'a device that is absent is not offered (§8.4)' \
+      $( "$B/machine" probe backlight 2>/dev/null && echo "backlight  the screen's own brightness" ) \
+      $( "$B/machine" probe wireless 2>/dev/null && echo "wireless   the radio" ) \
+      $( "$B/machine" probe bluetooth 2>/dev/null && echo "bluetooth  the radio" ) \
+      $( "$B/machine" probe discrete-gpu 2>/dev/null && echo "gpu        the discrete adapter" ) \
+      "displays   what is connected, and how")
+    [ -n "$sel" ] || exit 0
+    case $sel in
+      wireless)  go network ;;
+      bluetooth) go bluetooth ;;
+      displays)  go displays ;;
+      backlight) exec "$B/null-settings" ;;
+      gpu)       "$B/machine" capabilities | fzf "${NULL_FZF[@]}" --prompt='gpu > ' >/dev/null || true ;;
+    esac ;;
+
+  # ----------------------------------------------------------------- setup
+  setup)
+    go "$(choose setup 'the scattered knobs' \
+      "settings   brightness, power, timers, notifications, radios" \
+      "audio      choose the output" \
+      "network    join and inspect wireless networks" \
+      "bluetooth  power, scan, pair, connect, forget" \
+      "displays   what is connected, and how" \
+      "storage    map and unmap network storage" \
+      "input      keyboard layout and pointer")" ;;
+
+  displays)
+    # The QUERY must succeed, not just the command exist. Without a compositor
+    # socket swaymsg prints nothing and exits non-zero, and feeding that to a
+    # JSON parser showed the user a Python traceback in the sidebar.
+    if ! have swaymsg || ! out=$(swaymsg -t get_outputs 2>/dev/null) || [ -z "$out" ]; then
+      say "no compositor to ask -- is this running inside the session?"; exit 0
+    fi
+    printf '%s' "$out" | python3 -c '
+import json,sys
+for o in json.load(sys.stdin):
+    m=o.get("current_mode") or {}
+    print("%-12s %-20s %sx%s@%.0fHz  %s" % (
+        o.get("name","?"), (o.get("make","")+" "+o.get("model",""))[:20],
+        m.get("width","?"), m.get("height","?"), (m.get("refresh",0) or 0)/1000,
+        "on" if o.get("active") else "off"))' \
+      | fzf "${NULL_FZF[@]}" --prompt='displays > ' \
+            --header='read from the compositor' >/dev/null || true ;;
+
+  input)
+    if ! have swaymsg || ! out=$(swaymsg -t get_inputs 2>/dev/null) || [ -z "$out" ]; then
+      say "no compositor to ask -- is this running inside the session?"; exit 0
+    fi
+    printf '%s' "$out" | python3 -c '
+import json,sys
+for d in json.load(sys.stdin):
+    n=d.get("xkb_active_layout_name") or ""
+    print("%-34s %-12s %s" % (d.get("identifier","?"), d.get("type","?"), n))' \
+      | fzf "${NULL_FZF[@]}" --prompt='input > ' \
+            --header='read from the compositor; layout is set in input.conf' >/dev/null || true ;;
+
+  storage)  exec "$B/null-storage" ;;
+  bluetooth) exec "$B/null-bluetooth" ;;
+
+  # ---------------------------------------------------- install and remove
+  install)
+    sel=$(choose install 'through the package abstraction, always (§9.1)' \
+      "package    search and install" \
+      "list       install every package in a list")
+    case $sel in
+      package)
+        q=$(printf '' | fzf "${NULL_FZF[@]}" --prompt='search > ' --print-query \
+              --header='type a term, then Enter' | head -1) || exit 0
+        [ -n "$q" ] || exit 0
+        p=$("$B/pkg" search "$q" 2>/dev/null | fzf "${NULL_FZF[@]}" \
+              --prompt='install > ' --header='Enter installs' | awk '{print $1}')
+        [ -n "$p" ] || exit 0
+        foot -e sudo "$B/pkg" install "$p" ;;
+      list)
+        l=$(ls "$ROOT/packages/fedora/" 2>/dev/null | sed 's/\.list$//' \
+              | fzf "${NULL_FZF[@]}" --prompt='list > ')
+        [ -n "$l" ] || exit 0
+        foot -e sudo "$B/pkg" install-list "$l" ;;
+    esac ;;
+
+  remove)
+    # Explicitly-installed only, never the full set: offering the latter
+    # invites removing a dependency by hand (§8.4).
+    p=$("$B/pkg" list-explicitly-installed 2>/dev/null \
+        | fzf "${NULL_FZF[@]}" --prompt='remove > ' \
+              --header='the user-installed set, not every installed package')
+    [ -n "$p" ] || exit 0
+    foot -e sudo "$B/pkg" remove "$p" ;;
+
+  update)
+    # Report-first (§8.4): this SHOWS state and never applies. The applying
+    # flags live on the command line, where typing them is a deliberate act
+    # rather than a highlighted row and a return key.
+    list=$("$B/null-update")
+    fzf "${NULL_FZF[@]}" --prompt='update > ' \
+        --header='reporting only -- apply with: null-update --apply' \
+        <<<"$list" >/dev/null || true ;;
+
+  keys)
+    # Built into a VARIABLE first (§7.4). Piping a slow producer into the
+    # picker leaves it in its loading state, and its spinner is braille with no
+    # option to change it -- so the fix is upstream: never enter the state.
+    list=$("$B/null-keys")
+    # --layout=reverse ONLY here. fzf's default grows the list upward from the
+    # prompt, so a file's order is displayed bottom-to-top -- which put every
+    # section heading UNDER the bindings it introduces. A sectioned reference
+    # has to read top-down. The short pickers keep the default, where the list
+    # rising to meet the prompt is the right shape.
+    fzf "${NULL_FZF[@]}" --layout=reverse --prompt='keys > ' \
+        --header='read from the configuration the compositor loaded' \
+        <<<"$list" >/dev/null || true ;;
+
+  # ---------------------------------------------------------------- system
+  system|power)
+    sel=$(choose system 'the session verbs' \
+      "$(null_row 'screensaver' 'the hero, full screen')" \
+      "$(null_row 'lock'        'swaylock')" \
+      "$(null_row 'suspend'     'systemctl suspend')" \
+      "$(null_row 'logout'      'swaymsg exit')" \
+      "$(null_row 'restart'     'systemctl reboot')" \
+      "$(null_row 'shutdown'    'systemctl poweroff')")
+    case $sel in
+      screensaver) exec "$B/null-screensaver" start ;;
+      lock)        "$B/null-screensaver" stop; swaylock -f ;;
+      suspend)     systemctl suspend ;;
+      logout)      swaymsg exit ;;
+      restart)     systemctl reboot ;;
+      shutdown)    systemctl poweroff ;;
+    esac ;;
+
+  audio)
+    # SAY WHICH of the three ways this can be empty. The message here used to
+    # blame root unconditionally, so a non-root user with a working daemon and
+    # no outputs was told something that was not true of their session.
+    if ! have wpctl; then
+      say "wpctl is not installed"; exit 0
+    fi
+    if ! wpctl status >/dev/null 2>&1; then
+      if [ "$(id -u)" -eq 0 ]; then
+        say "the audio daemon is not running for this session" \
+            "" \
+            "This session is ROOT, and pipewire.service carries" \
+            "ConditionUser=!root, so systemd skips it entirely." \
+            "Log in as an ordinary user."
+      else
+        say "the audio daemon is not running for this user" \
+            "" \
+            "systemctl --user status pipewire.service"
+      fi
+      exit 0
+    fi
+    list=$(wpctl status | sed -n '/Sinks:/,/^$/p' | grep -E '^\s+\|?\s+[0-9*.]' || true)
+    if [ -z "$list" ]; then
+      # An empty picker is indistinguishable from a key that did nothing.
+      say "the audio daemon is running, but has no outputs" \
+          "" \
+          "Sound devices are granted to whoever holds the seat." \
+          "If another user is logged in on seat0, this session has none."
+      exit 0
+    fi
+    fzf "${NULL_FZF[@]}" --prompt='audio > ' --header='choose the output' \
+        <<<"$list" >/dev/null || true ;;
+
+  network)
+    have nmcli || { say "no network daemon"; exit 0; }
+    # The scan is the slowest thing any topic does, and it is exactly why the
+    # spinner showed here most. The whole list is built BEFORE the picker
+    # starts, and --rescan no reads the scan the daemon already has.
+    list=$(nmcli -t -f SSID,SIGNAL,SECURITY device wifi list --rescan no 2>/dev/null \
+      | awk -F: 'length($1){printf "%-32s %3s%%  %s\n", $1, $2, ($3==""?"open":"*")}' || true)
+    if [ -z "$list" ]; then
+      say "no networks in the daemon's last scan" \
+          "" \
+          "This reads the scan the daemon already has rather than forcing one," \
+          "so an empty list means it has not scanned recently -- or the radio" \
+          "is off. Check it under setup > settings."
+      exit 0
+    fi
+    fzf "${NULL_FZF[@]}" --prompt='network > ' \
+        --header='strongest first; * is secured' <<<"$list" >/dev/null || true ;;
+
+  monitor)  exec "$COLUMN" --send open monitor ;;
+
+  # The tools this system does NOT reimplement.
+  #
+  # A hand-rolled picker is right for the half-dozen things a person changes
+  # daily. It is wrong for static addresses, VPNs, 802.1x and editing a saved
+  # connection, and it is wrong for per-stream audio routing. Both of these
+  # were measured against the font before being allowed in (§10.5).
+  netconfig) exec "$COLUMN" --send open netconfig ;;
+  mixer)     exec "$COLUMN" --send open mixer ;;
+
+  power-profile)
+    if ! "$B/null-power" probe 2>/dev/null; then
+      say "no power profile daemon is running" "" \
+          "Neither tuned nor power-profiles-daemon is active." \
+          "null-power backend reports: $("$B/null-power" backend)"; exit 0
+    fi
+    now=$("$B/null-power" get)
+    sel=$(choose 'power profile' "now: $now -- $("$B/null-power" backend)'s own names" \
+            $("$B/null-power" list))
+    [ -n "$sel" ] || exit 0
+    "$B/null-power" set "$sel" ;;
+
+  *) echo "null-menu: unknown topic '$topic'" >&2; exit 2 ;;
+esac

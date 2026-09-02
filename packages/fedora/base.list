@@ -1,0 +1,76 @@
+# Base packages for nox on Fedora.
+#
+# Per-distribution data (NULL.md §9.1): the names genuinely differ between
+# distributions and no abstraction can fix that. Install with:
+#     bin/pkg install-list base
+#
+# Every entry says why it is here. A package list without reasons is
+# unreviewable a year later, which is when it matters.
+
+# --- the font ----------------------------------------------------------
+# The whole design rests on one bitmap typeface (NULL.md I2). The console
+# build carries the PSF strikes the ramp is derived from and the virtual
+# console uses; terminus-fonts serves the rest through fontconfig as .otb --
+# which is BITMAP STRIKES IN AN OPENTYPE WRAPPER, not an outline build. It has
+# strikes at 12,14,16,18,20,22,24,28,32 px and nothing in between.
+#
+# Measured, not assumed (verify/check-font-substitution.py): both WebKit and
+# Gecko do render it -- so §8.10's "a bitmap font will not render in a browser
+# engine" is not what happens here. What happens is worse to detect: they
+# SCALE it. Widths come out exactly proportional to the requested size, so at
+# any size that is not a strike the text is a scaled bitmap, which is the one
+# thing this design exists to avoid (§9.3).
+#
+# Hence the TTF build, for contexts that cannot be pinned to a strike. Same
+# design, same 4.49 series, main Fedora repository, OFL-1.1.
+terminus-fonts                  # ter-u18n etc. (.otb strikes), via fontconfig
+terminus-fonts-console          # ter-112n / ter-118n PSF, in /usr/lib/kbd/consolefonts/
+ax86-terminus-ttf-fonts         # outline build, for browser engines (§8.10)
+
+# --- the compositor ----------------------------------------------------
+# Settled at Phase 0 against §8.1's six requirements. Hyprland is NOT
+# packaged for Fedora and must not be used here -- it would come from a
+# third-party repository, which §9.1 forbids for a core component.
+sway
+
+# --- GPU / bake --------------------------------------------------------
+# The simulation is a Vulkan compute workload (§5.5). NVK exposes the
+# discrete adapter, so no proprietary driver is required; this was verified
+# at Phase 0 rather than assumed.
+mesa-vulkan-drivers
+vulkan-tools                    # vulkaninfo: confirms which adapters exist
+
+# --- renderer build dependencies ---------------------------------------
+# The renderer is a Wayland layer-shell client (§6.3). libxkbcommon is not
+# optional even for surfaces that take no keyboard: the toolkit links it, and
+# the column needs it for real (§7.3), since a keycode is not a character and
+# only the layout says which.
+rust
+cargo
+wayland-devel
+libxkbcommon-devel
+
+# --- components (§8.4) --------------------------------------------------
+# Each is named because a component needs it, not because it is nice to have.
+fzf                 # the filter-picker every menu is (§7.4)
+btop                # the monitor the column hosts (§10.5 decided this)
+foot                # a terminal that renders bitmap fonts correctly
+fd-find             # `find` re-runs this per keystroke; the picker's own matcher is off
+brightnessctl       # the backlight, which settings reads and writes rather than owning
+dunst               # the notification daemon the on-screen display uses (§7.5).
+                    # Not mako: dunst already owns the bus name here, and a
+                    # second daemon simply cannot take it.
+grim slurp          # capture
+wl-clipboard        # clipboard, and putting a capture's path where it can be pasted
+
+# --- capture ------------------------------------------------------------
+# §8.4: capture is both halves in one place -- stills and recordings.
+# grim and slurp are already pulled in by the compositor spin.
+wf-recorder                     # screen recording on wlroots
+
+# --- the last three components (§8.4) ---------------------------------
+# playerctl is already pulled in by the bar; these are the two that were not.
+cliphist                        # clipboard history, for the clipboard component
+cava                            # the audio spectrum in the column (§10.7 warns
+                                # this dependency can multiply a surface's cost;
+                                # it is measured in docs/measurements.md)

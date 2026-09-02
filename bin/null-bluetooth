@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Power, scan, pair, connect, forget (NULL.md §8.4).
+#
+# Every row is read from the daemon at draw time. There is no local copy of
+# any value, so nothing can drift (§8.4).
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+null_fzf_flags
+command -v bluetoothctl >/dev/null || { echo "null-bluetooth: bluetoothctl missing" >&2; exit 1; }
+
+powered() { bluetoothctl show 2>/dev/null | grep -q 'Powered: yes' && echo on || echo off; }
+devices() { bluetoothctl devices 2>/dev/null | sed 's/^Device //' || true; }
+connected() { bluetoothctl info "$1" 2>/dev/null | grep -q 'Connected: yes' && echo yes || echo no; }
+
+# The daemon, not just the tool. bluetoothctl exists whether or not bluetoothd
+# is running, and every row below is empty and silent when it is not.
+if ! bluetoothctl show >/dev/null 2>&1; then
+  printf '  the bluetooth daemon is not answering\n\n'
+  printf '  systemctl status bluetooth.service\n'
+  sleep 4
+  exit 0
+fi
+
+case "${1:-menu}" in
+  menu)
+    sel=$(printf '%s\n' \
+      "$(null_row 'power'   "$(powered)")" \
+      "$(null_row 'devices' "$(devices | grep -c . || echo 0) known")" \
+      "$(null_row 'scan'    'look for new devices')" \
+      | fzf "${NULL_FZF[@]}" --prompt='bluetooth > ' --no-sort \
+            --header='read from the daemon at draw time' | awk '{print $1}')
+    [ -n "$sel" ] || exit 0
+    exec "$0" "$sel" ;;
+
+  power)
+    # Report the result. A toggle that prints nothing looks like it failed.
+    if [ "$(powered)" = on ]; then bluetoothctl power off; else bluetoothctl power on; fi
+    printf '  adapter is now %s\n' "$(powered)"
+    sleep 1 ;;
+
+  scan)
+    # Bounded, AND it says it is happening. A bounded scan that prints nothing
+    # is eight seconds of a blank column, which is indistinguishable from a
+    # menu entry that does nothing at all -- which is exactly how this one was
+    # reported. §7.4 says never enter the loading state; where something must
+    # take time, the least it can do is say so.
+    printf '\n  scanning for %s seconds ...\n' "${NULL_BT_SCAN:-6}"
+    bluetoothctl --timeout "${NULL_BT_SCAN:-6}" scan on >/dev/null 2>&1 || true
+    printf '  done\n'
+    exec "$0" devices ;;
+
+  devices)
+    list=$(devices | while read -r mac name; do
+             printf '%-18s %-28s %s\n' "$mac" "$name" "$(connected "$mac")"
+           done)
+    [ -n "$list" ] || list="(no devices known)"
+    pick=$(fzf "${NULL_FZF[@]}" --prompt='device > ' \
+             --header='mac, name, connected -- Enter connects or disconnects' \
+             <<<"$list") || exit 0
+    mac=$(awk '{print $1}' <<<"$pick"); [ -n "$mac" ] || exit 0
+    case $(awk '{print $NF}' <<<"$pick") in
+      yes) bluetoothctl disconnect "$mac" ;;
+      no)  bluetoothctl pair "$mac" >/dev/null 2>&1 || true
+           bluetoothctl trust "$mac" >/dev/null 2>&1 || true
+           bluetoothctl connect "$mac" ;;
+    esac ;;
+
+  *) echo "usage: null-bluetooth [menu|power|scan|devices]" >&2; exit 2 ;;
+esac

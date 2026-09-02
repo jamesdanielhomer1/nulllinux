@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# The night light (NULL.md §8.4 toggles).
+#
+# State is READ FROM THE PROCESS, never remembered. A remembered flag and a
+# dead daemon disagree the moment anything restarts, and the flag is the one
+# that lies confidently.
+set -uo pipefail
+DAY=${NULL_NIGHTLIGHT_DAY:-6500}
+NIGHT=${NULL_NIGHTLIGHT_NIGHT:-3500}
+command -v wlsunset >/dev/null || { echo "null-nightlight: wlsunset is not installed" >&2; exit 1; }
+
+running() { pgrep -x wlsunset >/dev/null 2>&1; }
+
+case "${1:-toggle}" in
+  state)  running && echo "on (${NIGHT}K)" || echo off ;;
+  on)     running || setsid wlsunset -T "$DAY" -t "$NIGHT" >/dev/null 2>&1 & ;;
+  off)    for p in $(pgrep -x wlsunset); do kill "$p"; done 2>/dev/null || true ;;
+  toggle) if running; then exec "$0" off; else exec "$0" on; fi ;;
+  *) echo "usage: null-nightlight [state|on|off|toggle]" >&2; exit 2 ;;
+esac
