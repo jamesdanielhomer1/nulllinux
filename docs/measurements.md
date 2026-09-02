@@ -452,3 +452,48 @@ and choosing it costs nothing if it turns out to have been unnecessary.
 - **Phase 10's gate is unmet**: it requires confirmation on real boots, which
   cannot be done from inside a running session.
 - **Phase 9's off-machine backup is outstanding**: the USB SSD is not attached.
+
+## The hero bake, measured
+
+Inputs: nox, i5-9300H, GTX 1660 Ti via NVK (the open-source Vulkan driver, not
+NVIDIA's). 240 frames, 640x180 cells, 4x supersampling -- 2560x720 = 1,843,200
+rays per frame, 442,368,000 in total, each integrated by RK4 for up to 3000
+steps.
+
+| stage | wall clock |
+|---|---|
+| build the GPU tracer (`kerr-gpu`, once) | 58.9 s |
+| **bake** -- trace 94.3 s + downsample 31.1 s | **127.0 s** |
+| tone sweep (`tune`) | 24.6 s |
+| quantise | 13.8 s |
+| derive every target | 42.9 s |
+| **hero pipeline, total** | **208 s -- three and a half minutes** |
+| the same, cold, including the tracer build | 267 s |
+
+Peak resident memory during the bake: 120 MB. CPU utilisation 37%, which is
+the tell that it is GPU-bound and that the CPU is mostly waiting.
+
+Intermediate output: `assets/master.hdrcells` is 423 MB across 240 frames.
+That is the artefact worth keeping (§5.1) -- tone, colour and quantisation all
+re-run from it in about 80 seconds, so the curve is re-tunable without ever
+re-tracing.
+
+**THIS SETTLES A DESIGN QUESTION.** §0.5 assumed the bake might be too
+expensive to run at install time and that shipping prebuilt assets in the
+package was therefore mandatory. At three and a half minutes it is not
+mandatory; it is a convenience. A machine with a working Vulkan GPU can bake
+its own hero during installation, and prebuilt assets are for machines that
+cannot -- headless installs, virtual machines, and anything without a driver.
+
+What is NOT measured, and matters: this is a discrete GPU. The cost on Intel
+integrated graphics alone, and on a machine with no Vulkan device at all, is
+unknown. The second case may not be a slow bake but no bake, in which case
+`--skip-hero` and shipped assets are the only paths.
+
+## The tone curve is swept, not remembered
+
+Appendix A lists the black point, white point and gamma as "re-tuned per
+emission model" rather than as settled constants, so `null-build` sweeps them
+and feeds the result to the two stages after it, rather than carrying last
+run's numbers. This bake chose `--black-pct 0 --white-pct 99.0 --gamma 1.0`:
+15.4% ink at 100% coverage.

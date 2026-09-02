@@ -118,10 +118,40 @@ if [ "$SKIP_HERO" -eq 1 ]; then
     python3 bake/placeholder.py --out assets/placeholder.cells
   echo "  (hero skipped: the placeholder stands in for it)"
 else
-  stage hero assets/master.hdrcells -- python3 bake/bake.py
-  stage quantise assets/master.cells -- python3 bake/quantise.py
-  stage targets assets/target-2.cells assets/target-4.cells assets/tty.cells assets/logo.cells -- \
-    python3 bake/derive_targets.py
+  # The GPU tracer is a Rust crate of its own and nothing else builds it. The
+  # bake shells out to it, so a tree that has never built it fails at the most
+  # expensive possible moment -- after the packages, the profile and the atlas.
+  stage kerr-gpu bake/gpu/target/release/kerr-gpu -- \
+    cargo build --release --manifest-path bake/gpu/Cargo.toml
+  stage hero assets/master.hdrcells -- python3 bake/bake.py --out assets/master.hdrcells
+
+  # THE TONE CURVE IS SWEPT, NOT REMEMBERED.
+  #
+  # Appendix A lists the black point, the white point and the gamma as
+  # "re-tuned per emission model" rather than as settled constants, so they
+  # cannot be written down here: change the disk's emission and last run's
+  # numbers are a curve fitted to a different picture.
+  #
+  # tune.py prints its recommendations best-first, each one already in the form
+  # of the arguments the next two stages take, so the top line IS the answer
+  # and is used as such rather than transcribed.
+  if [ -z "$ONLY" ] || [ "$ONLY" = tone ]; then
+    printf '  %-22s ' tone
+    if TONE=$(python3 bake/tune.py --frames-dir assets/master.hdrcells 2>/dev/null \
+              | grep -oE -- '--black-pct [0-9.]+ --white-pct [0-9.]+ --gamma [0-9.]+' | head -1) \
+       && [ -n "$TONE" ]; then
+      printf 'ok  (%s)\n' "$TONE"
+    else
+      printf 'FAILED -- no tone curve, so nothing below it can run\n'; fail=1; TONE=""
+    fi
+  fi
+
+  if [ -n "${TONE:-}" ]; then
+    stage quantise assets/master.cells -- \
+      python3 bake/quantise.py --frames-dir assets/master.hdrcells --out assets/master.cells $TONE
+    stage targets assets/target-2.cells assets/target-4.cells assets/tty.cells assets/logo.cells -- \
+      python3 bake/derive_targets.py --master assets/master.hdrcells $TONE
+  fi
 fi
 
 echo
