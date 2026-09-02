@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# One command: a stock Fedora becomes nullLinux (NULL.md §0.5, §9.4, §11).
+#
+# REPORTS BY DEFAULT AND CHANGES NOTHING. Every other tool here follows that
+# rule and this one has the most reason to: it installs packages, writes a
+# machine profile, spends possibly hours raytracing, and replaces the system's
+# compositor configuration. Anything that does all four without being asked
+# twice is a tool people are right to be afraid of.
+#
+# IT IS IDEMPOTENT. Every stage is either already done -- and says so -- or
+# does the one thing it is for. Re-running after a failure resumes rather than
+# restarts, which matters when one stage is a raytrace.
+#
+# IT DOES NOT ASSUME THIS MACHINE. Nothing here reads a profile that must
+# already exist, and nothing assumes an asset is already baked. That is the
+# whole difference between installing a desktop and having built one.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+cd "$ROOT"
+
+APPLY=0 SKIP_HERO=0
+for a in "$@"; do
+  case $a in
+    --apply)     APPLY=1 ;;
+    --skip-hero) SKIP_HERO=1 ;;
+    -h|--help)
+      cat <<'USAGE'
+usage: null-bootstrap [--apply] [--skip-hero]
+
+  Takes a stock Fedora to a working nullLinux desktop.
+
+    packages -> machine profile -> assets -> renderer -> system-wide install
+
+  With no --apply it reports what each stage would do and writes nothing.
+
+  --skip-hero   stand the analytic placeholder in for the raytraced wallpaper.
+                Minutes instead of a long bake; everything else is identical.
+USAGE
+      exit 0 ;;
+    *) echo "null-bootstrap: unknown flag '$a'" >&2; exit 2 ;;
+  esac
+done
+
+say()  { printf '%s\n' "$*"; }
+head2() { printf '\n== %s\n' "$*"; }
+ok()   { printf '  ok    %s\n' "$*"; }
+todo() { printf '  TODO  %s\n' "$*"; }
+bad()  { printf '  FAIL  %s\n' "$*"; FAIL=1; }
+FAIL=0
+
+# ---------------------------------------------------------------- 0. checks
+#
+# Refuse EARLY and for a stated reason. A bootstrap that gets four stages in
+# before discovering it cannot finish has spent the user's afternoon to tell
+# them something it knew at the start.
+head2 "0. preconditions"
+. /etc/os-release 2>/dev/null || true
+if [ "${ID:-}" = fedora ]; then ok "Fedora ${VERSION_ID:-?}"
+else bad "not Fedora (ID=${ID:-unknown}) -- this is a Fedora Remix and assumes dnf, systemd and its package names"; fi
+[ "$(uname -m)" = x86_64 ] && ok "x86_64" || bad "architecture $(uname -m): the bake and the renderer are only built for x86_64 here"
+[ "$(id -u)" -eq 0 ] && ok "running as root" || bad "must be root: this installs packages and writes under /etc and /usr"
+command -v dnf5 >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1 \
+  && ok "package manager present" || bad "no dnf"
+# Space for the bake intermediates, which are the largest thing this produces.
+avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+[ "${avail:-0}" -ge 8 ] && ok "${avail}G free" || bad "only ${avail}G free; the bake needs several"
+if curl -sfI --max-time 8 https://mirrors.fedoraproject.org >/dev/null 2>&1; then ok "network reaches Fedora's mirrors"
+else bad "no route to Fedora's mirrors -- packages cannot be fetched"; fi
+
+if [ "$FAIL" -ne 0 ]; then
+  say ""; say "REFUSING: the preconditions above are not met. Nothing was done."
+  exit 1
+fi
+
+# ---------------------------------------------------------------- 1. packages
+head2 "1. packages"
+missing=0
+while read -r p; do
+  [ -n "$p" ] || continue
+  bin/pkg is-installed "$p" >/dev/null 2>&1 || { missing=$((missing+1)); }
+done < <(grep -vE '^\s*#|^\s*$' packages/fedora/base.list | awk '{print $1}')
+if [ "$missing" -eq 0 ]; then ok "all $(grep -vcE '^\s*#|^\s*$' packages/fedora/base.list) packages present"
+elif [ "$APPLY" -eq 1 ]; then
+  say "  installing $missing missing package(s)..."
+  bin/pkg install-list fedora/base >/dev/null 2>&1 && ok "installed" || bad "package installation failed"
+else todo "$missing package(s) to install from packages/fedora/base.list"; fi
+
+# ---------------------------------------------------------------- 2. profile
+head2 "2. machine profile"
+host=$(hostname -s 2>/dev/null || hostname)
+if bin/machine profile >/dev/null 2>&1; then ok "profile exists for '$host'"
+elif [ "$APPLY" -eq 1 ]; then
+  bin/machine generate | sed 's/^/  /' && ok "generated" || bad "could not generate a profile"
+else todo "generate machines/$host.conf from the detected output"; fi
+
+# ---------------------------------------------------------------- 3. assets
+head2 "3. assets and renderer"
+if [ "$APPLY" -eq 1 ]; then
+  args=(); [ "$SKIP_HERO" -eq 1 ] && args+=(--skip-hero)
+  bin/null-build "${args[@]}" | sed 's/^/  /'
+  [ "${PIPESTATUS[0]}" -eq 0 ] || bad "the build did not complete"
+else
+  todo "build every derived asset$([ "$SKIP_HERO" -eq 1 ] && echo ' (placeholder instead of the raytraced hero)')"
+  todo "build the renderer"
+fi
+
+# ---------------------------------------------------------------- 4. install
+head2 "4. system-wide install"
+if [ "$APPLY" -eq 1 ]; then
+  bin/null-install --apply | sed 's/^/  /' || bad "the install did not complete"
+else
+  bin/null-install | sed 's/^/  /'
+fi
+
+# ---------------------------------------------------------------- 5. what is left
+head2 "5. what is left for a person"
+say "  Log out and back in, or reboot, to start the session."
+say "  A boot splash and greeter need a reboot to be seen at all:"
+say "      bin/null-system --apply"
+say ""
+if [ "$APPLY" -eq 0 ]; then
+  say "Nothing was written. Re-run with --apply."
+  exit 0
+fi
+[ "$FAIL" -eq 0 ] && say "nullLinux is installed." || { say "Some stages FAILED -- see above." >&2; exit 1; }
