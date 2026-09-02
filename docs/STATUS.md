@@ -90,3 +90,42 @@ satisfy the gate.
 - **Runtime CPU figures are absent, not stale.** They cannot be taken under a
   session lock without being false zeros, and the harnesses now refuse instead
   of reporting them.
+
+## The goal, and where it stands
+
+**One command takes a stock Fedora 44 to a working nullLinux desktop, proven in
+a clean VM rather than on nox.**
+
+| criterion | state |
+|---|---|
+| `null-bootstrap` exists, idempotent, report-first | **done** |
+| a clean Fedora 44 reaches a built, installed desktop from the git tree alone | **done** |
+| the hero bake run end-to-end and its cost measured | not started |
+| the 24-check suite passes inside the guest | not started |
+| deviations written down rather than skipped | ongoing |
+
+Reached on the fourth attempt. The first three failed, and every reason was a
+thing nox could never have revealed:
+
+1. `pkg install-list fedora/base` -- the backend is prefixed by pkg, so the
+   name was doubled. The message said so; the bootstrap discarded it.
+2. `install` was not idempotent: dnf5 fails a transaction containing anything
+   already installed, so no half-finished install could be resumed.
+3. `read_list` returned whole lines, and one line is `grim slurp`, so those two
+   have never been installable from the list at all.
+4. `dnf install -- pkgs` is rejected by dnf5 5.4.1 and accepted by 5.4.3. The
+   guest and this machine are a few weeks of updates apart.
+5. Terminus ships PSF1 as well as PSF2 -- every 8-wide strike is PSF1 -- and
+   `fontlib` read only PSF2. The guest's 1280x800 panel chose an 8x16 strike,
+   so the atlas baker was handed a format it refused.
+6. numpy, pillow and gobject were never in the package list, though the bake
+   imports all three.
+
+What worked first time, and had never been tried: the profile generator, on a
+headless virtio display it has never seen, detecting `Virtual-1` at 1280x800
+and choosing `ter-u16n` at 8x16 for 160 columns, exact. That was the blocker
+that made "any Fedora machine" impossible.
+
+The guest's interface atlas is 34,618 bytes; this machine's is 48,034. Different
+strikes for different panels, from the same tree, with nothing configured by
+hand. That is the parameterisation working rather than being asserted.
