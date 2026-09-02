@@ -74,3 +74,11 @@ cliphist                        # clipboard history, for the clipboard component
 cava                            # the audio spectrum in the column (§10.7 warns
                                 # this dependency can multiply a surface's cost;
                                 # it is measured in docs/measurements.md)
+
+# The bake's Python dependencies. Absent from this list until a clean machine
+# tried to run it: numpy for the simulation and the quantiser, pillow for the
+# boot surfaces, gobject for the icon theme. They are on nox because something
+# else pulled them in, which is exactly why they were never noticed missing.
+python3-numpy
+python3-pillow
+python3-gobject

@@ -1,4 +1,4 @@
-"""PSF2 console-font parsing.
+"""PSF1 and PSF2 console-font parsing.
 
 The font is the medium (NULL.md I2), so everything downstream -- the ramp, the
 glyph atlas, the console -- reads it through here. Pure standard library: a
@@ -16,6 +16,23 @@ import struct
 PSF2_MAGIC = b"\x72\xb5\x4a\x86"
 PSF2_HAS_UNICODE_TABLE = 0x01
 
+# PSF1, which this refused to read at all until a machine needed it.
+#
+# Terminus ships BOTH formats and the choice is not ours: every 8-pixel-wide
+# strike is PSF1, because PSF1 has no width field and is 8 wide by definition.
+# ter-112n is PSF2 and ter-116n is PSF1, and which one a machine wants depends
+# on the size of its screen -- so a 1280x800 panel picked an 8x16 strike, the
+# baker was handed a PSF1 file, and the install stopped.
+#
+# The header is four bytes: magic, a mode byte, and the glyph height. Width is
+# 8. Mode bit 0 means 512 glyphs rather than 256; bit 1 means a unicode table
+# follows, in a different and simpler encoding than PSF2's.
+PSF1_MAGIC = b"\x36\x04"
+PSF1_MODE512 = 0x01
+PSF1_MODEHASTAB = 0x02
+PSF1_SEPARATOR = 0xFFFF
+PSF1_STARTSEQ = 0xFFFE
+
 _SEP = 0xFF          # end of one glyph's codepoint list
 _SEQ = 0xFE          # start of a combining sequence; skipped, we want singles
 
@@ -32,13 +49,25 @@ class Font:
         # leaves the header identical must still trip the guard.
         self.sha256 = hashlib.sha256(raw).hexdigest()
 
-        if raw[:4] != PSF2_MAGIC:
+        if raw[:4] == PSF2_MAGIC:
+            self.psf_version = 2
+            (_magic, self.version, self.headersize, self.flags,
+             self.length, self.charsize, self.height, self.width) = struct.unpack("<8I", raw[:32])
+        elif raw[:2] == PSF1_MAGIC:
+            self.psf_version = 1
+            mode, charsize = raw[2], raw[3]
+            self.version = 0
+            self.headersize = 4
+            self.flags = PSF2_HAS_UNICODE_TABLE if (mode & PSF1_MODEHASTAB) else 0
+            self.length = 512 if (mode & PSF1_MODE512) else 256
+            self.charsize = charsize
+            self.height = charsize
+            self.width = 8          # PSF1 has no width field and never can
+        else:
             raise ValueError(
-                f"{path}: not a PSF2 file (magic {raw[:4].hex()}, expected {PSF2_MAGIC.hex()})"
+                f"{path}: not a PSF font (magic {raw[:4].hex()}; "
+                f"expected {PSF2_MAGIC.hex()} for PSF2 or {PSF1_MAGIC.hex()} for PSF1)"
             )
-
-        (_magic, self.version, self.headersize, self.flags,
-         self.length, self.charsize, self.height, self.width) = struct.unpack("<8I", raw[:32])
 
         self.row_bytes = (self.width + 7) // 8
         expected = self.row_bytes * self.height
@@ -54,7 +83,33 @@ class Font:
             raise ValueError(f"{path}: truncated glyph data")
         self._glyphs = raw[start:end]
 
-        self.cp_to_index = self._parse_unicode_table(raw[end:])
+        if self.psf_version == 1:
+            self.cp_to_index = self._parse_unicode_table_psf1(raw[end:])
+        else:
+            self.cp_to_index = self._parse_unicode_table(raw[end:])
+
+    def _parse_unicode_table_psf1(self, tail):
+        """Map codepoint -> glyph index, PSF1's way.
+
+        PSF1 stores little-endian 16-bit words, not UTF-8: 0xFFFF ends a
+        glyph's list and 0xFFFE starts a combining sequence, which is skipped
+        for the same reason PSF2's is -- singles are what a cell can draw.
+        """
+        if not (self.flags & PSF2_HAS_UNICODE_TABLE):
+            # No table: index is codepoint, which is true of ASCII in these
+            # strikes and stated rather than assumed.
+            return {i: i for i in range(self.length)}
+        out, idx, i, in_seq = {}, 0, 0, False
+        while i + 1 < len(tail) and idx < self.length:
+            (word,) = struct.unpack_from("<H", tail, i)
+            i += 2
+            if word == PSF1_SEPARATOR:
+                idx += 1; in_seq = False
+            elif word == PSF1_STARTSEQ:
+                in_seq = True
+            elif not in_seq:
+                out.setdefault(word, idx)
+        return out
 
     @staticmethod
     def _read(path):
