@@ -56,9 +56,14 @@ backend_install() {
     echo "all ${#@} package(s) already installed"
     return 0
   fi
-  dnf install -y -- "${want[@]}"
+  # NO `--`. This dnf5 rejects it outright: `Unknown argument "--" for command
+  # "install"`. It was there to guard against a package name beginning with a
+  # dash, which cannot happen in a list this project writes, and it cost a
+  # whole install on a machine whose dnf differs from this one's by a few
+  # weeks of updates.
+  dnf install -y "${want[@]}"
 }
-backend_remove()  { dnf remove -y -- "$@"; }
+backend_remove()  { dnf remove -y "$@"; }
 backend_upgrade() { dnf upgrade -y; }
 
 # How many upgrades are pending, against the metadata already on disk.
