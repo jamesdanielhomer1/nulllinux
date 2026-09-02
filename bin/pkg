@@ -68,7 +68,14 @@ read_list() {
   distro=$(list_distro)
   f="$ROOT/packages/$distro/$name.list"
   [ -r "$f" ] || die "no package list '$name' for $distro (expected $f)"
-  sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$f"
+  # ONE PACKAGE PER LINE OF OUTPUT, however the file is written.
+  #
+  # The file has lines like `grim slurp          # capture` -- two packages and
+  # a comment -- and this returned that whole line as a single name, so dnf was
+  # asked to install a package called "grim slurp" and reasonably refused. Both
+  # of those are on this machine only because the compositor spin pulled them
+  # in, which is why the list being wrong went unnoticed.
+  sed -e 's/#.*//' "$f" | tr -s '[:space:]' '\n' | sed '/^$/d'
 }
 
 list_distro() {

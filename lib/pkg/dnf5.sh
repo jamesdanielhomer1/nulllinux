@@ -36,7 +36,28 @@ backend_upgrade_available() { dnf -q check-upgrade >/dev/null 2>&1; [ $? -eq 100
 
 # --- mutating verbs -----------------------------------------------------
 
-backend_install() { dnf install -y -- "$@"; }
+# INSTALLING WHAT IS ALREADY THERE MUST NOT BE AN ERROR.
+#
+# dnf5 fails the whole transaction with "Package X is already installed" rather
+# than doing nothing, which older dnf did. That makes `install` non-idempotent,
+# and an installer that cannot be re-run is an installer nobody can recover a
+# half-finished install with -- which is exactly the state a bootstrap is in
+# when it fails partway.
+#
+# So the already-present are filtered out here, and if nothing is left the
+# answer is success and a word about it, because "everything you asked for is
+# installed" is not a failure in any sense a caller cares about.
+backend_install() {
+  local want=() p
+  for p in "$@"; do
+    backend_is_installed "$p" >/dev/null 2>&1 || want+=("$p")
+  done
+  if [ ${#want[@]} -eq 0 ]; then
+    echo "all ${#@} package(s) already installed"
+    return 0
+  fi
+  dnf install -y -- "${want[@]}"
+}
 backend_remove()  { dnf remove -y -- "$@"; }
 backend_upgrade() { dnf upgrade -y; }
 

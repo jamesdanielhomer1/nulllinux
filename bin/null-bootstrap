@@ -82,7 +82,12 @@ done < <(grep -vE '^\s*#|^\s*$' packages/fedora/base.list | awk '{print $1}')
 if [ "$missing" -eq 0 ]; then ok "all $(grep -vcE '^\s*#|^\s*$' packages/fedora/base.list) packages present"
 elif [ "$APPLY" -eq 1 ]; then
   say "  installing $missing missing package(s)..."
-  bin/pkg install-list fedora/base >/dev/null 2>&1 && ok "installed" || bad "package installation failed"
+  # `install-list base`, not `fedora/base`: pkg prefixes the backend itself,
+  # so naming it twice looks for packages/fedora/fedora/base.list. It said so
+  # clearly and the bootstrap threw the message away into /dev/null, which is
+  # why this took a virtual machine to find rather than a moment's reading.
+  if out=$(bin/pkg install-list base 2>&1); then ok "installed"
+  else bad "package installation failed"; sed 's/^/        /' <<<"$out" | tail -6; fi
 else todo "$missing package(s) to install from packages/fedora/base.list"; fi
 
 # ---------------------------------------------------------------- 2. profile
