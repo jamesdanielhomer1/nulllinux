@@ -113,6 +113,74 @@ Terminal=true
 DESK
 chown -R live:live /home/live/Desktop
 
+# ---------------------------------------------------------------------------
+# THE GPL SOURCE OFFER, AND THE MANIFEST IT REFERS TO.
+#
+# This image redistributes binaries under GPL-2.0, GPL-3.0, LGPL and other
+# copyleft licences. Distributing those binaries carries an obligation to make
+# the CORRESPONDING SOURCE available -- GPLv2 section 3, GPLv3 section 6 --
+# and "the source is on the internet somewhere" does not discharge it.
+#
+# The manifest is generated HERE, inside the image, by asking its own rpm
+# database what is installed. That is the only way it can be exactly what
+# shipped: a list built beside the image can drift from it, and a list built
+# from the kickstart is a list of what was ASKED for rather than what
+# dependency resolution actually pulled in.
+#
+# Versions are recorded in full, with the source package name for each, because
+# "corresponding source" means the source for THIS build and not whatever is
+# current when someone asks.
+mkdir -p /usr/share/nulllinux
+{
+  echo "nullLinux -- source availability"
+  echo "generated $(date -Iseconds) inside the image"
+  echo
+  echo "This image contains software under the GNU General Public License and"
+  echo "other copyleft licences. You are entitled to the corresponding source."
+  echo
+  echo "WHERE THE SOURCE IS"
+  echo
+  echo "  Every package below except nulllinux itself comes unmodified from"
+  echo "  Fedora. Its source is published as source RPMs at:"
+  echo
+  echo "    https://dl.fedoraproject.org/pub/fedora/linux/releases/RELEASEVER/Everything/source/tree/"
+  echo "    https://dl.fedoraproject.org/pub/fedora/linux/updates/RELEASEVER/Everything/SRPMS/"
+  echo "    https://kojipkgs.fedoraproject.org/packages/    (all builds, by name and version)"
+  echo
+  echo "  Retrieve the exact source for any package here with:"
+  echo "    dnf download --source <name>-<version>-<release>"
+  echo
+  echo "  nulllinux's own source is MIT and is at:"
+  echo "    https://github.com/jamesdanielhomer/nulllinux"
+  echo
+  echo "WRITTEN OFFER"
+  echo
+  echo "  For three years from the date of this build, the distributor of this"
+  echo "  image will provide, on request and for no more than the cost of the"
+  echo "  medium and postage, a complete machine-readable copy of the"
+  echo "  corresponding source for any GPL-covered package listed below."
+  echo
+  echo "MANIFEST -- name-version-release.arch  license  source package"
+  echo
+  rpm -qa --qf '%{name}-%{version}-%{release}.%{arch}\t%{license}\t%{sourcerpm}\n' | sort
+} > /usr/share/nulllinux/SOURCES.txt
+
+# The release version is only knowable inside the image, so it is substituted
+# here rather than guessed above.
+sed -i "s|RELEASEVER|$(rpm -q --qf '%{version}' fedora-release-common 2>/dev/null || echo 44)|g" \
+  /usr/share/nulllinux/SOURCES.txt
+
+# Copyleft packages counted separately, so the obligation has a size rather
+# than being a general worry.
+copyleft=$(rpm -qa --qf '%{license}\n' | grep -icE 'GPL|MPL|EPL|CDDL' || true)
+total=$(rpm -qa | wc -l)
+echo "" >> /usr/share/nulllinux/SOURCES.txt
+echo "$copyleft of $total packages carry a copyleft licence." >> /usr/share/nulllinux/SOURCES.txt
+
+# Findable without a shell. A source offer nobody can locate is not an offer.
+ln -sf /usr/share/nulllinux/SOURCES.txt /root/SOURCES.txt 2>/dev/null || true
+mkdir -p /home/live && ln -sf /usr/share/nulllinux/SOURCES.txt /home/live/SOURCES.txt 2>/dev/null || true
+
 releasever=$(rpm -q --qf '%{version}\n' fedora-release-common 2>/dev/null | head -1)
 cat > /etc/os-release <<OSREL
 NAME="nullLinux"

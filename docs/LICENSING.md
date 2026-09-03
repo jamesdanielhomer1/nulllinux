@@ -68,6 +68,13 @@ about this field being true rather than convenient.
       **Reserved Font Name "Terminus Font"**). The reserved name matters: a
       modified font may not use it, which is a reason not to describe the
       atlases as a font.
-- [ ] Point at Fedora's source repositories for the GPL packages in the ISO.
+- [x] Point at Fedora's source repositories for the GPL packages in the ISO.
+      Done, and checkable: the image carries `/usr/share/nulllinux/SOURCES.txt`
+      -- a written offer plus a manifest generated **inside the image** by its
+      own rpm database, so it is exactly what shipped. 1052 packages, 697 of
+      them copyleft, each with its exact version and source package name.
+      `bin/null-sources <iso>` verifies it and, crucially, **fetches a real
+      source RPM** to prove the offer can be fulfilled rather than merely
+      stated.
 - [ ] Read Red Hat's Fedora Remix trademark guidelines.
 - [ ] Get real advice if any of this is going somewhere that matters.
