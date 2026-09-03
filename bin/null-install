@@ -136,28 +136,41 @@ fi
 
 head_ "the icon theme"
 if [ "$APPLY" -eq 1 ]; then
+  # THE DIRECTORY NAME IS THE THEME NAME, and it is case-sensitive.
+  #
+  # GTK resolves gtk-icon-theme-name against the DIRECTORY in /usr/share/icons,
+  # not against the Name= field inside index.theme. This installed to
+  # `nulllinux` while the settings key said `nullLinux`, so the lookup found
+  # nothing and GTK fell back to its default set -- silently, which is the §8.10
+  # trap this project already knew about and fell into anyway. Meanwhile the
+  # settings.ini files named Adwaita, a third answer again. The baked icon
+  # theme was reaching nothing at all.
+  #
+  # One spelling now, everywhere, and verify/check-icon-theme-name.sh fails if
+  # they ever disagree again.
+  #
   # SHIPPED ICONS ARE USED WHERE THEY EXIST. The theme is a function of the
   # palette alone, so regenerating it on the target derives the same bytes from
   # the same input -- and requires python, pillow and gobject on a machine that
   # otherwise needs none of them.
   if [ -d "$ROOT/assets/prebuilt/theme/icons" ]; then
-    rm -rf /usr/share/icons/nulllinux
-    cp -a "$ROOT/assets/prebuilt/theme/icons" /usr/share/icons/nulllinux \
-      && echo "    installed /usr/share/icons/nulllinux (prebuilt)"
-    gtk-update-icon-cache -f -t /usr/share/icons/nulllinux >/dev/null 2>&1 || true
+    rm -rf /usr/share/icons/nullLinux
+    cp -a "$ROOT/assets/prebuilt/theme/icons" /usr/share/icons/nullLinux \
+      && echo "    installed /usr/share/icons/nullLinux (prebuilt)"
+    gtk-update-icon-cache -f -t /usr/share/icons/nullLinux >/dev/null 2>&1 || true
     # The generated branch below restores SELinux contexts and this must too:
     # a theme copied into /usr/share with the wrong label is a theme the
     # toolkit cannot read, and the failure looks like a missing icon set.
-    restore_selinux /usr/share/icons/nulllinux
-  elif python3 "$ROOT/bake/make_icons.py" --out /usr/share/icons/nulllinux 2>&1 | sed 's/^/    /'; then
-    gtk-update-icon-cache -f -t /usr/share/icons/nulllinux >/dev/null 2>&1 || true
-    restore_selinux /usr/share/icons/nulllinux
-    say "installed /usr/share/icons/nulllinux"
+    restore_selinux /usr/share/icons/nullLinux
+  elif python3 "$ROOT/bake/make_icons.py" --out /usr/share/icons/nullLinux 2>&1 | sed 's/^/    /'; then
+    gtk-update-icon-cache -f -t /usr/share/icons/nullLinux >/dev/null 2>&1 || true
+    restore_selinux /usr/share/icons/nullLinux
+    say "installed /usr/share/icons/nullLinux"
   else
     say "icon generation FAILED -- the theme key below would name a theme that is not there"
   fi
 else
-  say "would generate /usr/share/icons/nulllinux"
+  say "would generate /usr/share/icons/nullLinux"
 fi
 
 head_ "settings keys, as system DEFAULTS"

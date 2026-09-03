@@ -37,30 +37,16 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 # unset on a clean machine and was right to.
 "$ROOT/bin/null-filemanager" apply
 
-if [ "$(id -u)" -eq 0 ]; then
-  echo
-  echo "The browser chrome is NOT applied: it lives inside a browser profile,"
-  echo "and a profile belongs to a person. Run this again as that person."
-  exit 0
-fi
-
-echo "user: $(id -un)"
-echo "system install: $ROOT"
-echo
-
-if [ ! -r /etc/sway/config ] || ! grep -q "$ROOT" /etc/sway/config 2>/dev/null; then
-  echo "NOTE: /etc/sway/config does not point at $ROOT."
-  echo "      Run 'sudo $ROOT/bin/null-install --apply' first -- otherwise this"
-  echo "      account gets the distribution's desktop, not this one."
-  echo
-fi
-
 # THE SETTINGS KEYS, which had no caller at all.
 #
 # §8.10: a settings key outranks a configuration file wherever both exist, so a
 # font or icon theme left in the settings database by a previous desktop wins
 # over everything null-install wrote -- silently, because nothing reports it.
 # bin/null-toolkit was written for exactly that and then nothing ever ran it.
+#
+# ABOVE THE ROOT EARLY-EXIT, for the reason the joins are: root has settings
+# keys like anybody else. Placed below it, this ran for nobody on a machine
+# whose only account was root -- which every machine is, once.
 #
 # ONCE PER ACCOUNT, not every session. These are the user's own keys: correcting
 # a stale value inherited from another desktop is the job, and overwriting a
@@ -77,6 +63,24 @@ else
   else
     echo "  not applied -- see the refusal above; no stamp written, so this retries"
   fi
+fi
+
+if [ "$(id -u)" -eq 0 ]; then
+  echo
+  echo "The browser chrome is NOT applied: it lives inside a browser profile,"
+  echo "and a profile belongs to a person. Run this again as that person."
+  exit 0
+fi
+
+echo "user: $(id -un)"
+echo "system install: $ROOT"
+echo
+
+if [ ! -r /etc/sway/config ] || ! grep -q "$ROOT" /etc/sway/config 2>/dev/null; then
+  echo "NOTE: /etc/sway/config does not point at $ROOT."
+  echo "      Run 'sudo $ROOT/bin/null-install --apply' first -- otherwise this"
+  echo "      account gets the distribution's desktop, not this one."
+  echo
 fi
 
 echo

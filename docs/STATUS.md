@@ -234,3 +234,74 @@ stays what it is: a thing that boots and shows you the desktop.
 
 **Nothing here says the installer is broken.** It says the installer has not
 been reached. Those are different claims and only the second is supported.
+
+---
+
+## The non-live installer ISO installs (2026-09-03)
+
+`bin/null-installer-iso` builds Anaconda boot media with lorax -- 1.2 GB --
+and it does what the live path could not: an unattended install from a
+kickstart passed as `inst.ks` on the kernel command line.
+
+**It works.** 734 packages, 854.2 MiB downloaded, all installed and
+configured, initramfs built, users created, powered off cleanly. The installed
+disk boots, `nulllinux-0.1.0-1.fc44.x86_64` is present, the firstboot service
+is enabled and active, and it generated a machine profile, selected
+`ter-u16n` for the interface and `ter-112n` for the bake, placed the prebuilt
+hero and theme, and installed the desktop system-wide -- in about a second,
+with no GPU and no compiler on the machine. `verify/vm-iso-install.sh` runs
+the whole thing.
+
+Two things had to be fixed to get there, and both are worth recording because
+neither is documented anywhere obvious:
+
+- **Anaconda does not expand `$releasever` in a kickstart `url` line.** The
+  failure it reports is "Error setting up repositories", which names none of
+  that. The kickstart now carries concrete URLs, verified with curl to return
+  200 before the VM is started.
+- **qemu ignores `-boot once=d` when `-kernel` is supplied.** The completed
+  install rebooted straight back into the installer and wiped itself. The
+  kickstart ends in `poweroff` rather than `reboot`.
+
+### What the install then revealed
+
+The installed system is where this project's assumptions about its own machine
+keep dying, and this round killed four.
+
+**It did not say its own name.** `PRETTY_NAME` read "Fedora Linux 44", because
+branding lived in the live image's kickstart and the installer path never ran
+it. Moving it into the package (`bin/null-brand`, called from `%post`) exposed
+that the branding was itself wrong twice over: `/etc/os-release` is a symlink
+into `/usr/lib/os-release`, so writing to it rewrote a file owned by
+`fedora-release-identity-basic`; and `ID=nulllinux` made `bin/pkg` look for
+`packages/nulllinux/` and find nothing, so installing our own branding
+disabled our own package management. Both are checked now
+(`verify/check-branding.sh`), and `rpm -V fedora-release-identity-basic`
+verifies clean on the installed machine.
+
+**Three tools had no caller.** `null-join` (found and fixed once before, by
+moving the call into `null-firstrun` -- which then had no caller either), and
+`null-toolkit`, which applies the settings keys §8.10 says outrank every
+configuration file this system writes. The shell and git now install
+system-wide, where no per-user action is needed at all;
+`verify/check-callers.sh` requires every tool in `bin/` to be invoked or to
+declare itself an operator entry point.
+
+**lorax writes 88 MB of dependency-solver dumps into the working directory**,
+and it was being run from the checkout, so they reached git -- the same
+mistake as the baked assets and the RPM before them. The source tarball was
+86 MB; it is 1.2 MB.
+
+**§9.1 had quietly broken** while the ISO tooling was written: six components
+named `rpm` or `dnf` directly. The backend grew the verbs they needed rather
+than the checker growing exemptions.
+
+### Still open
+
+- `/etc/os-release` is branded, but the boot splash, GRUB and the installer's
+  own UI still show Fedora's.
+- Metal only: real firmware and secure boot, a discrete GPU driver, a wifi
+  chipset, suspend and resume, a monitor whose EDID is not qemu's.
+- Audio has never been exercised anywhere -- root cannot run PipeWire and the
+  VM has no sound device -- so the mixer and the equaliser are unverified
+  against real audio.
