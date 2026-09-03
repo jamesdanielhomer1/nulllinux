@@ -62,6 +62,13 @@ memtest86+
 syslinux
 anaconda
 anaconda-install-env-deps
+# anaconda-live provides /usr/bin/liveinst, which is HOW A LIVE IMAGE INSTALLS
+# ITSELF. `anaconda` alone gives the installer that boot media runs; liveinst
+# is the wrapper a running live session calls. Without it the desktop's install
+# entry and the unattended inst.ks path both point at a command that is not
+# there -- which is what happened: the image booted, found the kickstart, and
+# could not act on it.
+anaconda-live
 @anaconda-tools
 # The desktop itself. Its Requires pull in sway, foot, fzf, thunar and the
 # rest, so this one line is the whole desktop.

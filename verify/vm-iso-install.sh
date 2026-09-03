@@ -91,7 +91,12 @@ echo
 echo "booting (install console -> $WORK/install-console.log)"
 stop_guest
 BOOTARGS=(-drive file="$DISK",if=virtio,format=qcow2)
-[ "${1:-install}" = install ] && BOOTARGS+=(-cdrom "$KS_ISO" -boot d) || BOOTARGS+=(-boot c)
+# `once=d` and not `d`: the kickstart ends in `reboot`, and with a permanent
+# CD-first order that reboot walks straight back into the live image and
+# installs again, forever. `once` means the CD is used for this boot only, so
+# the machine comes up on what was just installed -- which is the thing being
+# tested.
+[ "${1:-install}" = install ] && BOOTARGS+=(-cdrom "$KS_ISO" -boot once=d) || BOOTARGS+=(-boot c)
 
 setsid qemu-system-x86_64 -enable-kvm -m "$MEM" -smp 4 \
   "${BOOTARGS[@]}" \
