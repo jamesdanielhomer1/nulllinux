@@ -9,8 +9,27 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 null_fzf_flags
 command -v bluetoothctl >/dev/null || { echo "null-bluetooth: bluetoothctl missing" >&2; exit 1; }
 
-powered() { bluetoothctl show 2>/dev/null | grep -q 'Powered: yes' && echo on || echo off; }
-devices() { bluetoothctl devices 2>/dev/null | sed 's/^Device //' || true; }
+# NO ADAPTER IS NOT AN ERROR, AND MUST NOT BE A HANG.
+#
+# On a machine with no bluetooth hardware -- a desktop, a virtual machine,
+# plenty of laptops -- `bluetoothctl show` waits for a controller that will
+# never appear, and this menu simply never returned. It drew nothing, for ever,
+# with no way to tell that from a slow machine.
+#
+# §8.4 says an absent device is stated rather than drawn as a zero. It is
+# stated here, and every call below is given a timeout as well, because a
+# daemon that is present but wedged is the same experience as one that is not
+# there at all.
+if ! "$ROOT/bin/machine" probe bluetooth 2>/dev/null; then
+  echo "This machine has no bluetooth adapter."
+  echo
+  echo "  /sys/class/bluetooth is empty, so there is no controller for"
+  echo "  bluetoothctl to talk to. Nothing is wrong; there is nothing to show."
+  exit 0
+fi
+
+powered() { timeout 5 bluetoothctl show 2>/dev/null | grep -q 'Powered: yes' && echo on || echo off; }
+devices() { timeout 5 bluetoothctl devices 2>/dev/null | sed 's/^Device //' || true; }
 connected() { bluetoothctl info "$1" 2>/dev/null | grep -q 'Connected: yes' && echo yes || echo no; }
 
 # The daemon, not just the tool. bluetoothctl exists whether or not bluetoothd

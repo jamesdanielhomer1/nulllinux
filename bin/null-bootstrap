@@ -56,11 +56,16 @@ FAIL=0
 head2 "0. preconditions"
 . /etc/os-release 2>/dev/null || true
 if [ "${ID:-}" = fedora ]; then ok "Fedora ${VERSION_ID:-?}"
-else bad "not Fedora (ID=${ID:-unknown}) -- this is a Fedora Remix and assumes dnf, systemd and its package names"; fi
+else bad "not Fedora (ID=${ID:-unknown}) -- this is a Fedora Remix and assumes its package names"; fi
 [ "$(uname -m)" = x86_64 ] && ok "x86_64" || bad "architecture $(uname -m): the bake and the renderer are only built for x86_64 here"
 [ "$(id -u)" -eq 0 ] && ok "running as root" || bad "must be root: this installs packages and writes under /etc and /usr"
-command -v dnf5 >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1 \
-  && ok "package manager present" || bad "no dnf"
+# ASKED THROUGH bin/pkg, not by name. §9.1 says no package manager is named
+# outside bin/pkg and lib/pkg/, and the checker caught this file naming one
+# three times -- in the tool whose whole job is to install things, which is the
+# single worst place for that rule to be broken.
+if backend=$(bin/pkg backend 2>/dev/null) && [ -n "$backend" ]; then
+  ok "package backend: $backend"
+else bad "no package backend -- bin/pkg cannot name one for this system"; fi
 # Space for the bake intermediates, which are the largest thing this produces.
 avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
 [ "${avail:-0}" -ge 8 ] && ok "${avail}G free" || bad "only ${avail}G free; the bake needs several"

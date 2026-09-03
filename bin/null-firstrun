@@ -14,9 +14,30 @@
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 
+# THE SHELL AND GIT JOINS, which nothing called until a clean machine showed
+# that nothing called them. §9.8 describes joining nullLinux's shell prompt and
+# git colours into files that belong to the user -- and like the browser
+# chrome, those files are per-user and cannot be installed system-wide. This is
+# the tool for things in that category, so this is where they belong.
+#
+# THESE RUN FOR ROOT TOO. The refusal below is about a BROWSER PROFILE, which
+# belongs to a person; root has a shell and a git configuration like anybody
+# else, and on a machine with no other account yet -- which every machine is,
+# once -- refusing outright left root with no prompt and no way to get one.
+"$ROOT/bin/null-join" join
+
+# THE FILE MANAGER'S OWN SETTINGS, for the same reason. null-install writes
+# thunar's system-wide defaults, and two of its keys -- the location bar and
+# the side pane -- are ones thunar only ever writes per user, so the
+# system-wide file cannot set them and nothing else did. `check` reported them
+# unset on a clean machine and was right to.
+"$ROOT/bin/null-filemanager" apply
+
 if [ "$(id -u)" -eq 0 ]; then
-  echo "REFUSING: run this as the user whose browser profile it is." >&2
-  exit 1
+  echo
+  echo "The browser chrome is NOT applied: it lives inside a browser profile,"
+  echo "and a profile belongs to a person. Run this again as that person."
+  exit 0
 fi
 
 echo "user: $(id -un)"

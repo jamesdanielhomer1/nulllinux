@@ -82,3 +82,18 @@ cava                            # the audio spectrum in the column (§10.7 warns
 python3-numpy
 python3-pillow
 python3-gobject
+
+# Found missing by installing onto a clean machine and running the suite there.
+# Every one of these is on nox because something else pulled it in, and every
+# one of them is invoked by a binding, a menu topic or a verification check --
+# so on a fresh machine those failed silently or drew nothing.
+thunar                          # the file manager (§8.7)
+xfconf                          # xfconf-query, which sets thunar's defaults
+firefox                         # named by a binding; the command check fails without it
+git                             # the diff and status terminal surfaces (§7.6)
+bluez                           # bluetoothctl, for the bluetooth menu topic
+playerctl                       # the player topic and the column's now-playing
+wlsunset                        # the night light
+iw                              # wireless signal, where /proc/net/wireless is absent
+fwupd                           # fwupdmgr, the firmware channel in the update report
+webkit2gtk4.1                   # the browser engine the font probe measures (§8.10)

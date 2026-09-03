@@ -14,6 +14,17 @@ ROOT=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)
 cd "$ROOT"
 
 PLANT=bin/__selftest_violation
+# THIS NEEDS A GIT CHECKOUT, and says so rather than dying.
+#
+# It plants a file and asks git to forget it, so on a deployed tree -- which is
+# an unpacked tarball, not a repository -- git exits 128 and `set -e` takes the
+# script down before it prints anything at all. A check that fails silently on
+# a whole class of machine is worse than one that says it cannot run here.
+if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "SKIPPED: not a git checkout, and this self-test plants and un-plants a"
+  echo "         tracked file. Run it on the build host, where the repository is."
+  exit 0
+fi
 cleanup() { rm -f "$PLANT"; git -C "$ROOT" rm --cached -q "$PLANT" 2>/dev/null || true; }
 trap cleanup EXIT
 

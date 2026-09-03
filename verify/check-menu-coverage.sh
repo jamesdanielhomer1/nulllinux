@@ -43,11 +43,24 @@ for t in $TOPICS; do
   json=$(timeout 30 python3 verify/coverage.py --cols 63 --rows 54 --seconds "$SECS" --json -- \
     env NULL_COLUMN=1 NULL_ROOT="$ROOT" "$ROOT/bin/null-menu" "$t" 2>/dev/null) || true
   if [ -z "$json" ]; then printf '  %-10s NO OUTPUT\n' "$t"; fail=1; continue; fi
+  # A TOPIC REPORTING ABSENT HARDWARE IS SUPPOSED TO BE SHORT.
+  #
+  # The 200-cell floor exists to catch a topic that failed to start, because a
+  # real menu draws thousands. But `bluetooth` on a machine with no adapter
+  # correctly prints four lines saying so -- 170 cells -- and that is §8.4
+  # working, not a broken topic. Lowering the floor for everything would blind
+  # the check to the failure it was built for, so the floor moves only for a
+  # topic whose hardware is genuinely absent, and the glyph rule still applies.
+  floor=200
+  case $t in
+    bluetooth) "$ROOT/bin/machine" probe bluetooth 2>/dev/null || floor=20 ;;
+    network)   "$ROOT/bin/machine" probe wireless  2>/dev/null || floor=20 ;;
+  esac
   res=$(python3 - <<PY
 import json
 d=json.loads('''$json''')
 tot=sum(d['unrenderable'].values())
-if d['printable_cells']<200:
+if d['printable_cells']<$floor:
     print(f"NOTHING DREW ({d['printable_cells']} cells) -- a zero here is not evidence"); raise SystemExit(2)
 if tot: print(" ".join(f"{k}x{v}" for k,v in d['unrenderable'].items())); raise SystemExit(1)
 print(f"clean ({d['printable_cells']} printable)")
