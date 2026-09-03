@@ -116,6 +116,17 @@ install -D -m 0644 packaging/nulllinux-machine-sync.service \
 # of the installation happens on the first boot that has one.
 systemctl enable nulllinux-machine-sync.service >/dev/null 2>&1 || :
 
+# THE UNIT WAS RENAMED (nulllinux-firstboot -> nulllinux-machine-sync), and a
+# rename is not a rename to systemd: upgrading leaves the old unit's enable
+# symlink behind, pointing at a unit file this package no longer ships. That
+# is a failed unit on every boot afterwards. Clean it up explicitly -- once,
+# harmlessly, for ever.
+if systemctl list-unit-files nulllinux-firstboot.service >/dev/null 2>&1; then
+  systemctl disable --now nulllinux-firstboot.service >/dev/null 2>&1 || :
+fi
+rm -f /etc/systemd/system/multi-user.target.wants/nulllinux-firstboot.service
+systemctl daemon-reload >/dev/null 2>&1 || :
+
 # Branding belongs to the package, not to one image's kickstart: an installer
 # ISO, a live image and a plain `dnf install nulllinux` must all end up saying
 # the same thing.  It only rewrites /etc, never the fedora-release-owned file

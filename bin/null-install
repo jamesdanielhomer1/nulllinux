@@ -81,6 +81,33 @@ else
   say "would replace /etc/sway/config with an include of $ROOT/config/sway/config"
 fi
 
+head_ "names this system used to use, and no longer does"
+# A RENAME LEAVES THE OLD ONE BEHIND. The themes were installed lowercase
+# before the case-sensitivity bug was found, and a stale /usr/share/themes/
+# nulllinux is not inert: it is a directory that RESOLVES, so any setting still
+# holding the old spelling silently gets an out-of-date copy of the theme
+# instead of failing loudly and being fixed.
+say "a superseded name that still resolves is worse than one that does not"
+for legacy in /usr/share/themes/nulllinux /usr/share/icons/nulllinux; do
+  [ -e "$legacy" ] || continue
+  # Case-insensitive filesystems would make these the same path as the current
+  # one; deleting then would delete what was just installed.
+  [ "$legacy" -ef "$(dirname "$legacy")/nullLinux" ] && continue
+  if [ "$APPLY" -eq 1 ]; then
+    rm -rf "$legacy" && say "removed superseded $legacy"
+  else
+    say "would remove superseded $legacy"
+  fi
+done
+# The stamp was renamed when the first-boot job became a per-boot one.
+if [ -e /var/lib/nulllinux/firstboot-done ]; then
+  if [ "$APPLY" -eq 1 ]; then
+    rm -f /var/lib/nulllinux/firstboot-done && say "removed the old firstboot-done stamp"
+  else
+    say "would remove the old firstboot-done stamp"
+  fi
+fi
+
 head_ "the shell and git, where the SYSTEM looks -- not in anyone's home"
 # §9.8 says HOW to join a file that belongs to a user. It does not say the
 # shell prompt has to be joined at all, and joining it was wrong: the join

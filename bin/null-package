@@ -9,6 +9,8 @@
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 cd "$ROOT"
+ALLOW_DIRTY=0
+[ "${1:-}" = "--allow-dirty" ] && { ALLOW_DIRTY=1; shift; }
 NAME=nulllinux
 VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head -1)
 [ -n "$VERSION" ] || { echo "null-package: cannot read the version from the spec" >&2; exit 1; }
@@ -24,6 +26,18 @@ echo "packaging $NAME-$VERSION"
 
 # The tree AS GIT HAS IT -- not the working directory. A package built from
 # uncommitted files is a package nobody can rebuild.
+# THE TARBALL IS HEAD, NOT THE WORKING TREE, and that has now caused two
+# wasted build-and-test cycles: an edit is made, the package is built, it is
+# installed in the VM, and the change is simply not in it -- because it was
+# never committed. Silence is the problem; the behaviour is correct.
+if ! git diff --quiet HEAD -- 2>/dev/null; then
+  echo "  UNCOMMITTED CHANGES -- they will NOT be in this package:" >&2
+  git diff --name-only HEAD -- | sed 's/^/    /' >&2
+  echo "  The tarball is built from HEAD. Commit first, or pass --allow-dirty" >&2
+  echo "  to package HEAD anyway and know that is what you are testing." >&2
+  [ "${ALLOW_DIRTY:-0}" = 1 ] || exit 1
+fi
+
 git archive --format=tar --prefix="$NAME-$VERSION/" HEAD \
   | gzip > "$TOP/SOURCES/$NAME-$VERSION.tar.gz" || exit 1
 printf '  %-34s %s\n' "$NAME-$VERSION.tar.gz" "$(du -h "$TOP/SOURCES/$NAME-$VERSION.tar.gz" | cut -f1)"
