@@ -191,11 +191,46 @@ is why it took two attempts to see.
 and then does nothing. Disk stays at 1 MB, the screen is blank, the serial
 console goes quiet. `inst.text inst.notmux` changes nothing.
 
-**The next step is to stop guessing and read anaconda's own logs**, which are
-in `/tmp/*.log` inside the live session and are the only place the reason will
-be written down. That needs a way into the running live image -- an ssh key
-placed by the live kickstart, for testing only -- and one more ISO build. Every
-hypothesis beyond this point is speculation until those logs are read.
+**The logs were read, and the answer is complete.** A debugging ssh key --
+gated on a kernel argument, so a shipped ISO carries none -- got a shell into
+the live session. The chain, end to end:
+
+1. `getty@tty1` **failed** with `start-limit-hit`. It had autologged in and
+   exited six times in a row, so systemd gave up. The autologin override was
+   fine; whatever it ran kept exiting.
+2. What it ran was `liveinst`, and `liveinst` exits immediately, because
+   **Fedora 44's Anaconda is a WEB UI**. It launches Firefox:
+
+       No default browser set in anaconda.conf, using firefox
+       webui-desktop: line 183: DISPLAY: unbound variable
+       Gtk-WARNING: Failed to open display
+
+   The hook runs it before sway, so there is no display, so it fails and exits
+   cleanly -- six times, which is what killed the getty.
+3. `liveinst --text` gets much further: the text installer starts and paints
+   its summary hub. But it **stops at an interactive prompt**, with
+   Installation Destination, Root password and User creation all marked
+   incomplete -- all three of which the kickstart specifies.
+4. The reason is in the log:
+
+       anaconda called with cmdline = [..., '--kickstart=/tmp/inst.ks']
+       Found a kickstart file: /usr/share/anaconda/interactive-defaults.ks
+       Parsing kickstart: /usr/share/anaconda/interactive-defaults.ks
+
+   The supplied kickstart is on the command line and anaconda parses the
+   interactive defaults instead. `interactive-defaults.ks` says in its own
+   first lines that it "is not loaded if a kickstart file is provided on the
+   command line". It was loaded anyway.
+
+**Conclusion: the live-image path is the wrong road for an unattended install
+on Fedora 44.** `inst.ks` is designed for Anaconda BOOT MEDIA -- netinst and
+DVD images -- where it is the documented, supported mechanism. A live image
+installs by copying its own filesystem through a web UI meant for a person at
+a keyboard.
+
+The right fix is a second, non-live installer ISO built for that purpose, and
+that is a lorax invocation rather than a kickstart workaround. The live ISO
+stays what it is: a thing that boots and shows you the desktop.
 
 **Nothing here says the installer is broken.** It says the installer has not
 been reached. Those are different claims and only the second is supported.
