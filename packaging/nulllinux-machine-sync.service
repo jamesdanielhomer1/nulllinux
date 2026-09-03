@@ -1,0 +1,17 @@
+[Unit]
+Description=nullLinux: reconcile the machine profile and surfaces with the hardware
+Documentation=file:/opt/nulllinux/bin/null-machine-sync
+After=systemd-udev-settle.service local-fs.target
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=NULL_ROOT=/opt/nulllinux
+ExecStart=/opt/nulllinux/bin/null-machine-sync
+# 0 is "reconciled", 1 is "could not detect a display" -- neither is a failed
+# unit, and a machine with no display attached must still finish booting.
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target

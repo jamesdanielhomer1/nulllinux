@@ -164,6 +164,40 @@ PROFILE
     "$([ "$brem" -eq 0 ] && echo ", exact" || echo ", ${brem}px not reached")"
 }
 
+# Does the recorded profile still describe the hardware that is here?
+#
+# THE PROFILE IS KEYED ON HOSTNAME, AND THE HOSTNAME TRAVELS WITH THE DISK.
+# Move a drive to another machine and `machines/$(hostname).conf` is still
+# found, still parsed, and still describes a panel that is no longer attached
+# -- silently, because a profile that exists looks like a profile that is
+# right. That is the failure this answers.
+#
+# Compares the OUTPUT NAME and the MODE only. Scale is deliberately excluded:
+# the DRM path cannot report it (it always says 1.0) while the compositor path
+# can, so comparing it would declare a mismatch on every boot before a
+# compositor exists and regenerate the profile for no reason.
+check_profile() {
+  local p; p=$(profile_path 2>/dev/null) || { echo "  no profile for $(hostname -s 2>/dev/null || hostname)"; return 1; }
+  local rout rw rh
+  rout=$(get output) ; rw=$(get width) ; rh=$(get height)
+  local dout dw dh dscale
+  if ! read -r dout dw dh dscale < <(detect_output); then
+    # NOT A MISMATCH. Nothing is attached, or nothing can be read -- and
+    # regenerating from a detection that failed would replace a good profile
+    # with a guess. Say so and leave it alone.
+    echo "  cannot detect an output; leaving $p as it is"
+    return 0
+  fi
+  printf '  recorded  %-12s %sx%s\n' "$rout" "$rw" "$rh"
+  printf '  detected  %-12s %sx%s\n' "$dout" "$dw" "$dh"
+  if [ "$rout" = "$dout" ] && [ "$rw" = "$dw" ] && [ "$rh" = "$dh" ]; then
+    echo "  the profile matches the hardware"
+    return 0
+  fi
+  echo "  MISMATCH -- this profile was written for different hardware"
+  return 1
+}
+
 check_grid() {
   local w h ok=0
   w=$(get width); h=$(get height)
@@ -232,6 +266,7 @@ usage: machine <verb> [argument]
   probe <capability>   exit 0 if the hardware is present, 1 if absent
   capabilities         list probeable capabilities, with their current state
   check-grid           verify the grid fits, and report any unreached pixels
+  check-profile        does the recorded profile still match the hardware?
   generate             write machines/<hostname>.conf from the detected hardware
   profile              path to the profile in use
   show                 everything
@@ -247,6 +282,7 @@ case $verb in
   probe)    [ $# -eq 1 ] || die "probe needs a capability"; probe "$1" ;;
   profile)  profile_path ;;
   check-grid) check_grid ;;
+  check-profile) check_profile ;;
   generate)   generate ;;
   capabilities)
       for c in $CAPABILITIES; do

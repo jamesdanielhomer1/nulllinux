@@ -106,15 +106,15 @@ done
 # the kind of thing that makes a package larger than the thing it installs.
 rm -rf %{buildroot}%{_prefix}/%{name}/render/target/debug
 
-install -D -m 0644 packaging/nulllinux-firstboot.service \
-  %{buildroot}%{_unitdir}/nulllinux-firstboot.service
+install -D -m 0644 packaging/nulllinux-machine-sync.service \
+  %{buildroot}%{_unitdir}/nulllinux-machine-sync.service
 
 %post
-%systemd_post nulllinux-firstboot.service
+%systemd_post nulllinux-machine-sync.service
 # Enabled rather than run. Generating a machine profile needs a display, and
 # there is no display in the chroot an ISO is built in -- so the machine half
 # of the installation happens on the first boot that has one.
-systemctl enable nulllinux-firstboot.service >/dev/null 2>&1 || :
+systemctl enable nulllinux-machine-sync.service >/dev/null 2>&1 || :
 
 # Branding belongs to the package, not to one image's kickstart: an installer
 # ISO, a live image and a plain `dnf install nulllinux` must all end up saying
@@ -123,7 +123,7 @@ systemctl enable nulllinux-firstboot.service >/dev/null 2>&1 || :
 %{_prefix}/%{name}/bin/null-brand apply >/dev/null 2>&1 || :
 
 %preun
-%systemd_preun nulllinux-firstboot.service
+%systemd_preun nulllinux-machine-sync.service
 
 %postun
 # $1 is the number of copies left after this transaction: 0 on removal, 1 on
@@ -140,7 +140,7 @@ fi
 %license licenses/OFL.txt
 %doc README.md
 %{_prefix}/%{name}
-%{_unitdir}/nulllinux-firstboot.service
+%{_unitdir}/nulllinux-machine-sync.service
 
 %changelog
 * Wed Sep 03 2026 nullLinux <noreply@anthropic.com> - 0.1.0-1

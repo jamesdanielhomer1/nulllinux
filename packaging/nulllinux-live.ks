@@ -205,7 +205,7 @@ systemctl enable nulllinux-testkey.service 2>/dev/null || true
 
 # The machine half of the installation runs on the first boot that has a
 # display, which for a live image is this one.
-systemctl enable nulllinux-firstboot.service 2>/dev/null || true
+systemctl enable nulllinux-machine-sync.service 2>/dev/null || true
 
 # An installer that is findable. A live image nobody can install from is a
 # demonstration, not a distribution.

@@ -245,7 +245,7 @@ kickstart passed as `inst.ks` on the kernel command line.
 
 **It works.** 734 packages, 854.2 MiB downloaded, all installed and
 configured, initramfs built, users created, powered off cleanly. The installed
-disk boots, `nulllinux-0.1.0-1.fc44.x86_64` is present, the firstboot service
+disk boots, `nulllinux-0.1.0-1.fc44.x86_64` is present, the machine-sync service
 is enabled and active, and it generated a machine profile, selected
 `ter-u16n` for the interface and `ter-112n` for the bake, placed the prebuilt
 hero and theme, and installed the desktop system-wide -- in about a second,

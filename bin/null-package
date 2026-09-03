@@ -65,7 +65,7 @@ GEN
 [ $? -eq 0 ] || exit 1
 
 cp packaging/$NAME.spec "$TOP/SPECS/"
-cp packaging/$NAME-firstboot.service "$TOP/SOURCES/" 2>/dev/null || true
+cp packaging/$NAME-machine-sync.service "$TOP/SOURCES/" 2>/dev/null || true
 
 echo
 rpmbuild --define "_topdir $TOP" -bb "$TOP/SPECS/$NAME.spec" > "$TOP/build.log" 2>&1

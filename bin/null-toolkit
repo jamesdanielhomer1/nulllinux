@@ -36,7 +36,7 @@ CURSOR_SIZE=24
 # §8.10 trap: NAMING A THEME THAT IS NOT INSTALLED FALLS BACK TO A BUILT-IN
 # LIGHT PALETTE, SILENTLY. So every name below is checked against the disk
 # before it is written, and a missing one is a refusal rather than a warning.
-GTK_THEME=Default
+GTK_THEME=nullLinux
 ICON_THEME=nullLinux
 
 fail=0

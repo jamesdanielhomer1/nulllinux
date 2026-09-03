@@ -79,10 +79,10 @@ nulllinux
 %end
 
 %post
-# The firstboot unit does the machine half -- profile, strike, hero -- on the
+# The machine-sync unit does the machine half -- profile, strike, hero -- on the
 # first boot that has a display. Enabled here because the package's %post ran
 # inside the installer's chroot, where enabling can be lost.
-systemctl enable nulllinux-firstboot.service 2>/dev/null || true
+systemctl enable nulllinux-machine-sync.service 2>/dev/null || true
 
 # A way in, for a test that has no console. Not a thing a real image would do.
 mkdir -p /root/.ssh && chmod 700 /root/.ssh

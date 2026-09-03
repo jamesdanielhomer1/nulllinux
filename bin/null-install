@@ -117,21 +117,33 @@ fi
 
 head_ "the GTK theme, as a theme"
 say "a per-user gtk.css lives in one home; a theme in /usr/share/themes is everyone's"
+# THE SAME NAMING BUG AS THE ICONS, and it hid for the same reason.
+#
+# The stylesheet installs as a theme, and a GTK theme is looked up by its
+# DIRECTORY NAME, case-sensitively. This wrote /usr/share/themes/nulllinux
+# while the settings key below says 'nullLinux', so the lookup missed and GTK
+# used its own default -- meaning the stylesheet that themes the file manager
+# and every menu was loaded by nothing, on every machine.
+#
+# It hid because there was a THIRD answer that nothing read: config/gtk-*/
+# settings.ini said Default and was installed nowhere at all, so it could
+# contradict both of the others without consequence. It is installed now
+# (below), and verify/check-theme-names.sh requires all of them to agree.
 for v in 3.0 4.0; do
   src="$ROOT/config/gtk-$v/gtk.css"
   [ -r "$src" ] || { say "no $src -- skipping gtk-$v"; continue; }
   if [ "$APPLY" -eq 1 ]; then
-    mkdir -p "/usr/share/themes/nulllinux/gtk-$v"
-    cp -a "$src" "/usr/share/themes/nulllinux/gtk-$v/gtk.css"
-    say "installed /usr/share/themes/nulllinux/gtk-$v/gtk.css"
+    mkdir -p "/usr/share/themes/nullLinux/gtk-$v"
+    cp -a "$src" "/usr/share/themes/nullLinux/gtk-$v/gtk.css"
+    say "installed /usr/share/themes/nullLinux/gtk-$v/gtk.css"
   else
-    say "would install /usr/share/themes/nulllinux/gtk-$v/gtk.css"
+    say "would install /usr/share/themes/nullLinux/gtk-$v/gtk.css"
   fi
 done
 if [ "$APPLY" -eq 1 ]; then
   printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=nullLinux\nComment=Derived from the hero\n' \
-    > /usr/share/themes/nulllinux/index.theme
-  restore_selinux /usr/share/themes/nulllinux
+    > /usr/share/themes/nullLinux/index.theme
+  restore_selinux /usr/share/themes/nullLinux
 fi
 
 head_ "the icon theme"
@@ -202,6 +214,29 @@ say "each reads /etc/xdg as well as the user's own directory (XDG_CONFIG_DIRS),"
 say "so this is a DEFAULT a user can still override by writing their own"
 # fzf is deliberately absent: it is configured by environment variables from
 # the shell profile, not by a file, so it comes in through the shell join.
+# GTK's settings.ini, which was written and then installed nowhere.
+#
+# Not the same mechanism as the settings KEYS: gsettings needs a settings
+# daemon or a portal to be answering, and on a bare compositor session there
+# often is not one -- in which case settings.ini is what GTK actually reads.
+# Both must therefore say the same thing, and until now the file said Default
+# while the key said nullLinux and neither resolved to the shipped theme.
+#
+# Only settings.ini is copied, deliberately: gtk.css goes in as a THEME, and
+# copying it here as well would apply the same stylesheet twice.
+for v in 3.0 4.0; do
+  src="$ROOT/config/gtk-$v/settings.ini"
+  [ -r "$src" ] || continue
+  if [ "$APPLY" -eq 1 ]; then
+    mkdir -p "/etc/xdg/gtk-$v"; backup "/etc/xdg/gtk-$v/settings.ini"
+    cp -a "$src" "/etc/xdg/gtk-$v/settings.ini"
+    restore_selinux "/etc/xdg/gtk-$v"
+    say "installed /etc/xdg/gtk-$v/settings.ini"
+  else
+    say "would install /etc/xdg/gtk-$v/settings.ini"
+  fi
+done
+
 for app in btop dunst foot; do
   src="$ROOT/config/$app"
   [ -d "$src" ] || { say "no $src -- skipping $app"; continue; }

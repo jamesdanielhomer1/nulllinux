@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
-# The machine half of the installation, run once, on the first boot (§0.5).
+# Reconcile this machine's profile and surfaces with the hardware that is here.
 #
 # WHAT CANNOT BE DONE EARLIER. A machine profile is generated from the display
 # that is actually attached, and an ISO is built in a chroot that has none. The
 # strike that profile selects then decides which atlas and which prebuilt hero
 # are correct -- so the package ships all of them and this picks.
+#
+# THIS RUNS ON EVERY BOOT, NOT ONCE.
+#
+# It was a first-boot job, and that was wrong for a reason that only shows up
+# when a disk moves: the profile is keyed on hostname, the hostname travels
+# with the disk, and a stale profile therefore still resolves. Pull this drive
+# into another machine and it would keep the strikes, the atlas and the hero
+# chosen for a panel that is no longer attached -- silently, because a profile
+# that exists looks like a profile that is right.
+#
+# The cost of running every boot is one `machine check-profile`: read the
+# profile, read one DRM connector, compare. When they agree this exits in
+# milliseconds having touched nothing. When they do not, the machine has moved,
+# and everything below re-runs against the hardware that is actually present.
 #
 # NOTHING HERE IS EXPENSIVE. The choosing is a handful of file copies; the
 # raytrace was done when the package was built. On a machine with no prebuilt
@@ -12,16 +26,32 @@
 # starting a two-hour bake on a machine someone is waiting to log into.
 set -uo pipefail
 ROOT=${NULL_ROOT:-/opt/nulllinux}
-STAMP=/var/lib/nulllinux/firstboot-done
+# NOT "firstboot-done": this runs every boot. The stamp records that the
+# SURFACES have been placed, which is a different question from whether the
+# profile is current -- a moved disk has a stamp and a wrong profile.
+STAMP=/var/lib/nulllinux/surfaces-placed
 cd "$ROOT" || exit 1
 
-echo "nullLinux first boot"
+echo "nullLinux: reconciling with the hardware"
 
 # 1. The profile, from the hardware that is actually here.
+#
+# THE TEST IS "does it still describe this machine", not "does it exist". The
+# second is true on a disk that has been moved, which is the whole problem.
 if ! bin/machine profile >/dev/null 2>&1; then
+  echo "  no profile yet"
   bin/machine generate || { echo "  could not generate a machine profile" >&2; exit 1; }
+elif bin/machine check-profile; then
+  # Nothing has changed. If the surfaces were placed on an earlier boot there
+  # is nothing left to do, and this is the path every ordinary boot takes.
+  if [ -e "$STAMP" ]; then
+    echo "  nothing to do"
+    exit 0
+  fi
+  echo "  profile is current, but the surfaces have not been placed"
 else
-  echo "  profile already present for $(hostname -s 2>/dev/null || hostname)"
+  echo "  regenerating for the hardware that is here"
+  bin/machine generate || { echo "  could not generate a machine profile" >&2; exit 1; }
 fi
 
 iface=$(bin/machine get interface_strike) || exit 1
