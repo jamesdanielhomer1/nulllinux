@@ -25,7 +25,10 @@ Version:        0.1.0
 Release:        1%{?dist}
 Summary:        A desktop where every surface is one baked artefact
 
-License:        MIT
+# MIT for this project's own code; OFL-1.1 because assets/atlas-*.bin are
+# glyph bitmaps derived from Terminus, which is OFL. The field has to be true
+# rather than convenient -- rpmlint and Fedora's review both check it.
+License:        MIT AND OFL-1.1
 URL:            https://github.com/jamesdanielhomer/nulllinux
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}-prebuilt-%{version}.tar.gz
@@ -117,7 +120,10 @@ systemctl enable nulllinux-firstboot.service >/dev/null 2>&1 || :
 %systemd_preun nulllinux-firstboot.service
 
 %files
+# BOTH licences ship. The OFL text has to travel with the font-derived
+# atlases; shipping only MIT would be shipping OFL material without its terms.
 %license LICENSE
+%license licenses/OFL.txt
 %doc README.md
 %{_prefix}/%{name}
 %{_unitdir}/nulllinux-firstboot.service
