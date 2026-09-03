@@ -535,3 +535,65 @@ FP64 numpy reference:
 Agreement across two unrelated Vulkan drivers is evidence the shader is
 correct rather than evidence that one driver is self-consistent, which is all
 a single-driver test could ever show.
+
+## The master is deterministic, demonstrated
+
+§5.6 requires the bake to be run twice and compared, and says that with
+regular-grid supersampling -- which is what `--ss 4` is -- the correct standard
+is BIT-IDENTITY rather than agreement to three significant figures. That was a
+Phase 9 gate and it had never been closed.
+
+Two full 240-frame bakes on nox:
+
+| | |
+|---|---|
+| frames | 240 vs 240 |
+| `diff -rq` | no differences |
+| sha256 over the whole master | `ea75ec286c941f1c...` both runs |
+
+So the hero is the same artefact on every machine that ever builds it, and the
+raytrace is a thing that happens once in the life of the project rather than
+once per installation.
+
+## What ships, and what it costs to install
+
+| | |
+|---|---|
+| source tarball | 364 kB |
+| prebuilt tarball | 8.6 MB |
+| **the RPM** | **9.1 MB** |
+| `dnf install` on a clean Fedora | 117 s (mostly dependencies) |
+| **first boot** | **1 second** |
+
+The prebuilt set is 13 MB on disk: the quantised hero for all NINE bake
+strikes, every strike's atlas and ramp, the palette, and the palette-derived
+surfaces -- the compositor's colours, both GTK themes, foot's configuration,
+the shell's, and the icon theme.
+
+Nine rather than four. Four covers the strikes twelve common panel sizes
+select, and shipping four would have saved four megabytes while keeping a
+fallback path for the rest. Since the master is provably identical everywhere,
+there is no reason for any machine to bake, and nine leaves no path to get
+wrong.
+
+The HDR master is NOT shipped: 423 MB, an intermediate (§5.1), and everything
+downstream of it is in the package already.
+
+**Verified on a machine that has none of what the bake needs:** no cargo, no
+rustc, no numpy, no pillow, no render node in /dev/dri. The desktop starts --
+column, bar and wallpaper renderer all running, no errors -- and draws the
+hero. Its atlas is 34,618 bytes, the 8x16 one its 1280x800 panel selected;
+nox's is 48,034, the 10x18. Same package, different strike, nothing configured
+by hand.
+
+## The software-Vulkan bake is not just slow, it is unreliable
+
+The full 240-frame bake on llvmpipe failed: `kerr-gpu` died with SIGSEGV after
+48 frames, 1970 s in, with 1 GB of 3.9 GB memory used -- so not exhaustion.
+Re-running the same batch at a smaller size succeeded twice, so it is flaky
+rather than deterministic at that frame.
+
+This is a Mesa problem rather than a nullLinux one, and shipping the hero makes
+it moot. It is recorded because it turns "a machine without a GPU would take
+two hours" into "a machine without a GPU may not finish at all", which is a
+stronger reason for the package to carry the hero than the timing was.
