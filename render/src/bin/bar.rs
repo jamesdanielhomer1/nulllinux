@@ -132,26 +132,38 @@ fn main() {
     let layer_shell = LayerShell::bind(&globals, &qh).expect("wlr-layer-shell");
     let shm = Shm::bind(&globals, &qh).expect("wl_shm");
 
-    let cols = 1920 / atlas.cell_w;
-    let px_w = (cols * atlas.cell_w) as u32;
+    // THE COMPOSITOR KNOWS HOW WIDE THE SCREEN IS; THIS DID NOT.
+    //
+    // This read `1920 / atlas.cell_w` -- the width of the panel on the machine
+    // the project was written on. The surface is anchored LEFT and RIGHT, so
+    // the compositor will give it the full output width for the asking, and
+    // asking is passing 0: a layer surface that is anchored to opposite edges
+    // and requests 0 on that axis is told what the real extent is.
+    //
+    // On a 2560-wide screen the bar was 1920 wide and the remaining 640 px was
+    // bare background -- on every machine that is not this one.
     let px_h = (ROWS * atlas.cell_h) as u32;
+    // A provisional grid, replaced the moment the first configure arrives with
+    // the true width. It is never drawn at this size.
+    let cols = 1;
 
     let surface = compositor.create_surface(&qh);
     let layer = layer_shell.create_layer_surface(&qh, surface, Layer::Top, Some("null-bar"), None);
     layer.set_anchor(Anchor::TOP | Anchor::LEFT | Anchor::RIGHT);
     layer.set_exclusive_zone(px_h as i32);
     layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-    layer.set_size(px_w, px_h);
+    layer.set_size(0, px_h);   // 0 = "you tell me", see above
     layer.commit();
 
-    let pool = SlotPool::new((px_w * px_h * 4 * 2) as usize, &shm).expect("pool");
+    // Sized on the first configure, once the width is known.
+    let pool = SlotPool::new((px_h * 4) as usize, &shm).expect("pool");
     let grid = TextGrid::new(cols, ROWS, pal.get(Role::Background));
 
     let mut bar = Bar {
         registry_state: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
         shm, pool, layer, atlas, pal, ramp, grid,
-        px_w, px_h, configured: false, exit: false,
+        px_w: 0, px_h, configured: false, exit: false,
         slots: Vec::new(), next_slot: 0,
         cpu: CpuSampler::new(), cpu_trail: Vec::new(),
         workspaces: String::from("1"), window_title: String::new(),
@@ -435,8 +447,16 @@ impl LayerShellHandler for Bar {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) { self.exit = true }
     fn configure(&mut self, _: &Connection, _qh: &QueueHandle<Self>, _: &LayerSurface,
                  cfg: LayerSurfaceConfigure, _: u32) {
+        let was = self.px_w;
         if cfg.new_size.0 != 0 { self.px_w = cfg.new_size.0 }
         if cfg.new_size.1 != 0 { self.px_h = cfg.new_size.1 }
+        // REBUILD THE GRID WHEN THE WIDTH CHANGES, not only at startup. The
+        // width arriving is the whole point of asking for 0, and a monitor
+        // that is swapped or re-moded sends another configure.
+        if self.px_w != was && self.px_w != 0 {
+            let cols = (self.px_w as usize / self.atlas.cell_w).max(1);
+            self.grid = TextGrid::new(cols, ROWS, self.pal.get(Role::Background));
+        }
         if !self.configured {
             self.configured = true;
             self.refresh_compositor_state();

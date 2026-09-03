@@ -357,8 +357,20 @@ fn main() {
     let layer_shell = LayerShell::bind(&globals, &qh).expect("wlr-layer-shell");
     let shm = Shm::bind(&globals, &qh).expect("wl_shm");
 
-    // The bar reserves its own zone, so the column starts below it.
+    // THE COMPOSITOR KNOWS HOW TALL THE SCREEN IS; THIS DID NOT.
+    //
+    // This read `(1080 - bar_px)` -- the height of the panel on the machine the
+    // project was written on. The surface is anchored TOP and BOTTOM, so the
+    // compositor gives it the full remaining height for the asking, and asking
+    // is passing 0 on that axis. It already recomputes `rows` from the
+    // configured height (see configure below); it simply never asked.
+    //
+    // On a 1440-tall screen the column stopped 205 px short of the bottom.
+    //
+    // The bar reserves its own zone, so the column starts below it anyway.
     let bar_px = 2 * atlas.cell_h;
+    // Provisional only -- replaced by the first configure. Kept as a sane
+    // starting size so the pool below is not allocated at zero.
     let rows = (1080 - bar_px) / atlas.cell_h;
     let cols = NARROW;
     let px_w = (cols * atlas.cell_w) as u32;
@@ -746,7 +758,7 @@ impl Column {
         self.geometry_dirty = false;
         self.px_w = (self.cols * self.atlas.cell_w) as u32;
         let Some(layer) = self.layer.as_ref() else { return };
-        layer.set_size(self.px_w, self.px_h);
+        layer.set_size(self.px_w, 0);   // 0 = full height, see run()
 
         // The zone is claimed exactly when there is something to tile beside:
         // pinned, or hosting. Changing size and zone on a MAPPED surface
@@ -812,7 +824,7 @@ impl Column {
         let layer = self.layer_shell.create_layer_surface(
             &self.qh, surface, Layer::Top, Some("null-column"), None);
         layer.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM);
-        layer.set_size((self.cols * self.atlas.cell_w) as u32, self.px_h);
+        layer.set_size((self.cols * self.atlas.cell_w) as u32, 0);
         layer.set_exclusive_zone(0);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         // The initial commit carries NO buffer: the compositor answers with a

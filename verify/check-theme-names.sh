@@ -37,7 +37,13 @@ check_theme() {  # <label> <install-dir-prefix> <settings.ini key> <dconf key> <
   # Comments are stripped first. The comment in null-install that explains
   # this very bug names the OLD path, and flagging that would mean the fix
   # cannot be described where it happened.
+  # Lines that REMOVE a superseded name are not lines that install one, and
+  # null-install has to name the old spelling in order to delete it. Excluded
+  # by the word `legacy`, and checked separately below that the only thing it
+  # ever removes is the lowercase form of the current name -- so this exclusion
+  # cannot be used to smuggle in a second install path.
   dirs=$(sed -e 's/[[:space:]]#.*$//' -e 's/^[[:space:]]*#.*$//' bin/null-install \
+         | grep -v legacy \
          | grep -oE "$prefix/[A-Za-z0-9._-]+" | sort -u)
   n=$(printf '%s\n' "$dirs" | grep -c .)
   if [ "$n" -ne 1 ]; then
@@ -63,6 +69,28 @@ check_theme() {  # <label> <install-dir-prefix> <settings.ini key> <dconf key> <
 
 check_theme "the GTK theme"  "/usr/share/themes" gtk-theme-name  gtk-theme  GTK_THEME
 check_theme "the icon theme" "/usr/share/icons"  gtk-icon-theme-name icon-theme ICON_THEME
+
+echo "== what is removed as superseded is only the old spelling"
+legacy_line=$(grep -n 'for legacy in' bin/null-install | head -1)
+if [ -z "$legacy_line" ]; then
+  echo "  (nothing is removed as superseded)"
+else
+  bad=0
+  for d in $(printf '%s' "$legacy_line" | grep -oE '/usr/share/(themes|icons)/[A-Za-z0-9._-]+'); do
+    base=$(basename "$d")
+    want=$(printf '%s' "$base" | tr 'A-Z' 'a-z')
+    # The current name lowercased -- nothing else may be deleted from a
+    # directory full of other people's themes.
+    if [ "$base" = "$want" ] && [ "$(printf 'nullLinux' | tr 'A-Z' 'a-z')" = "$base" ]; then
+      echo "  ok    removes $d (the old lowercase spelling)"
+    else
+      echo "  FAIL  removes $d, which is not this project's superseded name"
+      bad=1; fail=1
+    fi
+  done
+  [ $bad = 0 ] || true
+fi
+echo
 
 # A settings.ini that is installed NOWHERE is how the third answer hid: it can
 # say anything, for years, and nothing reads it. If it is worth keeping in the
