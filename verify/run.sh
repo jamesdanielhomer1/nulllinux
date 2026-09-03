@@ -17,6 +17,8 @@ run() {
 
 run "package abstraction (§9.1)"      ./verify/check-package-abstraction.sh
 run "branding is safe"               ./verify/check-branding.sh
+run "every tool has a caller (§10.1)"     ./verify/check-callers.sh
+run "... and that can fail (§10.1)"       ./verify/selftest-callers.sh
 run "... and it can fail (§10.1)"     ./verify/selftest-package-abstraction.sh
 run "machine profile grid (§2.1)"     ./bin/machine check-grid
 run "machine profile is readable"     ./bin/machine get hero

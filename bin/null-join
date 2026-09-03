@@ -55,13 +55,60 @@ check_one() {  # is the JOIN still there
   echo "  MISSING: $target -- the file exists but the join is not in it"; return 1
 }
 
+# IS THIS SYSTEM ACTUALLY RUNNING NULLLINUX?
+#
+# A join is missing on two very different machines: one where nullLinux is
+# installed and someone removed the join -- a real fault -- and a BUILD HOST,
+# which is only a checkout and has nothing to join into yet. Reporting both as
+# a failure made the verification suite permanently red on the machine the
+# suite is run from, and a suite that is always red is a suite nobody reads.
+#
+# The test is whether /etc/sway/config points at THIS checkout, which is what
+# `null-install --apply` does and the only thing that makes the joins expected.
+installed_here() {
+  [ -r /etc/sway/config ] && grep -qF "$ROOT/config/sway/config" /etc/sway/config
+}
+
+# THE SYSTEM-WIDE ROUTE, which is now the primary one (bin/null-install).
+#
+# /etc/profile.d and /etc/gitconfig reach every account, including accounts
+# that do not exist yet, without touching a single file that belongs to a user.
+# Where that is in place there is nothing to join and joining anyway would put
+# a redundant block in somebody's .bashrc.
+system_wide() {
+  [ -r /etc/profile.d/nulllinux.sh ] &&
+  grep -qF "$ROOT/config/shell/null.sh" /etc/profile.d/nulllinux.sh
+}
+
 case "${1:-join}" in
   join)
+    if system_wide; then
+      echo "  system-wide already: /etc/profile.d/nulllinux.sh reaches every account"
+      echo "  (nothing to join; run null-join only where /etc is not ours to write)"
+      exit 0
+    fi
     join_one "$HOME/.bashrc" "NULL_ROOT=$ROOT . \"$ROOT/config/shell/null.sh\""
     join_one "$HOME/.gitconfig" "[include]
 	path = $ROOT/config/git/config"
     ;;
   check)
+    # The question is "does the shell reach this user", not "is there a join".
+    # A system-wide install answers it without one.
+    if system_wide; then
+      echo "  present: /etc/profile.d/nulllinux.sh -> $ROOT/config/shell/null.sh"
+      if git config --system --get include.path 2>/dev/null | grep -qF "$ROOT/config/git/config"; then
+        echo "  present: /etc/gitconfig include.path -> $ROOT/config/git/config"
+      else
+        echo "  MISSING: /etc/gitconfig does not include $ROOT/config/git/config"
+        exit 1
+      fi
+      exit 0
+    fi
+    if ! installed_here; then
+      echo "  not installed here -- /etc/sway/config does not include $ROOT"
+      echo "  (a checkout, not an installed system; nothing is expected to be joined)"
+      exit 0
+    fi
     fail=0
     check_one "$HOME/.bashrc" || fail=1
     check_one "$HOME/.gitconfig" || fail=1

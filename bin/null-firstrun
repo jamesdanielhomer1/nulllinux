@@ -24,6 +24,10 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 # belongs to a person; root has a shell and a git configuration like anybody
 # else, and on a machine with no other account yet -- which every machine is,
 # once -- refusing outright left root with no prompt and no way to get one.
+# null-join now declines when /etc/profile.d/nulllinux.sh already reaches every
+# account, so on an installed system this prints one line and touches nothing;
+# on a development checkout, where /etc belongs to another installation, it
+# still does the per-user join it was written for.
 "$ROOT/bin/null-join" join
 
 # THE FILE MANAGER'S OWN SETTINGS, for the same reason. null-install writes
@@ -51,6 +55,31 @@ if [ ! -r /etc/sway/config ] || ! grep -q "$ROOT" /etc/sway/config 2>/dev/null; 
   echo
 fi
 
+# THE SETTINGS KEYS, which had no caller at all.
+#
+# §8.10: a settings key outranks a configuration file wherever both exist, so a
+# font or icon theme left in the settings database by a previous desktop wins
+# over everything null-install wrote -- silently, because nothing reports it.
+# bin/null-toolkit was written for exactly that and then nothing ever ran it.
+#
+# ONCE PER ACCOUNT, not every session. These are the user's own keys: correcting
+# a stale value inherited from another desktop is the job, and overwriting a
+# deliberate choice on every login is not. The stamp is what makes this a
+# first run rather than a policy.
+stamp="${XDG_STATE_HOME:-$HOME/.local/state}/nulllinux/toolkit-keys"
+echo "== toolkit settings keys (§8.10)"
+if [ -e "$stamp" ]; then
+  echo "  already applied once for $(id -un) -- leaving this account's keys alone"
+  echo "  (delete $stamp to re-apply)"
+else
+  if "$ROOT/bin/null-toolkit" --apply; then
+    mkdir -p "$(dirname "$stamp")" && : > "$stamp"
+  else
+    echo "  not applied -- see the refusal above; no stamp written, so this retries"
+  fi
+fi
+
+echo
 echo "== browser chrome (the one per-user piece)"
 "$ROOT/bin/null-firefox" --apply || echo "  skipped"
 

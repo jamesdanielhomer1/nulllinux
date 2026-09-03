@@ -46,17 +46,24 @@ write_os_release() {
   local up;  up=$(upstream_name)
   # A real file, not a redirect through the symlink.
   rm -f /etc/os-release
+  # NO COMMENTS IN THE OUTPUT.
+  #
+  # os-release is a machine-readable identity file that ends up on a stranger's
+  # disk, and prose explaining a maintenance decision is not part of anyone's
+  # identity. The reasons live here, in the tool that makes the file:
+  #
+  #   ID_LIKE   is not decoration. Everything that asks "what distribution is
+  #             this" -- bin/pkg included -- has to keep finding fedora, or
+  #             branding a machine breaks package management on it.
+  #   VARIANT   states the remix relationship plainly, without claiming the
+  #             mark: a Fedora Remix may not present itself as Fedora.
   cat > /etc/os-release <<OSREL
 NAME="nullLinux"
 VERSION="$VERSION"
 ID=nulllinux
-# ID_LIKE is not decoration.  Everything that asks "what distribution is this"
-# -- this project's own bin/pkg included -- has to keep finding fedora here, or
-# branding the system breaks package management on it.
 ID_LIKE=$(upstream_id)
 VERSION_ID=$VERSION
 PRETTY_NAME="nullLinux $VERSION"
-# The remix relationship, stated plainly and without claiming the mark.
 VARIANT="$up $rel Remix"
 VARIANT_ID=remix
 ANSI_COLOR="0;38;2;255;120;0"

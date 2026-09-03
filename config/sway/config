@@ -76,6 +76,22 @@ exec_always NULL_ROOT=$null $null/bin/null-column
 # sees what is copied while it is open, which is never (§8.4).
 exec_always NULL_ROOT=$null $null/bin/null-clipboard watch
 
+# THE PER-USER HALF, and it needs a caller.
+#
+# null-install puts everything it can where the SYSTEM looks, so a new account
+# gets this desktop by logging in. Two things cannot go there -- a browser's
+# userChrome.css and two thunar keys thunar only ever writes per user -- and
+# null-firstrun does those. Nothing invoked it: the joins it was written to
+# perform were found missing on a freshly installed machine, they were moved
+# into null-firstrun, and then NOTHING CALLED NULL-FIRSTRUN either. A tool with
+# no caller is the same defect one level out, and it is only ever found on a
+# machine that is not the one it was written on.
+#
+# `exec` rather than `exec_always`: it is per-account setup, not a service, and
+# re-running it on every config reload would rewrite a browser profile while
+# the browser is open. It is idempotent, cheap, and skips what is already done.
+exec NULL_ROOT=$null $null/bin/null-firstrun
+
 # Systemd session integration from the distribution. Taken deliberately, by
 # literal path: these two files set up the user session, dbus activation and
 # the portal. The distribution's BINDING files are deliberately NOT included --

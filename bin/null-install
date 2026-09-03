@@ -81,6 +81,40 @@ else
   say "would replace /etc/sway/config with an include of $ROOT/config/sway/config"
 fi
 
+head_ "the shell and git, where the SYSTEM looks -- not in anyone's home"
+# §9.8 says HOW to join a file that belongs to a user. It does not say the
+# shell prompt has to be joined at all, and joining it was wrong: the join
+# happens per account, nothing ran it on a freshly installed machine, and root
+# came up with no prompt and no colours. Both of these have a system-wide home
+# that every account reads without any file of theirs being touched:
+#
+#   /etc/profile.d/  every login shell sources it, including accounts that do
+#                    not exist yet.
+#   /etc/gitconfig   git's system level, below ~/.gitconfig, so a user's own
+#                    settings still win.
+#
+# bin/null-join stays for a development checkout, where /etc belongs to another
+# installation and must not be written.
+say "/etc/profile.d is read by every login shell; /etc/gitconfig sits below the user's own"
+if [ "$APPLY" -eq 1 ]; then
+  backup /etc/profile.d/nulllinux.sh
+  cat > /etc/profile.d/nulllinux.sh <<EOF
+# Installed by $ROOT/bin/null-install -- do not edit.
+# Sourced by every login shell. A user who wants none of it sets NULL_NO_SHELL.
+[ -n "\${NULL_NO_SHELL:-}" ] || {
+  NULL_ROOT=$ROOT
+  . "$ROOT/config/shell/null.sh"
+}
+EOF
+  chmod 0644 /etc/profile.d/nulllinux.sh
+  say "installed /etc/profile.d/nulllinux.sh -> $ROOT/config/shell/null.sh"
+  git config --system --replace-all include.path "$ROOT/config/git/config" 2>/dev/null \
+    && say "set include.path in /etc/gitconfig -> $ROOT/config/git/config" \
+    || say "could not set /etc/gitconfig (git absent?); the colours are the only loss"
+else
+  say "would install /etc/profile.d/nulllinux.sh and set include.path in /etc/gitconfig"
+fi
+
 head_ "the GTK theme, as a theme"
 say "a per-user gtk.css lives in one home; a theme in /usr/share/themes is everyone's"
 for v in 3.0 4.0; do
