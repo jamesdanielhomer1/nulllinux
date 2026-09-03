@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Build the nullLinux live ISO (NULL.md §0.5).
+#
+# THE ISO IS THE LAST STEP, NOT THE FIRST. It is a way of shipping an
+# installation that already works: null-bootstrap and the package come first,
+# and this puts them on a disc. Building an ISO around an installer that has
+# never installed anything is how you get an ISO that boots to a broken
+# desktop and cannot tell you why.
+#
+# It needs the package to exist, and the package needs the prebuilt assets, so
+# the order is null-prebake -> null-package -> null-iso and each refuses
+# rather than guessing when the one before it has not run.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+cd "$ROOT"
+NAME=nulllinux
+VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head -1)
+WORK=${NULL_ISO_WORK:-/var/lib/nulllinux-iso}
+KS="$WORK/$NAME-live.ks"
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "null-iso: $1 is not installed" >&2; return 1; }; }
+fail=0
+need livemedia-creator || fail=1
+need createrepo_c || fail=1
+[ -d packaging/repo/repodata ] || { echo "null-iso: no local repository at packaging/repo" >&2
+  echo "  Build the package first:  bin/null-package" >&2; fail=1; }
+[ "$(id -u)" -eq 0 ] || { echo "null-iso: must be root -- anaconda needs mounts and loop devices" >&2; fail=1; }
+[ "$fail" -eq 0 ] || exit 1
+
+# Space. An ISO build writes the whole installed tree, then an image of it,
+# then squashfs -- several times the size of the result.
+avail=$(df --output=avail -BG "$(dirname "$WORK")" 2>/dev/null | tail -1 | tr -dc '0-9')
+[ "${avail:-0}" -ge 20 ] || { echo "null-iso: ${avail}G free; an ISO build wants 20G or more" >&2; exit 1; }
+
+mkdir -p "$WORK"
+rm -rf "$WORK/results"
+
+# The kickstart names the repository by absolute path, which is only known
+# here. Substituted rather than hard-coded so the tree can live anywhere.
+sed "s|file://NULLLINUX_REPO|file://$ROOT/packaging/repo|" \
+    packaging/$NAME-live.ks > "$KS"
+ksvalidator "$KS" >/dev/null 2>&1 || { echo "null-iso: the kickstart does not validate" >&2
+  ksvalidator "$KS" >&2; exit 1; }
+
+echo "building $NAME-$VERSION.iso"
+echo "  work:  $WORK"
+echo "  repo:  $ROOT/packaging/repo ($(ls packaging/repo/*.rpm 2>/dev/null | wc -l) package(s))"
+echo
+
+# --no-virt: build in a chroot on this machine rather than by booting a virtual
+# machine. It is the faster path and the one that works on a host that is
+# already inside a hypervisor, which a build machine often is.
+livemedia-creator \
+  --ks "$KS" \
+  --no-virt \
+  --resultdir "$WORK/results" \
+  --project "nullLinux" \
+  --releasever "$(rpm -q --qf '%{version}' fedora-release-common 2>/dev/null || echo 44)" \
+  --volid "nullLinux-$VERSION" \
+  --iso-name "$NAME-$VERSION.iso" \
+  --make-iso \
+  --lorax-templates /usr/share/lorax/templates.d/99-generic \
+  --logfile "$WORK/livemedia.log"
+st=$?
+
+echo
+if [ $st -eq 0 ] && iso=$(find "$WORK/results" -name '*.iso' | head -1) && [ -n "$iso" ]; then
+  echo "built: $iso"
+  echo "  $(du -h "$iso" | cut -f1)"
+  echo
+  echo "Write it to a stick with:"
+  echo "  dd if=$iso of=/dev/sdX bs=4M status=progress oflag=sync"
+else
+  echo "null-iso: the build FAILED -- last lines of $WORK/livemedia.log" >&2
+  tail -25 "$WORK/livemedia.log" 2>/dev/null >&2
+fi
+exit $st

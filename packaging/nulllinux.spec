@@ -25,11 +25,7 @@ Version:        0.1.0
 Release:        1%{?dist}
 Summary:        A desktop where every surface is one baked artefact
 
-# UNDECLARED. This project has no LICENSE file and states no licence anywhere,
-# and choosing one is James's decision about his own work, not the packager's.
-# rpmbuild requires the field, so it says what is true. Replace it -- and add a
-# LICENSE file with %license below -- before this is published anywhere.
-License:        UNDECLARED
+License:        MIT
 URL:            https://github.com/jamesdanielhomer/nulllinux
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}-prebuilt-%{version}.tar.gz
@@ -120,6 +116,7 @@ systemctl enable nulllinux-firstboot.service >/dev/null 2>&1 || :
 %systemd_preun nulllinux-firstboot.service
 
 %files
+%license LICENSE
 %doc README.md
 %{_prefix}/%{name}
 %{_unitdir}/nulllinux-firstboot.service
