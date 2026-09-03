@@ -40,7 +40,7 @@ PY
   return 0
 }
 
-audit "prompt" 100 bash -c '. '"$ROOT"'/config/shell/nullLinux.sh; cd '"$ROOT"'
+audit "prompt" 100 bash -c '. '"$ROOT"'/config/shell/null.sh; cd '"$ROOT"'
   for i in $(seq 6); do true; __null_prompt; printf "%s\n" "${PS1@P}"
                         false; __null_prompt; printf "%s\n" "${PS1@P}"; done'
 audit "pager"  400 env HOME="$HOME" bash -lc 'less /tmp/null-pager-probe.txt'

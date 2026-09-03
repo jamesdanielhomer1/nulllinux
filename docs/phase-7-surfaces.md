@@ -96,7 +96,7 @@ Verified: git reads the included configuration (`color.diff.frag` → `#b9ccff`,
 | path | what |
 |---|---|
 | `config/foot/foot.ini` | terminal; strike pinned, bold and italic pinned too |
-| `config/shell/nullLinux.sh` | prompt, pager, editor, path |
+| `config/shell/null.sh` | prompt, pager, editor, path |
 | `config/shell/colours.sh` | palette roles as shell variables — generated |
 | `config/git/config` | diff and status colours — plain git, ASCII only |
 | `config/gtk-3.0`, `config/gtk-4.0` | toolkit stylesheet, surfaces named — generated |

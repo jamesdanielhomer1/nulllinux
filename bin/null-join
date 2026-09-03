@@ -13,8 +13,23 @@ MARK="# >>> nullLinux >>>"
 
 join_one() {  # <target> <line>
   local target=$1 line=$2
+  # AN EXISTING BLOCK IS REPLACED, NOT SKIPPED.
+  #
+  # Skipping meant a join could never be repaired. When the shell fragment was
+  # renamed, every machine that had already been joined kept sourcing a path
+  # that no longer existed -- and printed an error on every shell it opened --
+  # while this reported "already joined" and did nothing about it.
+  #
+  # The block is delimited, so replacing it is exact: everything between the
+  # marker and its closing line goes, and the current content takes its place.
   if [ -e "$target" ] && grep -qF "$MARK" "$target"; then
-    echo "  already joined: $target"; return 0
+    if grep -qF "$line" "$target"; then
+      echo "  already joined: $target"; return 0
+    fi
+    cp -a "$target" "$target.null-backup.$(date +%Y%m%d-%H%M%S)"
+    # Delete the old block, then fall through and append the current one.
+    sed -i "/^$(printf '%s' "$MARK" | sed 's/[][\.*^$\/]/\\&/g')\$/,/^# <<< nullLinux <<<\$/d" "$target"
+    echo "  replacing a stale join in $target"
   fi
   if [ -e "$target" ]; then
     cp -a "$target" "$target.null-backup.$(date +%Y%m%d-%H%M%S)"
@@ -42,7 +57,7 @@ check_one() {  # is the JOIN still there
 
 case "${1:-join}" in
   join)
-    join_one "$HOME/.bashrc" "NULL_ROOT=$ROOT . \"$ROOT/config/shell/nullLinux.sh\""
+    join_one "$HOME/.bashrc" "NULL_ROOT=$ROOT . \"$ROOT/config/shell/null.sh\""
     join_one "$HOME/.gitconfig" "[include]
 	path = $ROOT/config/git/config"
     ;;
