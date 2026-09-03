@@ -63,7 +63,11 @@ about this field being true rather than convenient.
 ## Before publishing anywhere
 
 - [ ] Confirm no employment claim on the work.
-- [ ] Ship the OFL-1.1 text alongside the atlases (`licenses/OFL-1.1.txt`).
+- [x] Ship the OFL-1.1 text alongside the atlases (`licenses/OFL.txt`, taken
+      from `terminus-fonts` itself: Copyright (C) 2020 Dimitar Toshkov Zhekov,
+      **Reserved Font Name "Terminus Font"**). The reserved name matters: a
+      modified font may not use it, which is a reason not to describe the
+      atlases as a font.
 - [ ] Point at Fedora's source repositories for the GPL packages in the ISO.
 - [ ] Read Red Hat's Fedora Remix trademark guidelines.
 - [ ] Get real advice if any of this is going somewhere that matters.
