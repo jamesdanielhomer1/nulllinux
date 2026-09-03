@@ -77,14 +77,37 @@ if [ "${1:-install}" = install ]; then
       "$ROOT/packaging/nulllinux-install.ks" > "$KS"
   ksvalidator "$KS" >/dev/null 2>&1 || die "the install kickstart does not validate"
 
-  # mkksiso embeds the kickstart AND sets inst.ks= on the boot entries, so the
-  # image boots straight into an unattended install. The shipping ISO is not
-  # modified: this writes a second one.
-  echo "embedding the kickstart"
-  rm -f "$KS_ISO"
-  mkksiso --ks "$KS" "$SRC_ISO" "$KS_ISO" >"$WORK/mkksiso.log" 2>&1 \
-    || { echo "mkksiso failed:"; tail -12 "$WORK/mkksiso.log"; exit 1; }
-  echo "  $(du -h "$KS_ISO" | cut -f1)"
+  # THE KERNEL COMMAND LINE, NOT A REBUILT IMAGE.
+  #
+  # mkksiso rewrites the ISO to carry the kickstart and set inst.ks= on its
+  # boot entries. Its output does not boot: same qemu, same moment, the ISO as
+  # built reaches the desktop at 80,733 non-black pixels and mkksiso's copy
+  # shows zero, for ever. mkksiso is made for Anaconda installer media and this
+  # is a live image, which is a different boot path.
+  #
+  # So the ISO is left ALONE and its own kernel is booted directly with a
+  # command line of our choosing. Two things fall out of that and both are
+  # improvements: the image under test is byte-identical to the one that would
+  # go on a stick, and the kickstart never has to be on the medium at all -- it
+  # is fetched over the network qemu already provides, where the host is
+  # 10.0.2.2.
+  echo "extracting the ISO's own kernel and initrd"
+  isomnt=$(mktemp -d)
+  mount -o loop,ro "$SRC_ISO" "$isomnt" 2>/dev/null || die "cannot mount $SRC_ISO"
+  mkdir -p "$WORK/boot"
+  cp "$isomnt/images/pxeboot/vmlinuz"    "$WORK/boot/" 2>/dev/null || { umount "$isomnt"; die "no vmlinuz on the ISO"; }
+  cp "$isomnt/images/pxeboot/initrd.img" "$WORK/boot/" 2>/dev/null || { umount "$isomnt"; die "no initrd on the ISO"; }
+  umount "$isomnt"; rmdir "$isomnt"
+  LABEL=$(blkid -o value -s LABEL "$SRC_ISO" 2>/dev/null)
+  [ -n "$LABEL" ] || die "the ISO has no volume label for root=live:CDLABEL to name"
+  echo "  label: $LABEL"
+
+  # The kickstart is SERVED, not embedded. 0.0.0.0 rather than 127.0.0.1: the
+  # guest reaches the host as 10.0.2.2, and a server bound to loopback is a
+  # server the guest cannot see.
+  ( cd "$WORK" && exec python3 -m http.server 8899 --bind 0.0.0.0 ) >/dev/null 2>&1 &
+  HTTPPID=$!
+  echo "  kickstart at http://10.0.2.2:8899/install.ks"
 
   # A BLANK disk every time. Installing over a previous install tests upgrade,
   # not installation, and hides bugs that only appear on an empty machine --
@@ -103,8 +126,18 @@ BOOTARGS=(-drive file="$DISK",if=virtio,format=qcow2)
 # installs again, forever. `once` means the CD is used for this boot only, so
 # the machine comes up on what was just installed -- which is the thing being
 # tested.
-[ "${1:-install}" = install ] && BOOTARGS+=(-cdrom "$KS_ISO" -boot once=d) || BOOTARGS+=(-boot c)
+if [ "${1:-install}" = install ]; then
+  # The ISO is still attached -- root=live:CDLABEL finds the squashfs on it --
+  # but the kernel and its command line come from outside it, so the medium is
+  # untouched. console=ttyS0 so the install is readable without a screenshot.
+  BOOTARGS+=(-cdrom "$SRC_ISO"
+             -kernel "$WORK/boot/vmlinuz" -initrd "$WORK/boot/initrd.img"
+             -append "root=live:CDLABEL=$LABEL rd.live.image inst.ks=http://10.0.2.2:8899/install.ks console=ttyS0,115200 console=tty0")
+else
+  BOOTARGS+=(-boot c)
+fi
 
+# The server stays up for the guest to fetch from.
 setsid qemu-system-x86_64 -enable-kvm -m "$MEM" -smp 4 \
   "${BOOTARGS[@]}" \
   -netdev user,id=n0,hostfwd=tcp::"$PORT"-:22 -device virtio-net-pci,netdev=n0 \

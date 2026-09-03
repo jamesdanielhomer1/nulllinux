@@ -119,14 +119,40 @@ if [ -z "$WAYLAND_DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
   # that impossible.
   ks=$(sed -n 's/.*inst\.ks=\([^ ]*\).*/\1/p' /proc/cmdline)
   if [ -n "$ks" ]; then
-    # hd:LABEL=X:/path -- the live medium is already mounted, so the path on it
-    # is what matters and the label has served its purpose in the initramfs.
-    f=${ks##*:}
-    for d in /run/initramfs/live /run/install/repo /mnt/install/repo; do
-      [ -r "$d$f" ] && { exec sudo liveinst --kickstart="$d$f"; }
-    done
-    echo "inst.ks=$ks was asked for but $f was not found on the live medium" >&2
-    echo "falling through to the desktop" >&2
+    # inst.ks TAKES SEVERAL FORMS AND THEY PARSE DIFFERENTLY.
+    #
+    # The first version of this handled only `hd:LABEL=X:/path` and split on
+    # the LAST colon to get the path. Given a URL that yields "8899/install.ks"
+    # out of "http://10.0.2.2:8899/install.ks", which is on no medium anywhere,
+    # so it fell through and started the desktop -- with the error scrolling
+    # past on a tty nobody was looking at.
+    got=""
+    case "$ks" in
+      http://*|https://*|ftp://*)
+        # Fetched, not looked for. A URL is not a path on the medium.
+        got=/tmp/inst.ks
+        curl -fsS --retry 5 --retry-delay 2 -o "$got" "$ks" || got=""
+        ;;
+      nfs:*)
+        echo "inst.ks over NFS is not handled here" >&2 ;;
+      *)
+        # hd:LABEL=X:/path, or a bare path. The medium is already mounted, so
+        # the path on it is what matters and the label did its work earlier.
+        f=${ks##*:}
+        for d in /run/initramfs/live /run/install/repo /mnt/install/repo ""; do
+          [ -r "$d$f" ] && { got="$d$f"; break; }
+        done
+        ;;
+    esac
+    if [ -n "$got" ] && [ -s "$got" ]; then
+      exec sudo liveinst --kickstart="$got"
+    fi
+    # SAID SOMEWHERE IT WILL BE SEEN. The last version wrote to stderr on a tty
+    # that sway then took over, so the one message explaining the fall-through
+    # was invisible.
+    echo "inst.ks=$ks was asked for and could not be resolved" \
+      | tee /run/nulllinux-install-failed >&2
+    sleep 5
   fi
   exec sway
 fi
