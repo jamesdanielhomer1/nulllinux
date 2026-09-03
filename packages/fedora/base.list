@@ -1,3 +1,17 @@
+# Packages this desktop needs.
+#
+# ONE SOURCE OF TRUTH. bin/null-package generates the RPM spec's Requires from
+# this file, so the two cannot drift -- and they had: cava was here and not in
+# the spec, so the ISO booted to a desktop whose spectrum said "cava did not
+# start: No such file or directory". The spec's comment claimed a checker kept
+# them in step. There was no checker. That is the same mistake as a comment
+# describing a remap nothing performed.
+#
+# A package marked `# build-only` is needed to BUILD the tree and not to run
+# it: the compiler, the bake's Python, the Vulkan tools the raytrace uses.
+# Those become BuildRequires, never Requires -- an installed machine needs
+# none of them, which is what shipping the hero prebuilt was for.
+
 # Base packages for nox on Fedora.
 #
 # Per-distribution data (NULL.md §9.1): the names genuinely differ between
@@ -37,18 +51,18 @@ sway
 # The simulation is a Vulkan compute workload (§5.5). NVK exposes the
 # discrete adapter, so no proprietary driver is required; this was verified
 # at Phase 0 rather than assumed.
-mesa-vulkan-drivers
-vulkan-tools                    # vulkaninfo: confirms which adapters exist
+mesa-vulkan-drivers             # build-only
+vulkan-tools                    # build-only -- vulkaninfo: confirms which adapters exist
 
 # --- renderer build dependencies ---------------------------------------
 # The renderer is a Wayland layer-shell client (§6.3). libxkbcommon is not
 # optional even for surfaces that take no keyboard: the toolkit links it, and
 # the column needs it for real (§7.3), since a keycode is not a character and
 # only the layout says which.
-rust
-cargo
-wayland-devel
-libxkbcommon-devel
+rust                            # build-only
+cargo                           # build-only
+wayland-devel                   # build-only
+libxkbcommon-devel              # build-only
 
 # --- components (§8.4) --------------------------------------------------
 # Each is named because a component needs it, not because it is nice to have.
@@ -79,9 +93,9 @@ cava                            # the audio spectrum in the column (§10.7 warns
 # tried to run it: numpy for the simulation and the quantiser, pillow for the
 # boot surfaces, gobject for the icon theme. They are on nox because something
 # else pulled them in, which is exactly why they were never noticed missing.
-python3-numpy
-python3-pillow
-python3-gobject
+python3-numpy                   # build-only
+python3-pillow                  # build-only
+python3-gobject                 # build-only
 
 # Found missing by installing onto a clean machine and running the suite there.
 # Every one of these is on nox because something else pulled it in, and every

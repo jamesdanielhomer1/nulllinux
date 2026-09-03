@@ -39,31 +39,32 @@ BuildRequires:  systemd-rpm-macros
 
 # Runtime. Kept in step with packages/fedora/base.list by
 # verify/check-package-list.sh, so the two cannot drift.
-Requires:       sway
-Requires:       foot
-Requires:       fzf
+Requires:       ax86-terminus-ttf-fonts
+Requires:       bluez
+Requires:       brightnessctl
 Requires:       btop
+Requires:       cava
+Requires:       cliphist
 Requires:       dunst
-Requires:       thunar
-Requires:       xfconf
+Requires:       fd-find
+Requires:       firefox
+Requires:       foot
+Requires:       fwupd
+Requires:       fzf
+Requires:       git
+Requires:       grim
+Requires:       iw
+Requires:       playerctl
+Requires:       slurp
+Requires:       sway
 Requires:       terminus-fonts
 Requires:       terminus-fonts-console
-Requires:       brightnessctl
-Requires:       wireplumber
-Requires:       pipewire-utils
-Requires:       NetworkManager
-Requires:       NetworkManager-tui
-Requires:       bluez
-Requires:       playerctl
-Requires:       wlsunset
-Requires:       swaylock
-Requires:       swayidle
-Requires:       grim
-Requires:       slurp
+Requires:       thunar
+Requires:       webkit2gtk4.1
+Requires:       wf-recorder
 Requires:       wl-clipboard
-Requires:       iw
-Requires:       util-linux
-Requires:       python3
+Requires:       wlsunset
+Requires:       xfconf
 
 %description
 nullLinux is a Fedora Remix whose desktop is not a colour scheme but a

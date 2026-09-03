@@ -44,3 +44,10 @@ __pycache__/
 # bin/null-prebake on a machine with a GPU and travel as the package's Source1,
 # which is where a built artefact belongs.
 /assets/prebuilt/
+
+# Build products of the packaging itself. An RPM in git is the same mistake as
+# a baked asset in git, and this one was 8.9 MB -- larger than every source
+# file in the repository put together.
+/packaging/repo/
+/packaging/rpmbuild/
+/packaging/*.iso

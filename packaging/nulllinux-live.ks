@@ -28,6 +28,23 @@ shutdown
 # published root password, and this one is meant to be booted by strangers.
 rootpw --lock
 
+# THE INSTALL SOURCE. livemedia-creator refuses a kickstart with `repo` lines
+# and no `url`: "repo can only be used with the url install method". The url is
+# where the base system comes from; the repo lines below add to it.
+# A CONCRETE URL, NOT A MIRRORLIST. livemedia-creator does
+#   ks.handler.method.url.startswith("file:")
+# in creator.py, and --mirrorlist leaves that url as None -- which surfaces as
+# "'NoneType' object has no attribute 'startswith'" and no other clue at all.
+# The `repo` lines below still use mirrorlists; it is only the install method
+# that must be a URL.
+# Networking, ACTIVATED. anaconda refuses a url install method without it:
+# "The kickstart must activate networking if the url install method is used."
+# This is the build-time network, not the installed machine's -- NetworkManager
+# owns that once the system is running.
+network --bootproto=dhcp --device=link --activate --hostname=nulllinux
+
+url --url=https://download.fedoraproject.org/pub/fedora/linux/releases/$releasever/Everything/$basearch/os/
+
 repo --name=fedora --mirrorlist=https://mirrors.fedoraproject.org/metalink?repo=fedora-$releasever&arch=$basearch
 repo --name=updates --mirrorlist=https://mirrors.fedoraproject.org/metalink?repo=updates-released-f$releasever&arch=$basearch
 # The local repository holding the package built by bin/null-package. It is

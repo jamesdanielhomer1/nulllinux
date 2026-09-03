@@ -31,6 +31,39 @@ printf '  %-34s %s\n' "$NAME-$VERSION.tar.gz" "$(du -h "$TOP/SOURCES/$NAME-$VERS
 tar -czf "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" assets/prebuilt || exit 1
 printf '  %-34s %s\n' "$NAME-prebuilt-$VERSION.tar.gz" "$(du -h "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" | cut -f1)"
 
+# THE SPEC'S Requires ARE GENERATED FROM packages/fedora/base.list.
+#
+# They were maintained separately and drifted: cava was in the list and not in
+# the spec, so the ISO booted into a desktop whose spectrum said "cava did not
+# start". The spec's own comment claimed a checker kept them in step, and there
+# was no checker -- a comment describing an intention, which is the most
+# expensive kind.
+#
+# Lines marked `# build-only` are excluded: they build the tree and are not
+# needed to run it.
+python3 - "$ROOT" <<'GEN'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+want = []
+for ln in (root / "packages/fedora/base.list").read_text().split("\n"):
+    if "build-only" in ln: continue
+    tok = ln.split("#")[0].split()
+    want += tok
+want = sorted(set(want))
+spec = root / "packaging/nulllinux.spec"
+t = spec.read_text()
+block = "\n".join(f"Requires:       {w}" for w in want)
+t2, n = re.subn(r"(?ms)^Requires:.*?(?=\n\n)", block, t, count=1)
+if n != 1:
+    sys.exit("null-package: could not find the Requires block to regenerate")
+if t2 != t:
+    spec.write_text(t2)
+    print(f"  regenerated {len(want)} Requires from base.list")
+else:
+    print(f"  Requires already match base.list ({len(want)})")
+GEN
+[ $? -eq 0 ] || exit 1
+
 cp packaging/$NAME.spec "$TOP/SPECS/"
 cp packaging/$NAME-firstboot.service "$TOP/SOURCES/" 2>/dev/null || true
 
