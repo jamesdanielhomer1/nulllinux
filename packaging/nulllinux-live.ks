@@ -159,6 +159,50 @@ fi
 PROF
 chown live:live /home/live/.bash_profile
 
+# A WAY IN, FOR DEBUGGING, THAT SHIPS INERT.
+#
+# Anaconda writes why it failed to /tmp/*.log inside the live session, and with
+# root locked and no key there is no way to read them -- so an install that
+# stalls can only be guessed at, which is where this one is.
+#
+# NO KEY IS IN THIS IMAGE. The unit below does nothing at all unless someone
+# passes nulllinux.sshkey=<url> on the kernel command line, which is a
+# deliberate act at boot time and not a property of the medium. A shipped ISO
+# booted normally has no authorised key, and root stays locked.
+cat > /usr/lib/systemd/system/nulllinux-testkey.service <<'UNIT'
+[Unit]
+Description=nullLinux: fetch a debugging ssh key named on the kernel command line
+After=network-online.target
+Wants=network-online.target
+ConditionKernelCommandLine=nulllinux.sshkey
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/nulllinux-testkey
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > /usr/libexec/nulllinux-testkey <<'HOOK'
+#!/usr/bin/env bash
+# Fetch an authorised key named on the kernel command line. Debugging only.
+set -uo pipefail
+url=$(sed -n 's/.*nulllinux\.sshkey=\([^ ]*\).*/\1/p' /proc/cmdline)
+[ -n "$url" ] || exit 0
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+curl -fsS --retry 5 --retry-delay 2 -o /root/.ssh/authorized_keys "$url" || exit 1
+chmod 600 /root/.ssh/authorized_keys
+# Root has no password in a live image, so PermitRootLogin must allow keys.
+mkdir -p /etc/ssh/sshd_config.d
+printf 'PermitRootLogin prohibit-password\n' > /etc/ssh/sshd_config.d/60-nulllinux-test.conf
+systemctl restart sshd 2>/dev/null || systemctl start sshd 2>/dev/null || true
+echo "nulllinux: debugging key installed from $url"
+HOOK
+chmod 0755 /usr/libexec/nulllinux-testkey
+systemctl enable nulllinux-testkey.service 2>/dev/null || true
+
 # The machine half of the installation runs on the first boot that has a
 # display, which for a live image is this one.
 systemctl enable nulllinux-firstboot.service 2>/dev/null || true

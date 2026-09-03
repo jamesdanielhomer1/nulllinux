@@ -107,7 +107,11 @@ if [ "${1:-install}" = install ]; then
   # server the guest cannot see.
   ( cd "$WORK" && exec python3 -m http.server 8899 --bind 0.0.0.0 ) >/dev/null 2>&1 &
   HTTPPID=$!
+  # The debugging key, served the same way. The live image only fetches it
+  # because the command line below names it; a shipped ISO has no key at all.
+  cp "$KEY.pub" "$WORK/testkey.pub"
   echo "  kickstart at http://10.0.2.2:8899/install.ks"
+  echo "  debug key at http://10.0.2.2:8899/testkey.pub"
 
   # A BLANK disk every time. Installing over a previous install tests upgrade,
   # not installation, and hides bugs that only appear on an empty machine --
@@ -132,7 +136,7 @@ if [ "${1:-install}" = install ]; then
   # untouched. console=ttyS0 so the install is readable without a screenshot.
   BOOTARGS+=(-cdrom "$SRC_ISO"
              -kernel "$WORK/boot/vmlinuz" -initrd "$WORK/boot/initrd.img"
-             -append "root=live:CDLABEL=$LABEL rd.live.image inst.ks=http://10.0.2.2:8899/install.ks inst.text inst.notmux console=ttyS0,115200 console=tty0")
+             -append "root=live:CDLABEL=$LABEL rd.live.image inst.ks=http://10.0.2.2:8899/install.ks inst.text inst.notmux nulllinux.sshkey=http://10.0.2.2:8899/testkey.pub console=ttyS0,115200 console=tty0")
 else
   BOOTARGS+=(-boot c)
 fi
