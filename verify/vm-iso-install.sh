@@ -132,7 +132,7 @@ if [ "${1:-install}" = install ]; then
   # untouched. console=ttyS0 so the install is readable without a screenshot.
   BOOTARGS+=(-cdrom "$SRC_ISO"
              -kernel "$WORK/boot/vmlinuz" -initrd "$WORK/boot/initrd.img"
-             -append "root=live:CDLABEL=$LABEL rd.live.image inst.ks=http://10.0.2.2:8899/install.ks console=ttyS0,115200 console=tty0")
+             -append "root=live:CDLABEL=$LABEL rd.live.image inst.ks=http://10.0.2.2:8899/install.ks inst.text inst.notmux console=ttyS0,115200 console=tty0")
 else
   BOOTARGS+=(-boot c)
 fi

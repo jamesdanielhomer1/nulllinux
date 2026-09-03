@@ -163,13 +163,39 @@ were three different things:
    The disk stays at 1 MB, the serial console is empty, and Enter at the
    supposed boot menu changes nothing. qemu is alive; the guest is not.
 
-So the ISO is sound and the kickstart-embedding step breaks it. `mkksiso` is
-built for Anaconda installer media, and this is a LIVE image -- a different
-boot path -- which is the likeliest reason. Untested alternatives, in the order
-worth trying: pass `inst.ks=` on the kernel command line at boot instead of
-rebuilding the image; embed the kickstart in the live kickstart itself so no
-post-hoc modification is needed; or build a second, non-live installer ISO for
-this purpose.
+So the ISO is sound and the kickstart-embedding step breaks it.
+
+**Passing `inst.ks` on the kernel command line instead gets much further.** The
+ISO's own kernel and initrd are extracted and booted directly, with the image
+attached unmodified and the kickstart served over HTTP from the host at
+10.0.2.2 -- so the medium under test stays byte-identical to the one that would
+go on a stick.
+
+| | mkksiso ISO | kernel command line |
+|---|---|---|
+| guest boots | **no** -- 0 pixels, for ever | yes |
+| kernel receives inst.ks | n/a | yes, confirmed in the boot log |
+| the live hook fires | n/a | yes -- sway does NOT start |
+| `liveinst` runs | n/a | yes |
+| anaconda initialises storage | n/a | yes -- device-mapper, multipath, `No iBFT detected` |
+| anything written to disk | no | **no** |
+
+Two more of my own bugs were found and fixed on the way there. The hook parsed
+`inst.ks` by splitting on the last colon, which is right for
+`hd:LABEL=X:/path` and turns `http://10.0.2.2:8899/install.ks` into
+`8899/install.ks` -- so it fell through to the desktop. And the one line
+explaining that fall-through went to stderr on a tty sway then covered, which
+is why it took two attempts to see.
+
+**Where it stops now:** anaconda starts at about 75 seconds, probes storage,
+and then does nothing. Disk stays at 1 MB, the screen is blank, the serial
+console goes quiet. `inst.text inst.notmux` changes nothing.
+
+**The next step is to stop guessing and read anaconda's own logs**, which are
+in `/tmp/*.log` inside the live session and are the only place the reason will
+be written down. That needs a way into the running live image -- an ssh key
+placed by the live kickstart, for testing only -- and one more ISO build. Every
+hypothesis beyond this point is speculation until those logs are read.
 
 **Nothing here says the installer is broken.** It says the installer has not
 been reached. Those are different claims and only the second is supported.
