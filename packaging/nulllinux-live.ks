@@ -78,6 +78,16 @@ nulllinux
 useradd -m -G wheel -s /bin/bash live 2>/dev/null || true
 passwd -d live 2>/dev/null || true
 
+# Passwordless sudo for the live user, as every live image does. The account
+# has no password at all, so a sudo that PROMPTS is a sudo that can never
+# succeed -- which is how the unattended install above would have hung waiting
+# for input nobody was there to give.
+#
+# This is a property of the live session only. An installed system creates its
+# own users through the installer and never sees this file.
+echo 'live ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/live-nulllinux
+chmod 0440 /etc/sudoers.d/live-nulllinux
+
 # Autologin into sway on tty1. A live image that stops at a text prompt has
 # failed at the only job a live image has.
 mkdir -p /etc/systemd/system/getty@tty1.service.d
@@ -92,6 +102,25 @@ AUTO
 # and does not need one, which is the whole point of installing system-wide.
 cat >> /home/live/.bash_profile <<'PROF'
 if [ -z "$WAYLAND_DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
+  # AN UNATTENDED INSTALL BEATS THE DESKTOP.
+  #
+  # Booting with inst.ks= means somebody asked for an installation, not a look
+  # around -- and autologin into sway silently won that argument. The image
+  # booted to a desktop and the kickstart on it was never read, which is a
+  # defect in the image and not merely in a test: `mkksiso` puts inst.ks on
+  # every boot entry precisely so an image can install itself, and this made
+  # that impossible.
+  ks=$(sed -n 's/.*inst\.ks=\([^ ]*\).*/\1/p' /proc/cmdline)
+  if [ -n "$ks" ]; then
+    # hd:LABEL=X:/path -- the live medium is already mounted, so the path on it
+    # is what matters and the label has served its purpose in the initramfs.
+    f=${ks##*:}
+    for d in /run/initramfs/live /run/install/repo /mnt/install/repo; do
+      [ -r "$d$f" ] && { exec sudo liveinst --kickstart="$d$f"; }
+    done
+    echo "inst.ks=$ks was asked for but $f was not found on the live medium" >&2
+    echo "falling through to the desktop" >&2
+  fi
   exec sway
 fi
 PROF
