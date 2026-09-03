@@ -497,3 +497,41 @@ emission model" rather than as settled constants, so `null-build` sweeps them
 and feeds the result to the two stages after it, rather than carrying last
 run's numbers. This bake chose `--black-pct 0 --white-pct 99.0 --gamma 1.0`:
 15.4% ink at 100% coverage.
+
+## The bake without a GPU
+
+The guest has no graphics hardware at all -- no render node, only `card0` --
+and Mesa's software Vulkan, llvmpipe, on 4 vCPUs. That is the case §0.5 said
+prebuilt assets exist for, and it had never been measured.
+
+| | nox (GTX 1660 Ti, NVK) | guest (llvmpipe, 4 vCPU) | ratio |
+|---|---|---|---|
+| build `kerr-gpu` | 58.9 s | 78 s | 1.3x |
+| trace, per frame | 0.39 s | 28.27 s | **72x** |
+| trace, 240 frames | 94.3 s | ~113 min (extrapolated from 4) | |
+| cross-validation (80x24) | -- | 93 s | |
+
+**So the answer is two hours, not two minutes.** A machine with a working GPU
+can bake its own hero during installation; a machine without one cannot be
+asked to. Prebuilt assets in the package are therefore NOT optional for the
+ISO -- they are what makes installation possible on hardware with no Vulkan
+device beyond llvmpipe, which includes most virtual machines and any headless
+install.
+
+## The shader agrees with the reference on a driver it has never seen
+
+`check-kerr` passes in the guest, and this is a stronger result than it was on
+nox. The FP32 WGSL compute shader was developed against NVK; here it ran on
+llvmpipe, a completely different implementation, and was compared against the
+FP64 numpy reference:
+
+| | |
+|---|---|
+| hit geometry | 100.00% agreement, 0 of 1920 cells differ |
+| luminance | median 1.303%, p95 1.71% |
+| temperature | median 0.000%, p95 0.00% |
+| quantised glyphs | 99.74% identical; 5 of 1920 differ by ONE adjacent ramp level, 0 by more |
+
+Agreement across two unrelated Vulkan drivers is evidence the shader is
+correct rather than evidence that one driver is self-consistent, which is all
+a single-driver test could ever show.
