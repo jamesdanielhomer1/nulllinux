@@ -12,13 +12,20 @@
 # everything downstream of it re-runs in about a minute. What a machine needs
 # is the .cells files, which are a thousandth of the size.
 #
-# ONE SET PER BAKE STRIKE. The quantiser measures ink against the strike's own
-# ramp (derive_targets passes assets/ramp-bake.json), so a quantised hero
-# belongs to one strike and cannot be reused across others. Twelve common
-# panel sizes select only FOUR distinct bake strikes between them, and 6x12
-# alone covers every resolution at 1080p and below -- so four sets, about four
-# megabytes, cover essentially all real hardware. A machine that lands outside
-# them bakes its own or falls back to the placeholder, and says which.
+# ONE SET PER BAKE STRIKE, AND EVERY STRIKE. The quantiser measures ink against
+# the strike's own ramp (derive_targets passes assets/ramp-bake.json), so a
+# quantised hero belongs to one strike and cannot be reused across others.
+#
+# Twelve common panel sizes select only four distinct bake strikes between
+# them, and the first version of this shipped those four. That was wrong, and
+# James put it plainly: the master always comes out the same, so why would any
+# machine ever bake? It should just be shipped.
+#
+# He is right, and it is now demonstrated rather than assumed -- two bakes of
+# the 240-frame master are BIT-IDENTICAL, same sha256 (NULL.md 5.6). So the
+# expensive step happens once in the life of the project, and the only reason
+# to ship four rather than nine was to save four megabytes. Nine leaves no
+# machine without a hero and no fallback path to get wrong.
 #
 # Everything else -- palette, ramps, atlases, the compositor colours, the icon
 # theme, the boot surfaces -- is seconds of work and is NOT shipped. Shipping a
@@ -33,7 +40,8 @@ OUT=assets/prebuilt
 
 # The bake strikes real hardware selects. Derived by asking bin/machine's own
 # chooser for every common panel size, not by picking sizes that seemed likely.
-STRIKES="ter-112n ter-116n ter-118n ter-124n"
+STRIKES=$(for f in /usr/lib/kbd/consolefonts/ter-1*n.psf.gz; do
+            [ -r "$f" ] && basename "$f" .psf.gz; done | sort -u | tr '\n' ' ')
 
 [ -d "$MASTER" ] || { echo "null-prebake: no HDR master at $MASTER" >&2
                       echo "  Run the bake first: bin/null-build" >&2; exit 1; }
@@ -105,6 +113,37 @@ for f in /usr/lib/kbd/consolefonts/ter-1*n.psf.gz; do
     printf 'FAILED\n'; fail=1
   fi
 done
+
+
+# THE PALETTE-DERIVED SURFACES, which are machine-independent and were the last
+# reason the target needed Python.
+#
+# export_theme writes the compositor's colours, both GTK themes, the terminal's
+# configuration and the shell's; make_icons recolours an icon theme. Every one
+# of them is a function of the palette alone -- no strike, no geometry, no
+# hardware -- so building them on each machine derives the same bytes from the
+# same input and requires numpy, pillow and gobject to do it.
+echo
+echo "palette-derived surfaces"
+printf '  %-10s ' theme
+if python3 bake/export_theme.py >/dev/null 2>&1; then
+  mkdir -p "$OUT/theme"
+  for f in config/sway/colours.conf config/foot/foot.ini config/shell/colours.sh; do
+    [ -e "$f" ] && install -D -m 0644 "$f" "$OUT/theme/$f"
+  done
+  for d in config/gtk-3.0 config/gtk-4.0; do
+    [ -d "$d" ] && mkdir -p "$OUT/theme/$d" && cp -a "$d/." "$OUT/theme/$d/"
+  done
+  printf 'ok\n'
+else printf 'FAILED\n'; fail=1; fi
+
+printf '  %-10s ' icons
+# --out is given explicitly: make_icons defaults to the running user's own
+# ~/.local/share/icons, which is the last place a package should collect from.
+rm -rf "$OUT/theme/icons"
+if python3 bake/make_icons.py --out "$OUT/theme/icons" >/dev/null 2>&1 && [ -d "$OUT/theme/icons" ]; then
+  printf 'ok  (%s)\n' "$(du -sh "$OUT/theme/icons" | cut -f1)"
+else printf 'FAILED\n'; fail=1; fi
 
 echo
 echo "total: $(du -sh "$OUT" 2>/dev/null | cut -f1) in $OUT"

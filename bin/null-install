@@ -102,7 +102,20 @@ fi
 
 head_ "the icon theme"
 if [ "$APPLY" -eq 1 ]; then
-  if python3 "$ROOT/bake/make_icons.py" --out /usr/share/icons/nulllinux 2>&1 | sed 's/^/    /'; then
+  # SHIPPED ICONS ARE USED WHERE THEY EXIST. The theme is a function of the
+  # palette alone, so regenerating it on the target derives the same bytes from
+  # the same input -- and requires python, pillow and gobject on a machine that
+  # otherwise needs none of them.
+  if [ -d "$ROOT/assets/prebuilt/theme/icons" ]; then
+    rm -rf /usr/share/icons/nulllinux
+    cp -a "$ROOT/assets/prebuilt/theme/icons" /usr/share/icons/nulllinux \
+      && echo "    installed /usr/share/icons/nulllinux (prebuilt)"
+    gtk-update-icon-cache -f -t /usr/share/icons/nulllinux >/dev/null 2>&1 || true
+    # The generated branch below restores SELinux contexts and this must too:
+    # a theme copied into /usr/share with the wrong label is a theme the
+    # toolkit cannot read, and the failure looks like a missing icon set.
+    restore_selinux /usr/share/icons/nulllinux
+  elif python3 "$ROOT/bake/make_icons.py" --out /usr/share/icons/nulllinux 2>&1 | sed 's/^/    /'; then
     gtk-update-icon-cache -f -t /usr/share/icons/nulllinux >/dev/null 2>&1 || true
     restore_selinux /usr/share/icons/nulllinux
     say "installed /usr/share/icons/nulllinux"

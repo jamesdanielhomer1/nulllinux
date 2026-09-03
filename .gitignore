@@ -36,3 +36,11 @@ __pycache__/
 /packaging/build/
 /packaging/*.iso
 /packaging/rpmbuild/
+
+# The prebuilt assets that ship in the package (§0.5, §5.7).
+#
+# DERIVED, so they are not committed -- and 13 MB of them would be the largest
+# thing in this repository by an order of magnitude. They are made by
+# bin/null-prebake on a machine with a GPU and travel as the package's Source1,
+# which is where a built artefact belongs.
+/assets/prebuilt/

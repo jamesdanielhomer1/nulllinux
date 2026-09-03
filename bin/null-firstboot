@@ -33,7 +33,15 @@ iface_psf=$iface; case $iface_psf in ter-u*) iface_psf="ter-1${iface_psf#ter-u}"
 
 P="$ROOT/assets/prebuilt"
 took=0
-copy() { [ -e "$1" ] && cp -a "$1" "$2" && took=$((took+1)); }
+# SAME-FILE IS NOT AN ERROR. Source0 already carries assets/palette.json, and
+# Source1 carries an identical copy under prebuilt/ -- rpm hardlinks files with
+# identical content, so cp is sometimes asked to copy a file onto itself and
+# refuses. That is not a failure; it means the file is already right.
+copy() {
+  [ -e "$1" ] || return 0
+  [ "$1" -ef "$2" ] && return 0
+  cp -a --remove-destination "$1" "$2" && took=$((took+1))
+}
 
 # 2. The palette and the two strikes' atlases and ramps.
 copy "$P/strikes/palette.bin"                 assets/palette.bin
@@ -58,10 +66,26 @@ else
   echo "        Bake it with:  $ROOT/bin/null-build --force"
 fi
 
-# 4. The surfaces derived from the above, which are seconds of work.
-for step in "python3 bake/export_theme.py" "python3 bake/make_icons.py"; do
-  $step >/dev/null 2>&1 || echo "  warning: '$step' did not complete"
-done
+# 4. The palette-derived surfaces, TAKEN FROM THE PACKAGE rather than rebuilt.
+#
+# The compositor's colours, both GTK themes, the terminal's configuration, the
+# shell's and the icon theme are functions of the palette alone -- no strike, no
+# geometry, no hardware. Deriving them here would produce the same bytes from
+# the same input and would need numpy, pillow and gobject on a machine that
+# needs none of them for anything else.
+T="$P/theme"
+if [ -d "$T" ]; then
+  for f in config/sway/colours.conf config/foot/foot.ini config/shell/colours.sh; do
+    copy "$T/$f" "$f"
+  done
+  for d in config/gtk-3.0 config/gtk-4.0; do
+    [ -d "$T/$d" ] && mkdir -p "$d" && cp -a "$T/$d/." "$d/" && took=$((took+1))
+  done
+  echo "  theme: prebuilt"
+else
+  echo "  theme: not in the package -- deriving it here (needs python)"
+  python3 bake/export_theme.py >/dev/null 2>&1 || echo "  warning: export_theme did not complete"
+fi
 
 # 5. The system-wide install, which is what makes a new account need no setup.
 bin/null-install --apply >/dev/null 2>&1 && echo "  installed system-wide" \
