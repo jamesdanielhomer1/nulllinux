@@ -25,6 +25,7 @@ __pycache__/
 /assets/atlas-*.bin
 /config/sway/colours.conf
 /assets/master.cells
+/assets/master.hero
 /assets/target-*.cells
 /assets/tty.cells
 /assets/logo.cells

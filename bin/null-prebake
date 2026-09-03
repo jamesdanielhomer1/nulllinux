@@ -57,6 +57,24 @@ TONE=$(python3 bake/tune.py --frames-dir "$MASTER" 2>/dev/null \
 echo "  $TONE"
 echo
 
+# THE MASTER ITSELF, which is the thing a screen derives its own grid from.
+#
+# The forty-five quantised grids below are FIXED, and a screen that matches
+# none of them gets the nearest -- exact on 1920x1080 and 2560x1440 and on
+# nothing else. This is nine megabytes, smaller than all forty-five together,
+# and any grid can be derived from it exactly (bake/derive_for_screen.py).
+#
+# The swept tone curve goes INSIDE it. The curve is a property of the emission
+# model rather than of a grid (§4.1), so every derived grid must use the one
+# that was swept here -- a machine deriving its own cannot re-run the sweep,
+# and the defaults blank a third of the subject.
+echo "packing the master ($TONE)"
+if ! python3 bake/pack_master.py --frames-dir "$MASTER" --out "$OUT/master.hero" \
+     $(printf '%s' "$TONE" | sed 's/--black-pct/--black-pct/') 2>&1 | sed 's/^/  /'; then
+  echo "null-prebake: packing the master failed" >&2; exit 1
+fi
+echo
+
 saved_ramp=$(mktemp); cp assets/ramp-bake.json "$saved_ramp" 2>/dev/null || true
 restore() { [ -s "$saved_ramp" ] && cp "$saved_ramp" assets/ramp-bake.json; rm -f "$saved_ramp"; }
 trap restore EXIT

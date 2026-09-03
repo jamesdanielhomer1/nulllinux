@@ -107,7 +107,17 @@ def temperature_indices(temps_k, palette_temps):
 
 
 def quantise_frame(arr, ramp, pal_temps, black, white, gamma, margin, state, k_residual):
-    L = luminance(arr)
+    """An HDR frame (rows, cols, 4). The bake's own path."""
+    return quantise_frame_lt(luminance(arr), arr[..., 3], ramp, pal_temps,
+                             black, white, gamma, margin, state, k_residual)
+
+
+def quantise_frame_lt(L, T, ramp, pal_temps, black, white, gamma, margin, state, k_residual):
+    """LUMINANCE AND TEMPERATURE, which is all of an HDR frame this ever read.
+
+    Splitting it out is what lets a screen derive its own grid from the packed
+    master (bake/pack_master.py), which stores exactly these two channels and
+    nothing else."""
     Lt = tone_curve(L, black, white, gamma)
     target = Lt * ramp.peak
 
@@ -119,13 +129,65 @@ def quantise_frame(arr, ramp, pal_temps, black, white, gamma, margin, state, k_r
     v = np.clip(0.5 + k_residual * residual, 0.0, 1.0)
     value_idx = np.clip((v * (N_VALUES - 1)).round(), 0, N_VALUES - 1).astype(np.uint8)
 
-    t_idx = temperature_indices(arr[..., 3], pal_temps)
+    t_idx = temperature_indices(T, pal_temps)
     colour = (t_idx.astype(np.uint16) * N_VALUES + value_idx).astype(np.uint8)
 
     # The void is the space character and carries no colour (I3).
     dark = glyph == 0
     colour = np.where(dark, 0, colour).astype(np.uint8)
     return glyph, colour
+
+
+def quantise_sequence(L_frames, T_frames, ramp, pal_temps, *,
+                      black_pct=30.0, white_pct=99.5, gamma=0.8,
+                      hysteresis=0.25, k_residual=1.5, max_iterations=12,
+                      log=print):
+    """Exposure, hysteresis to a fixed point, and loop closure, for a sequence.
+
+    Extracted so the bake and a screen deriving its own grid run the SAME code.
+    Two copies of this would be two tone curves, and the second would drift
+    from the first without anything saying so.
+    """
+    # --- global exposure over the whole sequence (§4.1) -----------------
+    lit = np.concatenate([L[L > 0] for L in L_frames])
+    if lit.size == 0:
+        raise ValueError("every cell is dark -- nothing to expose")
+    black = float(np.percentile(lit, black_pct))
+    white = float(np.percentile(lit, white_pct))
+    log(f"  exposure: black P{black_pct} = {black:.6g}, white P{white_pct} = {white:.6g}, gamma {gamma}")
+
+    # --- iterate the hysteresis state to a fixed point (§4.4) -----------
+    state = ramp.ideal_index(tone_curve(L_frames[0], black, white, gamma) * ramp.peak)
+    glyphs = colours = None
+    for it in range(max_iterations):
+        g_planes, c_planes = [], []
+        for L, T in zip(L_frames, T_frames):
+            g, c = quantise_frame_lt(L, T, ramp, pal_temps, black, white,
+                                     gamma, hysteresis, state, k_residual)
+            g_planes.append(g); c_planes.append(c)
+            state = g
+        if glyphs is not None and all(np.array_equal(a, b) for a, b in zip(glyphs, g_planes)):
+            log(f"  hysteresis converged after {it} iteration(s)")
+            glyphs, colours = g_planes, c_planes
+            break
+        glyphs, colours = g_planes, c_planes
+    else:
+        raise ValueError(f"hysteresis did not converge in {max_iterations} iterations")
+
+    # --- loop closure, exact (§10.3) ------------------------------------
+    # Re-quantise frame 0 from the state AFTER the last frame. If it does not
+    # come back identical the loop has a seam, and nothing is written.
+    g0, c0 = quantise_frame_lt(L_frames[0], T_frames[0], ramp, pal_temps, black, white,
+                               gamma, hysteresis, glyphs[-1], k_residual)
+    if not np.array_equal(g0, glyphs[0]):
+        n = int((g0 != glyphs[0]).sum())
+        raise ValueError(f"LOOP CLOSURE FAILED: {n} glyph cells differ on the wrap -- refusing to write")
+    if not np.array_equal(c0, colours[0]):
+        n = int((c0 != colours[0]).sum())
+        raise ValueError(f"LOOP CLOSURE FAILED: {n} colour cells differ on the wrap -- refusing to write")
+    log("  LOOP CLOSURE: frame 0 reproduces byte-identically from the final state")
+
+    return glyphs, colours, black, white
 
 
 def main():
@@ -158,44 +220,12 @@ def main():
     rows, cols, _ = frames[0].shape
     print(f"{len(frames)} frames of {cols}x{rows}")
 
-    # --- global exposure over the whole sequence (§4.1) -----------------
-    lit = np.concatenate([luminance(f)[luminance(f) > 0] for f in frames])
-    if lit.size == 0:
-        raise SystemExit("every cell is dark -- nothing to expose")
-    black = float(np.percentile(lit, args.black_pct))
-    white = float(np.percentile(lit, args.white_pct))
-    print(f"  exposure: black P{args.black_pct} = {black:.6g}, white P{args.white_pct} = {white:.6g}, gamma {args.gamma}")
-
-    # --- iterate the hysteresis state to a fixed point (§4.4) -----------
-    state = ramp.ideal_index(tone_curve(luminance(frames[0]), black, white, args.gamma) * ramp.peak)
-    glyphs = colours = None
-    for it in range(args.max_iterations):
-        g_planes, c_planes = [], []
-        for arr in frames:
-            g, c = quantise_frame(arr, ramp, pal_temps, black, white,
-                                  args.gamma, args.hysteresis, state, args.k_residual)
-            g_planes.append(g); c_planes.append(c)
-            state = g
-        if glyphs is not None and all(np.array_equal(a, b) for a, b in zip(glyphs, g_planes)):
-            print(f"  hysteresis converged after {it} iteration(s)")
-            glyphs, colours = g_planes, c_planes
-            break
-        glyphs, colours = g_planes, c_planes
-    else:
-        raise SystemExit(f"hysteresis did not converge in {args.max_iterations} iterations")
-
-    # --- loop closure, exact (§10.3) ------------------------------------
-    # Re-quantise frame 0 from the state AFTER the last frame. If it does not
-    # come back identical the loop has a seam, and nothing is written.
-    g0, c0 = quantise_frame(frames[0], ramp, pal_temps, black, white,
-                            args.gamma, args.hysteresis, glyphs[-1], args.k_residual)
-    if not np.array_equal(g0, glyphs[0]):
-        n = int((g0 != glyphs[0]).sum())
-        raise SystemExit(f"LOOP CLOSURE FAILED: {n} glyph cells differ on the wrap -- refusing to write")
-    if not np.array_equal(c0, colours[0]):
-        n = int((c0 != colours[0]).sum())
-        raise SystemExit(f"LOOP CLOSURE FAILED: {n} colour cells differ on the wrap -- refusing to write")
-    print("  LOOP CLOSURE: frame 0 reproduces byte-identically from the final state")
+    glyphs, colours, black, white = quantise_sequence(
+        [luminance(f) for f in frames], [f[..., 3] for f in frames],
+        ramp, pal_temps,
+        black_pct=args.black_pct, white_pct=args.white_pct, gamma=args.gamma,
+        hysteresis=args.hysteresis, k_residual=args.k_residual,
+        max_iterations=args.max_iterations)
 
     # --- metrics (§4.2, §10.3) ------------------------------------------
     total = cols * rows * len(frames)

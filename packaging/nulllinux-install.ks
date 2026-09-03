@@ -17,8 +17,12 @@ text
 # told where the packages are. This is the difference that made the live path
 # the wrong road: `inst.ks` is designed for THIS kind of medium.
 #
-# NULLLINUX_REPO is substituted by verify/vm-iso-install.sh with a URL the
-# guest can actually reach -- the host, over the network qemu provides.
+# NULLLINUX_REPO is substituted by whoever prepares this kickstart:
+#   bin/null-installer-iso  -> file:///run/install/repo/nulllinux, the copy of
+#                              the package that travels ON the ISO, so the
+#                              desktop and its raytraced hero need no network
+#   verify/vm-iso-install.sh -> an http:// URL the guest can reach, so the test
+#                              exercises the network path too
 # NO $releasever OR $basearch HERE.
 #
 # Those are dnf's variables and anaconda does not reliably expand them in a

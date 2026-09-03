@@ -51,9 +51,9 @@ echo
 #   shows a warning at every boot.
 # --nomacboot: no Apple bootloader; it needs tooling this host does not have
 #   and produces nothing usable on the hardware this targets.
-# -i nulllinux: the package is put ON the installer image, so a machine with no
-#   route to this repository can still install the desktop. That is the whole
-#   point of shipping the hero prebuilt -- the payload is 9 MB.
+# The package is NOT put on the image by lorax -- see the mkksiso step below,
+#   which is what actually puts it there. lorax builds boot media and nothing
+#   else; -s only tells it where to find packages for the RUNTIME image.
 # Run lorax from the work directory, NOT from the checkout.  It writes an
 # 88 MB debugdata/ dump of its dependency solver into the CWD, and from the
 # checkout that lands in git -- which is exactly what happened once.
@@ -72,12 +72,69 @@ st=$?
 echo
 if [ $st -eq 0 ] && iso=$(find "$OUT" -name 'boot.iso' | head -1) && [ -n "$iso" ]; then
   final="$WORK/$NAME-installer-$VERSION.iso"
-  cp -f "$iso" "$final"
+
+  # THE BAKE HAS TO BE ON THE ISO, and it was not.
+  #
+  # lorax builds Anaconda BOOT media: a 1.2 GB runtime image and no packages at
+  # all. Every package, this one included, was fetched over the network at
+  # install time -- so the raytraced hero, the whole reason the package is 9 MB,
+  # travelled separately from the thing that installs it. The ISO could not
+  # install nullLinux on a machine that could not reach a repository we host,
+  # which is most machines.
+  #
+  # A comment here claimed `-i nulllinux` put the package on the image. It did
+  # not: there was no -i flag in the lorax call above, and the install test only
+  # ever passed because the harness served packaging/repo over HTTP from the
+  # build host. The comment described an intention; nothing implemented it.
+  #
+  # mkksiso is the supported way to add files and a kickstart to boot media --
+  # it rebuilds the boot records rather than corrupting them, which hand-rolled
+  # xorriso does not.
+  if [ -d "$ROOT/packaging/repo" ] && ls "$ROOT/packaging/repo"/*.rpm >/dev/null 2>&1; then
+    stage=$(mktemp -d "$WORK/embed.XXXX")
+    mkdir -p "$stage/nulllinux"
+    cp -f "$ROOT/packaging/repo"/*.rpm "$stage/nulllinux/"
+    createrepo_c -q "$stage/nulllinux" || { echo "createrepo_c failed" >&2; exit 1; }
+
+    # The kickstart is the SAME file the test harness uses; only the repo URL
+    # differs. Anaconda mounts the boot media at /run/install/repo, so the
+    # directory added here is reachable from the installed system's own disc.
+    ks="$stage/install.ks"
+    # ALL THREE placeholders, not just ours. The base and updates URLs must be
+    # concrete: anaconda does not reliably expand $releasever in a kickstart
+    # `url` line, and reports "Error setting up repositories" without saying
+    # which one or why.
+    sed -e "s|NULLLINUX_REPO|file:///run/install/repo/nulllinux|" \
+        -e "s|NULLLINUX_BASEURL|$MIRROR/releases/$RELEASEVER/Everything/x86_64/os/|" \
+        -e "s|NULLLINUX_UPDATES|$MIRROR/updates/$RELEASEVER/Everything/x86_64/|" \
+        "$ROOT/packaging/$NAME-install.ks" > "$ks"
+    if grep -q NULLLINUX_ "$ks"; then
+      echo "null-installer-iso: a placeholder was left unsubstituted:" >&2
+      grep -n NULLLINUX_ "$ks" >&2; exit 1
+    fi
+
+    echo "embedding the package (and the hero inside it) on the ISO"
+    printf '  %s\n' "$(ls -1 "$stage/nulllinux"/*.rpm | xargs -n1 basename)"
+    if mkksiso --ks "$ks" -a "$stage/nulllinux" "$iso" "$final" >"$WORK/mkksiso.log" 2>&1; then
+      echo "  embedded"
+    else
+      echo "null-installer-iso: mkksiso FAILED -- $WORK/mkksiso.log" >&2
+      tail -20 "$WORK/mkksiso.log" >&2
+      exit 1
+    fi
+    rm -rf "$stage"
+  else
+    echo "no packaging/repo -- the ISO will have NO packages on it" >&2
+    echo "  build one with bin/null-package first" >&2
+    cp -f "$iso" "$final"
+  fi
+
   echo "built: $final"
   echo "  $(du -h "$final" | cut -f1)"
   echo
-  echo "This boots the INSTALLER, not a desktop. Unattended:"
-  echo "  inst.ks=<url or hd:LABEL=...:/path>"
+  echo "This boots the INSTALLER, not a desktop. It carries its own copy of"
+  echo "the nulllinux package, so the desktop and its hero need no network;"
+  echo "the base Fedora packages still come from a mirror."
 else
   echo "null-installer-iso: FAILED -- last lines of $WORK/lorax.log" >&2
   tail -25 "$WORK/lorax.log" 2>/dev/null >&2
