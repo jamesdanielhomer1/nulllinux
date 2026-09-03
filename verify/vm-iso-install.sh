@@ -18,7 +18,14 @@
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 WORK=${NULL_VM_WORK:-/var/lib/nulllinux-test}
-SRC_ISO=${NULL_ISO:-$(find /var/lib/nulllinux-iso -name '*.iso' 2>/dev/null | head -1)}
+# THE NEWEST ISO, not whichever one find happens to name first.
+#
+# `find ... | head -1` returns directory order, which is arbitrary. With two
+# images present it picked the older one twice in a row, so two full install
+# attempts tested a stale build and I read the result as a bug in the image
+# rather than in the harness.
+SRC_ISO=${NULL_ISO:-$(find /var/lib/nulllinux-iso -name '*.iso' -printf '%T@ %p\n' 2>/dev/null \
+                      | sort -rn | head -1 | cut -d' ' -f2-)}
 KS_ISO="$WORK/nulllinux-autoinstall.iso"
 DISK="$WORK/installed.qcow2"
 KEY="$WORK/id_guest"

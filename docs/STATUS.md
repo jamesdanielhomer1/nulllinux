@@ -129,3 +129,47 @@ that made "any Fedora machine" impossible.
 The guest's interface atlas is 34,618 bytes; this machine's is 48,034. Different
 strikes for different panels, from the same tree, with nothing configured by
 hand. That is the parameterisation working rather than being asserted.
+
+## The unattended install does not work yet, and here is exactly where it stops
+
+The ISO boots. That is proved twice, with screenshots: it comes up in the
+desktop, autologin, sway, the hero, the bar and the column, from the disc.
+
+**Installing FROM it, unattended, does not.** Four attempts, and the failures
+were three different things:
+
+1. **My own live kickstart beat the installer.** `mkksiso` had put
+   `inst.ks=hd:LABEL=...` on every boot entry and the kickstart was on the
+   medium, and the autologin into sway ran first and won. Fixed: an unattended
+   install now takes precedence over the desktop.
+
+2. **`liveinst` was not in the image.** `anaconda` was; `anaconda-live`, which
+   provides `/usr/bin/liveinst`, was not -- so both the unattended path and the
+   desktop's own "Install nullLinux" entry pointed at a missing binary. Fixed.
+
+3. **The harness tested a stale ISO, twice.** `find ... | head -1` returns
+   directory order, and with two images present it kept choosing the older one.
+   Two full install cycles measured a build from before the fixes. Fixed: newest
+   by mtime.
+
+4. **`mkksiso`'s output does not boot at all.** This is where it stands. The
+   comparison is direct, same qemu invocation, same moment:
+
+   | image | after ~2 minutes |
+   |---|---|
+   | `boot.iso` (as built) | 80,733 non-black pixels -- the full desktop |
+   | `nulllinux-autoinstall.iso` (mkksiso) | **0** -- black screen, forever |
+
+   The disk stays at 1 MB, the serial console is empty, and Enter at the
+   supposed boot menu changes nothing. qemu is alive; the guest is not.
+
+So the ISO is sound and the kickstart-embedding step breaks it. `mkksiso` is
+built for Anaconda installer media, and this is a LIVE image -- a different
+boot path -- which is the likeliest reason. Untested alternatives, in the order
+worth trying: pass `inst.ks=` on the kernel command line at boot instead of
+rebuilding the image; embed the kickstart in the live kickstart itself so no
+post-hoc modification is needed; or build a second, non-live installer ISO for
+this purpose.
+
+**Nothing here says the installer is broken.** It says the installer has not
+been reached. Those are different claims and only the second is supported.
