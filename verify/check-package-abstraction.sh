@@ -28,7 +28,20 @@ scan() {
     | while IFS= read -r f; do
         [ -f "$f" ] || continue
         case $f in *.md) continue ;; esac   # prose may discuss them
-        grep -nEH "\\b($MANAGERS)\\b" -- "$f" || true
+        # Two things are NOT the abstraction leaking, and flagging them trains
+        # people to ignore this check:
+        #
+        #   comments   -- "# rpm hardlinks files" explains, it does not invoke.
+        #   .rpm       -- a FILE EXTENSION. `find -name '*.rpm'` names a
+        #                 filename, not a package manager, and an image builder
+        #                 has to be able to say which files it produced.
+        #
+        # So: strip from an unquoted # to end of line, and require that the
+        # name is not preceded by a dot or word character. Everything else is
+        # still a violation, including `dnf install` hidden after code on a
+        # commented line.
+        sed -e 's/[[:space:]]#.*$//' -e 's/^[[:space:]]*#.*$//' -- "$f" \
+          | grep -nEH --label="$f" "(^|[^.[:alnum:]_-])($MANAGERS)($|[^.[:alnum:]_-])" || true
       done
 }
 

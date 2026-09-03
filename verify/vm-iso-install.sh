@@ -87,7 +87,7 @@ if [ "${1:-install}" = install ]; then
   # Concrete URLs, checked before they are used. anaconda does not expand
   # $releasever in a kickstart url line, and the failure it produces --
   # "Error setting up repositories" -- names none of that.
-  REL=$(rpm -q --qf '%{version}' fedora-release-common 2>/dev/null || echo 44)
+  REL=$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)
   BASEURL="https://download.fedoraproject.org/pub/fedora/linux/releases/$REL/Everything/x86_64/os/"
   UPDATES="https://download.fedoraproject.org/pub/fedora/linux/updates/$REL/Everything/x86_64/"
   for u in "$BASEURL" "$UPDATES"; do

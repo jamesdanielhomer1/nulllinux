@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# null-brand -- make the installed system say it is nullLinux.
+#
+# /etc/os-release is a SYMLINK into /usr/lib/os-release, which belongs to
+# fedora-release-identity-basic.  Writing "> /etc/os-release" therefore writes
+# straight through the link and corrupts an RPM-owned file: `rpm -V` fails, and
+# the next fedora-release update silently reverts the branding.  systemd reads
+# /etc/os-release first and only falls back to /usr/lib, so the supported way
+# to do this is to REPLACE THE SYMLINK WITH A REAL FILE and leave /usr/lib
+# exactly as the distribution shipped it.
+#
+# Trademark: a Fedora Remix may not present itself as Fedora.  So NAME is ours,
+# the Fedora relationship is stated as a relationship, and no Fedora mark is
+# used as if it were this project's own.
+set -euo pipefail
+
+VERSION=${NULL_VERSION:-0.1.0}
+URL=https://github.com/jamesdanielhomer/nulllinux
+SAVED=/usr/lib/os-release.fedora
+
+die() { printf 'null-brand: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<USAGE
+usage: null-brand [report|apply|revert]
+
+  report   say what is set and what would change (default)
+  apply    replace the /etc/os-release symlink with nullLinux branding
+  revert   restore the distribution's own /etc/os-release
+USAGE
+}
+
+# The upstream release the remix is built from -- read from /usr/lib, which
+# this tool never touches, so it stays right after branding.
+upstream_id()   { ( . /usr/lib/os-release 2>/dev/null; echo "${ID:-fedora}" ); }
+upstream_rel()  { ( . /usr/lib/os-release 2>/dev/null; echo "${VERSION_ID:-}" ); }
+upstream_name() { ( . /usr/lib/os-release 2>/dev/null; echo "${NAME:-Fedora Linux}" ); }
+
+current_pretty() { ( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}" ); }
+current_id()     { ( . /etc/os-release 2>/dev/null; echo "${ID:-unknown}" ); }
+
+branded() { [ "$(current_id)" = nulllinux ]; }
+
+write_os_release() {
+  local rel; rel=$(upstream_rel)
+  local up;  up=$(upstream_name)
+  # A real file, not a redirect through the symlink.
+  rm -f /etc/os-release
+  cat > /etc/os-release <<OSREL
+NAME="nullLinux"
+VERSION="$VERSION"
+ID=nulllinux
+# ID_LIKE is not decoration.  Everything that asks "what distribution is this"
+# -- this project's own bin/pkg included -- has to keep finding fedora here, or
+# branding the system breaks package management on it.
+ID_LIKE=$(upstream_id)
+VERSION_ID=$VERSION
+PRETTY_NAME="nullLinux $VERSION"
+# The remix relationship, stated plainly and without claiming the mark.
+VARIANT="$up $rel Remix"
+VARIANT_ID=remix
+ANSI_COLOR="0;38;2;255;120;0"
+HOME_URL="$URL"
+BUG_REPORT_URL="$URL/issues"
+OSREL
+  chmod 0644 /etc/os-release
+}
+
+do_report() {
+  printf '  %-16s %s\n' "/etc/os-release" \
+    "$([ -L /etc/os-release ] && echo 'symlink -> '"$(readlink /etc/os-release)" || echo 'regular file')"
+  printf '  %-16s %s\n' "PRETTY_NAME" "$(current_pretty)"
+  printf '  %-16s %s\n' "ID" "$(current_id)"
+  printf '  %-16s %s\n' "upstream" "$(upstream_name) $(upstream_rel)"
+  if branded; then
+    echo "  branded; 'null-brand revert' restores $(upstream_name)"
+  else
+    echo "  not branded; 'null-brand apply' would set PRETTY_NAME=\"nullLinux $VERSION\""
+  fi
+}
+
+do_apply() {
+  [ "$(id -u)" = 0 ] || die "apply needs root"
+  # Keep one copy of what the distribution shipped, so revert is exact even if
+  # /usr/lib is later rewritten by an update.
+  [ -e "$SAVED" ] || cp -f /usr/lib/os-release "$SAVED"
+  write_os_release
+  echo "  branded: $(current_pretty)"
+}
+
+do_revert() {
+  [ "$(id -u)" = 0 ] || die "revert needs root"
+  branded || { echo "  not branded; nothing to revert"; return 0; }
+  rm -f /etc/os-release
+  # Back to the symlink the distribution ships, not to a copy of it.
+  ln -sf ../usr/lib/os-release /etc/os-release
+  rm -f "$SAVED"
+  echo "  reverted: $(current_pretty)"
+}
+
+case ${1:-report} in
+  report) do_report ;;
+  apply)  do_apply ;;
+  revert) do_revert ;;
+  -h|--help|help) usage ;;
+  *) usage; exit 2 ;;
+esac

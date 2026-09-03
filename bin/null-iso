@@ -55,7 +55,7 @@ livemedia-creator \
   --no-virt \
   --resultdir "$WORK/results" \
   --project "nullLinux" \
-  --releasever "$(rpm -q --qf '%{version}' fedora-release-common 2>/dev/null || echo 44)" \
+  --releasever "$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)" \
   --volid "nullLinux-$VERSION" \
   --iso-name "$NAME-$VERSION.iso" \
   --make-iso \

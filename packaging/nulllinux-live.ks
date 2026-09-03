@@ -254,7 +254,7 @@ mkdir -p /usr/share/nulllinux
   echo "    https://kojipkgs.fedoraproject.org/packages/    (all builds, by name and version)"
   echo
   echo "  Retrieve the exact source for any package here with:"
-  echo "    dnf download --source <name>-<version>-<release>"
+  echo "    $(/opt/nulllinux/bin/pkg source-command)"
   echo
   echo "  nulllinux's own source is MIT and is at:"
   echo "    https://github.com/jamesdanielhomer/nulllinux"
@@ -268,18 +268,18 @@ mkdir -p /usr/share/nulllinux
   echo
   echo "MANIFEST -- name-version-release.arch  license  source package"
   echo
-  rpm -qa --qf '%{name}-%{version}-%{release}.%{arch}\t%{license}\t%{sourcerpm}\n' | sort
+  /opt/nulllinux/bin/pkg source-manifest
 } > /usr/share/nulllinux/SOURCES.txt
 
 # The release version is only knowable inside the image, so it is substituted
 # here rather than guessed above.
-sed -i "s|RELEASEVER|$(rpm -q --qf '%{version}' fedora-release-common 2>/dev/null || echo 44)|g" \
+sed -i "s|RELEASEVER|$(/opt/nulllinux/bin/pkg distro-version 2>/dev/null || echo 44)|g" \
   /usr/share/nulllinux/SOURCES.txt
 
 # Copyleft packages counted separately, so the obligation has a size rather
 # than being a general worry.
-copyleft=$(rpm -qa --qf '%{license}\n' | grep -icE 'GPL|MPL|EPL|CDDL' || true)
-total=$(rpm -qa | wc -l)
+copyleft=$(/opt/nulllinux/bin/pkg source-manifest | cut -f2 | grep -icE 'GPL|MPL|EPL|CDDL' || true)
+total=$(/opt/nulllinux/bin/pkg count-installed)
 echo "" >> /usr/share/nulllinux/SOURCES.txt
 echo "$copyleft of $total packages carry a copyleft licence." >> /usr/share/nulllinux/SOURCES.txt
 
@@ -287,15 +287,11 @@ echo "$copyleft of $total packages carry a copyleft licence." >> /usr/share/null
 ln -sf /usr/share/nulllinux/SOURCES.txt /root/SOURCES.txt 2>/dev/null || true
 mkdir -p /home/live && ln -sf /usr/share/nulllinux/SOURCES.txt /home/live/SOURCES.txt 2>/dev/null || true
 
-releasever=$(rpm -q --qf '%{version}\n' fedora-release-common 2>/dev/null | head -1)
-cat > /etc/os-release <<OSREL
-NAME="nullLinux"
-VERSION="0.1.0 (Fedora ${releasever:-44} Remix)"
-ID=nulllinux
-ID_LIKE=fedora
-VERSION_ID=0.1.0
-PRETTY_NAME="nullLinux 0.1.0"
-ANSI_COLOR="0;38;2;255;120;0"
-HOME_URL="https://github.com/jamesdanielhomer/nulllinux"
-OSREL
+# Branding lives in ONE tool, applied by the nulllinux package's %post, so an
+# installer ISO, a live image and a plain `dnf install nulllinux` all end up
+# saying the same thing.  It replaces the /etc/os-release SYMLINK rather than
+# writing through it into the file fedora-release owns -- an earlier heredoc
+# here did exactly that.  See bin/null-brand and verify/check-branding.sh.
+# Report only: if the scriptlet ever silently fails, the compose log shows it.
+/opt/nulllinux/bin/null-brand report || :
 %end

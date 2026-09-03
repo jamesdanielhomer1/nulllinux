@@ -116,8 +116,22 @@ install -D -m 0644 packaging/nulllinux-firstboot.service \
 # of the installation happens on the first boot that has one.
 systemctl enable nulllinux-firstboot.service >/dev/null 2>&1 || :
 
+# Branding belongs to the package, not to one image's kickstart: an installer
+# ISO, a live image and a plain `dnf install nulllinux` must all end up saying
+# the same thing.  It only rewrites /etc, never the fedora-release-owned file
+# in /usr, and %postun on final removal puts the distribution's own back.
+%{_prefix}/%{name}/bin/null-brand apply >/dev/null 2>&1 || :
+
 %preun
 %systemd_preun nulllinux-firstboot.service
+
+%postun
+# $1 is the number of copies left after this transaction: 0 on removal, 1 on
+# upgrade.  Un-branding during an UPGRADE would leave the machine as Fedora
+# with nullLinux installed, so only do it when the package is really going.
+if [ "$1" = 0 ] && [ -x %{_prefix}/%{name}/bin/null-brand ]; then
+  %{_prefix}/%{name}/bin/null-brand revert >/dev/null 2>&1 || :
+fi
 
 %files
 # BOTH licences ship. The OFL text has to travel with the font-derived

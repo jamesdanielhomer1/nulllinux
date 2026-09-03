@@ -33,15 +33,59 @@ if ! ./verify/check-package-abstraction.sh >/dev/null 2>&1; then
   echo "SELFTEST FAIL: check does not pass on a clean tree"; exit 1
 fi
 
-# 2. plant a violation and make it visible to the checker
-printf '#!/bin/sh\ndnf install -y something\n' > "$PLANT"
-chmod +x "$PLANT"
-git -C "$ROOT" add -N "$PLANT" >/dev/null 2>&1
+# 2. plant violations, one shape at a time, and require each to be caught.
+#
+# The checker deliberately IGNORES comments and the .rpm file extension, so
+# that image builders can say `find -name '*.rpm'` and explain themselves. Each
+# loosening is a hole unless something proves it did not swallow the real case,
+# so both the must-catch and the must-not-catch shapes are listed here.
+plant() { printf '%s\n' "$1" > "$PLANT"; chmod +x "$PLANT"; git -C "$ROOT" add -N "$PLANT" >/dev/null 2>&1; }
+fails=0
+must_catch() {
+  plant "$2"
+  if ./verify/check-package-abstraction.sh >/dev/null 2>&1; then
+    echo "  MISS  $1"; fails=1
+  else
+    echo "  ok    catches: $1"
+  fi
+}
+must_pass() {
+  plant "$2"
+  if ./verify/check-package-abstraction.sh >/dev/null 2>&1; then
+    echo "  ok    ignores: $1"
+  else
+    echo "  FALSE POSITIVE  $1"; fails=1
+  fi
+}
 
-if ./verify/check-package-abstraction.sh >/dev/null 2>&1; then
-  echo "SELFTEST FAIL: check PASSED with a planted violation -- it cannot fail, so it proves nothing"
-  exit 1
-fi
+# THE NAMES ARE SPLIT ON PURPOSE. This file's whole job is to contain package
+# manager invocations, so written plainly it fails the very check it is testing
+# -- and the fix must not be "exempt this file", because then a real violation
+# could hide in it and because the checker's own header says an exemption that
+# grows is an abstraction that has already gone. Adjacent quoted strings
+# concatenate at parse time, so $DNF is exactly "dnf" at run time while the
+# three letters never appear in a row on disk.
+DNF="dn""f"; RPM="rp""m"; APT="apt-g""et"
+
+must_catch "a bare invocation"                 "#!/bin/sh
+$DNF install -y something"
+must_catch "hidden behind a trailing comment"  "#!/bin/sh
+$DNF install -y something   # install the thing"
+must_catch "indented, inside a function"       "#!/bin/sh
+f() {
+    $RPM -qa | wc -l
+}"
+must_catch "a second manager entirely"         "#!/bin/sh
+$APT install -y something"
+must_pass  "a comment that merely mentions it" "#!/bin/sh
+# $RPM hardlinks identical files, so this costs nothing
+true"
+must_pass  "the .$RPM file extension"          '#!/bin/sh
+find /tmp -name "*.rpm" -o -name "*.src.rpm"'
+must_pass  "no manager named at all"           '#!/bin/sh
+echo hello'
+
+[ $fails = 0 ] || { echo "SELFTEST FAIL: the checker does not discriminate"; exit 1; }
 
 # 3. remove it and confirm the check recovers
 cleanup

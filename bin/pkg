@@ -43,6 +43,13 @@ read verbs (no changes, no privileges beyond reading):
   upgrade-count                how many upgrades are pending
   cache-size                   size of the downloaded-package cache
   metadata-age                 seconds since the catalogue was refreshed
+  list-packages <name>         print packages/<distro>/<name>.list, one per line
+  list-distro                  which packages/<distro>/ directory applies
+  distro-version               the distribution's release version (e.g. 44)
+  fetch-source <nvr> <dir>     download one package's SOURCE into <dir>
+  source-manifest              NVRA, licence and source package, one per line
+  source-command               how a user fetches a source package here
+  count-installed              how many packages are installed
   refresh-metadata             refresh the catalogue; does NOT upgrade
   backend                      name the backend in use
 
@@ -79,7 +86,19 @@ read_list() {
 }
 
 list_distro() {
-  if [ -r /etc/os-release ]; then ( . /etc/os-release; echo "${ID:-unknown}" ); else echo unknown; fi
+  # ID first, but fall back to ID_LIKE.  Branding the system sets ID=nulllinux
+  # (see bin/null-brand), and a package list is named after the DISTRIBUTION the
+  # packages come from, not after this project -- there is no packages/nulllinux/
+  # and there should not be.  Keying on ID alone meant that installing our own
+  # branding broke our own package manager on every installed machine, which is
+  # the kind of coupling only a machine that is not this one ever finds.
+  local rel=${NULL_OS_RELEASE:-/etc/os-release}   # overridable so this is testable
+  [ -r "$rel" ] || { echo unknown; return; }
+  ( . "$rel"
+    for id in ${ID:-} ${ID_LIKE:-}; do
+      [ -d "$ROOT/packages/$id" ] && { echo "$id"; return; }
+    done
+    echo "${ID:-unknown}" )
 }
 
 # --- dispatch -----------------------------------------------------------
@@ -98,6 +117,13 @@ case $verb in
   refresh-metadata)           backend_refresh_metadata ;;
   upgrade-available)          backend_upgrade_available ;;
   install)                    [ $# -ge 1 ] || die "install needs a package"; backend_install "$@" ;;
+  list-packages)              [ $# -eq 1 ] || die "list-packages needs a list name"; read_list "$1" ;;
+  list-distro)                list_distro ;;
+  distro-version)             backend_distro_version ;;
+  fetch-source)               [ $# -eq 2 ] || die "fetch-source needs <nvr> <dir>"; backend_fetch_source "$1" "$2" ;;
+  source-manifest)            backend_source_manifest ;;
+  source-command)             backend_source_command ;;
+  count-installed)            backend_count_installed ;;
   install-list)               [ $# -eq 1 ] || die "install-list needs a list name"
                               mapfile -t pkgs < <(read_list "$1")
                               [ ${#pkgs[@]} -gt 0 ] || die "list '$1' is empty"

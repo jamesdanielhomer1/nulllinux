@@ -92,3 +92,39 @@ backend_cache_size() {
 
 backend_remove_orphans() { dnf autoremove -y; }
 backend_clean_cache()    { dnf clean packages -y; }
+
+# --- distribution identity and source retrieval -------------------------
+#
+# These exist so that the image-building tools (null-iso, null-installer-iso,
+# null-sources) do not have to name a package manager. Composing an image is a
+# different activity from managing packages on a running machine, but §9.1 does
+# not care -- one component names the tool, and that component is this one.
+
+backend_distro_version() {
+  # The release the running system IS, which is what an image must be built
+  # against. Not $releasever from a config file: that can be overridden.
+  rpm -q --qf '%{version}' fedora-release-common 2>/dev/null || return 1
+}
+
+# Fetch a package's SOURCE. This is what discharges the GPL offer -- see
+# bin/null-sources, which uses it to prove the offer resolves to a real srpm
+# rather than asserting that it would.
+backend_fetch_source() {
+  local nvr=$1 dir=$2
+  mkdir -p "$dir" || return 1
+  dnf download --source --destdir "$dir" "$nvr" >/dev/null 2>&1
+}
+
+# One line per installed package: NVRA, licence, source package. This is the
+# GPL source manifest (bin/null-sources, the live image's SOURCES.txt), and it
+# is here rather than in the kickstart because a different distribution answers
+# the same question with a completely different command.
+backend_source_manifest() {
+  rpm -qa --qf '%{name}-%{version}-%{release}.%{arch}\t%{license}\t%{sourcerpm}\n' | sort
+}
+
+backend_count_installed() { rpm -qa | wc -l; }
+
+# How a USER of this image fetches a source package, phrased for this backend.
+# Printed into SOURCES.txt, so the offer tells the reader the actual command.
+backend_source_command() { echo "dnf download --source <name>-<version>-<release>"; }

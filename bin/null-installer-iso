@@ -22,8 +22,11 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 cd "$ROOT"
 NAME=nulllinux
 VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head -1)
-RELEASEVER=$(rpm -q --qf '%{version}' fedora-release-common 2>/dev/null || echo 44)
+RELEASEVER=$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)
 WORK=${NULL_ISO_WORK:-/var/lib/nulllinux-iso}
+# Absolute, because lorax is run from inside it and every other path here is
+# resolved before that cd.
+case $WORK in /*) ;; *) WORK=$PWD/$WORK ;; esac
 OUT="$WORK/installer"
 MIRROR=${NULL_MIRROR:-https://download.fedoraproject.org/pub/fedora/linux}
 
@@ -51,6 +54,11 @@ echo
 # -i nulllinux: the package is put ON the installer image, so a machine with no
 #   route to this repository can still install the desktop. That is the whole
 #   point of shipping the hero prebuilt -- the payload is 9 MB.
+# Run lorax from the work directory, NOT from the checkout.  It writes an
+# 88 MB debugdata/ dump of its dependency solver into the CWD, and from the
+# checkout that lands in git -- which is exactly what happened once.
+mkdir -p "$WORK/run"
+( cd "$WORK/run" && \
 lorax -p "nullLinux" -v "$VERSION" -r "$RELEASEVER" \
   --isfinal --nomacboot \
   -s "$MIRROR/releases/$RELEASEVER/Everything/x86_64/os/" \
@@ -58,7 +66,7 @@ lorax -p "nullLinux" -v "$VERSION" -r "$RELEASEVER" \
   -s "file://$ROOT/packaging/repo" \
   --volid "nullLinux-inst-$VERSION" \
   --logfile "$WORK/lorax.log" \
-  "$OUT"
+  "$OUT" )
 st=$?
 
 echo

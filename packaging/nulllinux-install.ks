@@ -57,7 +57,18 @@ rootpw --plaintext nulltest
 user --name=null --groups=wheel --password=nulltest --plaintext
 
 services --enabled=NetworkManager,sshd
-reboot
+# POWEROFF, NOT REBOOT.
+#
+# The install is driven by booting the installer's kernel directly, and qemu
+# ignores the boot order when it is given -kernel -- so a reboot walks straight
+# back into the installer and starts again. That is not hypothetical: a
+# completed install was destroyed that way, the second run wiping the disk it
+# had just filled and getting to 45% of the download before it was stopped,
+# leaving a system with no bootloader.
+#
+# Powering off ends the guest cleanly, so the harness knows the install is done
+# and can boot the disk on its own terms.
+poweroff
 
 %packages
 @core
