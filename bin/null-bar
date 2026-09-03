@@ -1,12 +1,41 @@
 #!/usr/bin/env bash
-# Start the bar (NULL.md §7.2). Matched on the executable, not the command line.
-set -euo pipefail
+# Start the bar -- ONE PER SCREEN (NULL.md §7.2).
+#
+# The bar named no output, so with two monitors both bars landed on whichever
+# screen the compositor chose and the other had none. It is per-screen
+# furniture: every screen gets one, pinned to it.
+#
+# Each also gets the interface strike that suits ITS screen. A 4K monitor and a
+# 1366x768 laptop want different sized type, and one installed atlas can only
+# ever be right for one of them (`machine choose-interface`).
+#
+# Stops any instance of ITSELF first, matched on the EXECUTABLE rather than the
+# command line: a command-line match catches any shell that merely mentions the
+# name, including the one doing the matching (§8.6).
+set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 BIN="$ROOT/render/target/release/bar"
-[ -x "$BIN" ] || { echo "null-bar: $BIN not built" >&2; exit 1; }
+RENDER="$ROOT/render/target/release/render"
+TAG=null-bar
+[ -x "$BIN" ] || { echo "$TAG: $BIN not built" >&2; exit 1; }
+
 SELF=$(readlink -f "$BIN")
 for pid in $(pgrep -x bar 2>/dev/null || true); do
   exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || continue
   [ "$exe" = "$SELF" ] && kill "$pid" 2>/dev/null || true
 done
-exec env NULL_ROOT="$ROOT" "$BIN"
+
+. "$ROOT/lib/supervise.sh"
+
+start_one() {  # <output-name> <w> <h>
+  local name=$1 w=$2 h=$3 pick atlas ramp cw ch cols
+  pick=$("$ROOT/bin/machine" choose-interface "$w" "$h" 2>/dev/null) || {
+    echo "$TAG: no interface strike fits ${w}x${h} on $name" >&2; return 1; }
+  read -r atlas ramp cw ch cols <<<"$pick"
+  env NULL_ROOT="$ROOT" "$BIN" --atlas "$atlas" --ramp "$ramp" --output "$name" &
+  CHILD["$name"]=$!
+  printf '%s: %-12s %sx%s  cell %sx%s  %s cols  %s\n' \
+    "$TAG" "$name" "$w" "$h" "$cw" "$ch" "$cols" "$(basename "$atlas")"
+}
+
+supervise

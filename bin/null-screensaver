@@ -4,14 +4,20 @@
 # It IS the wallpaper: same asset, same renderer, same atlas, same delta blit.
 # Only its layer and its dismissal differ.
 #
+# ON EVERY SCREEN. It covered one, because it named no output and a layer
+# surface with no output goes wherever the compositor puts it. A screensaver
+# that covers one monitor and leaves the others showing your work is not a
+# screensaver; and with one monitor the difference is invisible.
+#
 # The wallpaper and the screensaver are the same binary on the same asset, so
 # matching on the process NAME would take the desktop's background down with
-# the screensaver. A pidfile identifies which one this is, and the identity is
-# confirmed before signalling because process ids are recycled.
-set -euo pipefail
+# the screensaver. A pidfile identifies the SUPERVISOR -- one per session, which
+# owns one renderer per screen and kills them all when it goes.
+set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/null-screensaver.pid"
 RENDER="$ROOT/render/target/release/render"
+TAG=null-screensaver
 
 running() {
   [ -r "$PIDFILE" ] || return 1
@@ -19,23 +25,38 @@ running() {
   [ -n "$pid" ] || return 1
   kill -0 "$pid" 2>/dev/null || return 1
   # Confirm it is OURS before signalling it: pids are recycled, and this
-  # script's whole job is to send a signal to one particular process.
-  local exe; exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || return 1
-  [ "$exe" = "$(readlink -f "$RENDER")" ] || return 1
+  # script's whole job is to send a signal to one particular process. The
+  # supervisor is this script re-executed, so its exe is a shell -- identity is
+  # confirmed by the marker in its command line instead.
+  grep -qa 'null-screensaver' "/proc/$pid/cmdline" 2>/dev/null || return 1
   echo "$pid"
 }
 
 case "${1:-start}" in
   start)
     if running >/dev/null; then exit 0; fi
-    # --layer overlay implies forced animation, decided in the renderer rather
-    # than here: an overlay sits ABOVE every window, so what covers the
-    # background says nothing about what covers it (§8.6).
-    "$RENDER" --file "$ROOT/assets/target-2.cells" \
-              --atlas "$ROOT/assets/atlas-bake.bin" \
-              layershell --layer overlay >/dev/null 2>&1 &
+    setsid "$0" __supervise >/dev/null 2>&1 &
     echo $! > "$PIDFILE"
     ;;
+
+  __supervise)
+    # The per-screen half, run as a background child of `start`. Killing it
+    # takes every renderer with it, because supervise traps its own exit.
+    . "$ROOT/lib/supervise.sh"
+    start_one() {  # <output-name> <w> <h>
+      local name=$1 w=$2 h=$3 pick cells atlas pw ph cov
+      pick=$("$ROOT/bin/machine" choose-assets "$w" "$h" 2>/dev/null) || return 1
+      read -r cells atlas pw ph cov <<<"$pick"
+      # --layer overlay implies forced animation, decided in the renderer rather
+      # than here: an overlay sits ABOVE every window, so what covers the
+      # background says nothing about what covers it (§8.6).
+      "$RENDER" --file "$cells" --atlas "$atlas" \
+                layershell --layer overlay --output "$name" >/dev/null 2>&1 &
+      CHILD["$name"]=$!
+    }
+    supervise
+    ;;
+
   stop)
     pid=$(running) || exit 0
     kill "$pid" 2>/dev/null || true

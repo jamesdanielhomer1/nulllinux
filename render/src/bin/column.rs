@@ -821,6 +821,14 @@ impl Column {
     fn create_surface(&mut self) {
         if self.layer.is_some() { return }
         let surface = self.compositor.create_surface(&self.qh);
+        // `None` IS DELIBERATE HERE, and is not the bug it is in the bar and
+        // the wallpaper. Those are per-screen furniture and must be pinned, one
+        // process per output. The column is ONE summonable panel with one IPC
+        // socket, and it should open on the screen you are working on -- which
+        // is exactly what `None` means to the compositor: the focused output.
+        // Because show and hide are create and destroy (§6.3), it re-picks the
+        // focused output every time it opens, so it follows you between
+        // monitors for free. Pinning it would nail it to one screen.
         let layer = self.layer_shell.create_layer_surface(
             &self.qh, surface, Layer::Top, Some("null-column"), None);
         layer.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM);

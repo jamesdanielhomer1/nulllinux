@@ -9,6 +9,7 @@ pub mod atlas;
 pub mod cells;
 pub mod grid;
 pub mod ipc;
+pub mod outputs;
 pub mod palette;
 pub mod panel;
 pub mod pty;

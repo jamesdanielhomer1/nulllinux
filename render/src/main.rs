@@ -22,11 +22,13 @@ backends:
   raster --frame N --out  rasterise one frame to a PPM
   still --frame N --out   write one frame as ANSI text (for /etc/issue)
   layershell              animate as a compositor surface
+  outputs                 list the compositor's screens: name, w, h, scale
 
 options:
   --seconds N             stop after N seconds (ansi)
   --layer overlay         map on the overlay layer (implies --force-animate)
   --force-animate         never suspend, even when occluded
+  --output NAME           pin the surface to one screen (layershell)
 "
     );
     std::process::exit(2)
@@ -40,22 +42,46 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() { usage() }
 
-    let file = arg(&args, "--file").unwrap_or_else(|| usage());
-    let c = match cells::Cells::load(&file) {
-        Ok(c) => c,
-        Err(e) => { eprintln!("render: {e}"); std::process::exit(1) }
-    };
-
     // The backend is the first bare word that is not the value of a flag.
+    //
+    // NOT EVERY FLAG TAKES A VALUE. This skipped two tokens for any `--flag`,
+    // so `--force-animate layershell` consumed the backend name as if it were
+    // the flag's argument and the whole command fell through to usage(). It was
+    // invisible because the only two callers pass either no valueless flag or
+    // one that happens to come last.
+    const VALUELESS: [&str; 1] = ["--force-animate"];
     let backend = {
         let mut found = None;
         let mut i = 0;
         while i < args.len() {
-            if args[i].starts_with("--") { i += 2; continue; }   // flag and its value
+            if args[i].starts_with("--") {
+                i += if VALUELESS.contains(&args[i].as_str()) { 1 } else { 2 };
+                continue;
+            }
             found = Some(args[i].clone());
             break;
         }
         found.unwrap_or_else(|| usage())
+    };
+
+    // `outputs` asks the compositor what screens exist and reads no asset, so
+    // it must not require --file. Decided by the backend, before loading.
+    if backend == "outputs" {
+        let conn = match wayland_client::Connection::connect_to_env() {
+            Ok(c) => c, Err(e) => { eprintln!("render: no Wayland display: {e}"); std::process::exit(1) }
+        };
+        match nulllinux::outputs::list_outputs(&conn) {
+            Ok(v) if v.is_empty() => { eprintln!("render: the compositor reports no outputs"); std::process::exit(1) }
+            Ok(v) => { for (n, w, h, sc) in v { println!("{n}\t{w}\t{h}\t{sc}") } }
+            Err(e) => { eprintln!("render: {e}"); std::process::exit(1) }
+        }
+        return;
+    }
+
+    let file = arg(&args, "--file").unwrap_or_else(|| usage());
+    let c = match cells::Cells::load(&file) {
+        Ok(c) => c,
+        Err(e) => { eprintln!("render: {e}"); std::process::exit(1) }
     };
 
     match backend.as_str() {
@@ -145,7 +171,8 @@ fn main() {
             let overlay = arg(&args, "--layer").as_deref() == Some("overlay");
             let force = args.iter().any(|x| x == "--force-animate");
             let name = if overlay { "null-screensaver" } else { "null-wallpaper" };
-            if let Err(e) = layershell::run(c, a, name, overlay, force) {
+            let out = arg(&args, "--output");
+            if let Err(e) = layershell::run(c, a, name, overlay, force, out.as_deref()) {
                 eprintln!("render: {e}"); std::process::exit(1);
             }
         }

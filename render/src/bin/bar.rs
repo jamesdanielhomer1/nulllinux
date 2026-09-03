@@ -89,11 +89,20 @@ fn null_root() -> String {
 
 fn main() {
     let root = null_root();
-    let atlas = Atlas::load(&format!("{root}/assets/atlas-interface.bin"))
+    // --atlas / --ramp OVERRIDE THE INSTALLED PAIR, so one bar per screen can
+    // each be given the strike that suits that screen. A 4K monitor beside a
+    // 1366x768 laptop wants different sized text on each, and a single
+    // installed atlas can only be right for one of them.
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let opt = |n: &str| argv.iter().position(|a| a == n).and_then(|i| argv.get(i + 1)).cloned();
+    let atlas_path = opt("--atlas").unwrap_or_else(|| format!("{root}/assets/atlas-interface.bin"));
+    let ramp_path  = opt("--ramp").unwrap_or_else(|| format!("{root}/assets/ramp-interface.json"));
+
+    let atlas = Atlas::load(&atlas_path)
         .unwrap_or_else(|e| { eprintln!("bar: {e}"); std::process::exit(1) });
     let pal = Palette::load(&format!("{root}/assets/palette.json"))
         .unwrap_or_else(|e| { eprintln!("bar: {e}"); std::process::exit(1) });
-    let ramp: Vec<char> = std::fs::read_to_string(format!("{root}/assets/ramp-interface.json"))
+    let ramp: Vec<char> = std::fs::read_to_string(&ramp_path)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| v.get("ramp").and_then(|r| r.as_str()).map(|s| s.chars().collect()))
@@ -148,7 +157,18 @@ fn main() {
     let cols = 1;
 
     let surface = compositor.create_surface(&qh);
-    let layer = layer_shell.create_layer_surface(&qh, surface, Layer::Top, Some("null-bar"), None);
+    // PINNED when `--output NAME` is given. `None` means "compositor, you
+    // choose", which is right with one monitor and wrong with two: every bar
+    // lands on the same screen and the others get none. One bar per output.
+    let want = args.iter().position(|a| a == "--output").and_then(|i| args.get(i + 1)).cloned();
+    let wl_out = match want.as_deref() {
+        Some(n) => match nulllinux::outputs::find_output(&conn, n) {
+            Ok(o) => Some(o),
+            Err(e) => { eprintln!("bar: {e}"); std::process::exit(1) }
+        },
+        None => None,
+    };
+    let layer = layer_shell.create_layer_surface(&qh, surface, Layer::Top, Some("null-bar"), wl_out.as_ref());
     layer.set_anchor(Anchor::TOP | Anchor::LEFT | Anchor::RIGHT);
     layer.set_exclusive_zone(px_h as i32);
     layer.set_keyboard_interactivity(KeyboardInteractivity::None);

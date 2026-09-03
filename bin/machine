@@ -198,6 +198,84 @@ check_profile() {
   return 1
 }
 
+# The best prebuilt (hero, atlas) pair for a screen of this size.
+#
+# WHY THIS EXISTS. The wallpaper draws a fixed cell grid, so it fills a screen
+# exactly when `cols x cell_w` and `rows x cell_h` ARE the screen's dimensions.
+# The old code chose a strike aiming at 320 columns because that is target-2's
+# width, and then always drew target-2 -- which works on 1920x1080 and 2560x1440
+# and fails everywhere else. On a 1366x768 panel it asked for a 1920x1080
+# surface and the hero was drawn CROPPED, off the side of the screen.
+#
+# 1366 = 2 x 683 and 683 is prime, so nothing divides it. The honest answer is
+# not to insist on an exact fit but to take the pair that covers the most of
+# this screen without overflowing it, and to SAY how much is left over.
+#
+# Every rung of the ladder is prebuilt for every strike, so this is a choice
+# among files that already exist -- no bake, no GPU, on any machine.
+#
+# Prints:  <cells-file> <atlas-file> <pixel-w> <pixel-h> <coverage-percent>
+choose_assets() {  # <screen-w> <screen-h>
+  local W=$1 H=$2
+  local P="$ROOT/assets/prebuilt"
+  [ -d "$P/strikes" ] || { echo "no prebuilt assets in $P" >&2; return 1; }
+
+  local best_score=-1 best=""
+  local e cell name con cw ch t cells cols rows pw ph area
+  for e in $STRIKES; do
+    cell=${e%%:*}; name=${e#*:}; con=${name#*:}; name=${name%%:*}
+    cw=${cell%x*}; ch=${cell#*x}
+    [ -r "$P/strikes/atlas-$con.bin" ] || continue
+    # EVERY RUNG, not just the three big ones. tty (80x24) and logo (40x16)
+    # are the same hero re-rendered at their own framing -- derive_targets.py
+    # traces them separately precisely because 180 rows does not divide by 24 --
+    # and leaving them out meant nothing at all fitted a 640x480 or 800x600
+    # screen, so those got no wallpaper whatsoever.
+    for t in master target-2 target-4 tty logo; do
+      cells="$P/$con/$t.cells"
+      [ -r "$cells" ] || continue
+      # Grid read from the FILE, not from a table here: a table would drift
+      # away from the assets it claims to describe.
+      cols=$(od -An -tu2 -j6 -N2 "$cells" | tr -d ' ')
+      rows=$(od -An -tu2 -j8 -N2 "$cells" | tr -d ' ')
+      [ -n "$cols" ] && [ -n "$rows" ] || continue
+      pw=$((cols * cw)); ph=$((rows * ch))
+      # Must not overflow: a surface larger than the screen is drawn cropped,
+      # which is worse than one that is smaller and complete.
+      [ "$pw" -le "$W" ] && [ "$ph" -le "$H" ] || continue
+      area=$((pw * ph))
+      if [ "$area" -gt "$best_score" ]; then
+        best_score=$area
+        best="$cells $P/strikes/atlas-$con.bin $pw $ph"
+      fi
+    done
+  done
+  [ -n "$best" ] || { echo "no prebuilt hero fits ${W}x${H}" >&2; return 1; }
+  set -- $best
+  printf '%s %s %s %s %s\n' "$1" "$2" "$3" "$4" "$(( 100 * $3 * $4 / (W * H) ))"
+}
+
+# The interface strike for a screen of this size, as prebuilt file paths.
+#
+# The bar and the column draw TEXT, so what matters is not filling the screen
+# but how many columns of readable type it holds. choose_strike already scores
+# that; this turns its answer into the two files a surface needs, so one bar
+# per screen can each be given the strike that suits that screen.
+#
+# Prints:  <atlas-file> <ramp-file> <cell-w> <cell-h> <columns>
+choose_interface() {  # <screen-w> <screen-h>
+  local W=$1 H=$2 P="$ROOT/assets/prebuilt"
+  local i cell name con rem cols
+  i=$(choose_strike "$W" "$H" 190) || { echo "no interface strike fits ${W}x${H}" >&2; return 1; }
+  IFS=: read -r cell name con rem cols <<<"$i"
+  local a="$P/strikes/atlas-$con.bin" r="$P/strikes/ramp-$con.json"
+  # Fall back to the installed pair rather than failing: a machine that has no
+  # prebuilt tree still has the one strike null-machine-sync placed.
+  [ -r "$a" ] || a="$ROOT/assets/atlas-interface.bin"
+  [ -r "$r" ] || r="$ROOT/assets/ramp-interface.json"
+  printf '%s %s %s %s %s\n' "$a" "$r" "${cell%x*}" "${cell#*x}" "$cols"
+}
+
 check_grid() {
   local w h ok=0
   w=$(get width); h=$(get height)
@@ -267,6 +345,8 @@ usage: machine <verb> [argument]
   capabilities         list probeable capabilities, with their current state
   check-grid           verify the grid fits, and report any unreached pixels
   check-profile        does the recorded profile still match the hardware?
+  choose-assets W H    best prebuilt hero+atlas for a screen of that size
+  choose-interface W H best prebuilt interface atlas+ramp for that size
   generate             write machines/<hostname>.conf from the detected hardware
   profile              path to the profile in use
   show                 everything
@@ -283,6 +363,8 @@ case $verb in
   profile)  profile_path ;;
   check-grid) check_grid ;;
   check-profile) check_profile ;;
+  choose-interface) [ $# -eq 2 ] || die "choose-interface needs <width> <height>"; choose_interface "$1" "$2" ;;
+  choose-assets) [ $# -eq 2 ] || die "choose-assets needs <width> <height>"; choose_assets "$1" "$2" ;;
   generate)   generate ;;
   capabilities)
       for c in $CAPABILITIES; do

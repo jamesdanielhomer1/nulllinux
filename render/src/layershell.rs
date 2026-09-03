@@ -8,6 +8,7 @@ use crate::atlas::Atlas;
 use crate::cells::Cells;
 use crate::ipc;
 use crate::raster;
+use nulllinux::outputs::find_output;
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -69,7 +70,7 @@ pub struct Wallpaper {
 }
 
 pub fn run(cells: Cells, atlas: Atlas, layer_name: &str, overlay: bool,
-           force_animate: bool) -> Result<(), String> {
+           force_animate: bool, output_name: Option<&str>) -> Result<(), String> {
     let conn = Connection::connect_to_env().map_err(|e| format!("no Wayland display: {e}"))?;
     let (globals, mut queue) = registry_queue_init(&conn).map_err(|e| e.to_string())?;
     let qh = queue.handle();
@@ -83,7 +84,14 @@ pub fn run(cells: Cells, atlas: Atlas, layer_name: &str, overlay: bool,
 
     let surface = compositor.create_surface(&qh);
     let lyr = if overlay { Layer::Overlay } else { Layer::Background };
-    let layer = layer_shell.create_layer_surface(&qh, surface, lyr, Some(layer_name), None);
+    // Pinned to ONE named output when asked. One process per screen is what
+    // makes several screens work at once, and what lets each of them be given
+    // the assets that fit it.
+    let wl_out = match output_name {
+        Some(n) => Some(find_output(&conn, n)?),
+        None => None,
+    };
+    let layer = layer_shell.create_layer_surface(&qh, surface, lyr, Some(layer_name), wl_out.as_ref());
     layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
     layer.set_exclusive_zone(-1);
     layer.set_keyboard_interactivity(KeyboardInteractivity::None);

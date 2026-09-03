@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
-# Start the wallpaper surface (NULL.md §6.3, §6.4).
+# Start the wallpaper surface -- ONE PER SCREEN (NULL.md §6.3, §6.4).
+#
+# This used to exec a single `render` naming no output. A layer surface with no
+# output is placed by the compositor on whichever screen it likes, so with two
+# monitors the desktop appeared on one and the other showed bare background for
+# ever -- and nothing reported it, because the process was running, drawing and
+# costing CPU exactly as it does on a one-monitor machine.
+#
+# Each screen also gets the hero grid that fits IT, so the monitors need not
+# match: a 4K panel beside a 1366x768 laptop is two different rungs of the same
+# prebuilt ladder, chosen per screen by `machine choose-assets`.
 #
 # Stops any instance of ITSELF first, matched on the EXECUTABLE rather than the
 # command line: a command-line match catches any shell that merely mentions the
 # name, including the one doing the matching (§8.6).
-set -euo pipefail
+set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 RENDER="$ROOT/render/target/release/render"
-[ -x "$RENDER" ] || { echo "null-wallpaper: $RENDER not built" >&2; exit 1; }
+TAG=null-wallpaper
+[ -x "$RENDER" ] || { echo "$TAG: $RENDER not built" >&2; exit 1; }
 
 SELF=$(readlink -f "$RENDER")
 for pid in $(pgrep -x render 2>/dev/null || true); do
@@ -17,5 +28,17 @@ for pid in $(pgrep -x render 2>/dev/null || true); do
   [ "$exe" = "$SELF" ] && kill "$pid" 2>/dev/null || true
 done
 
-exec "$RENDER" --file "$ROOT/assets/target-2.cells" \
-               --atlas "$ROOT/assets/atlas-bake.bin" layershell
+. "$ROOT/lib/supervise.sh"
+
+start_one() {  # <output-name> <w> <h>
+  local name=$1 w=$2 h=$3 pick cells atlas pw ph cov
+  pick=$("$ROOT/bin/machine" choose-assets "$w" "$h" 2>/dev/null) || {
+    echo "$TAG: no prebuilt hero fits ${w}x${h} on $name" >&2; return 1; }
+  read -r cells atlas pw ph cov <<<"$pick"
+  "$RENDER" --file "$cells" --atlas "$atlas" layershell --output "$name" &
+  CHILD["$name"]=$!
+  printf '%s: %-12s %sx%s  hero %sx%s (%s%%)  %s\n' \
+    "$TAG" "$name" "$w" "$h" "$pw" "$ph" "$cov" "$(basename "$(dirname "$cells")")/$(basename "$cells")"
+}
+
+supervise

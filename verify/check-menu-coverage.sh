@@ -28,11 +28,24 @@ declare -A NOT_DRAWN=(
   [mixer]="sends an IPC message to the running column; wiremix cannot be measured without a PipeWire session"
 )
 
-# Five seconds, not two. The update topic asks the package manager and takes
-# about 2.7 s to build its list -- longer than the old window -- so it reported
-# NOTHING DREW and that read as a failure of the topic rather than of the
-# probe. A window shorter than the thing being measured measures nothing.
+# HOW LONG TO WATCH, and why it stopped being a constant.
+#
+# This was 2 s, then 6 s, raised each time because a topic that asks the package
+# manager took longer than the window and reported NOTHING DREW -- which reads
+# as a failure of the topic rather than of the probe. A window shorter than the
+# thing being measured measures nothing.
+#
+# Six seconds was tuned on one laptop. Moved to a slower one, `update` took
+# 6.9 s and the check failed again: the same defect the number was raised to
+# fix, and exactly the shape §0.2 warns about -- a constant that is correct on
+# the machine it was chosen on.
+#
+# So a topic that draws NOTHING is retried with a much longer window before it
+# is called a failure. A genuinely broken topic still draws nothing after 30 s;
+# a merely slow one does not. The check no longer needs to know how fast this
+# machine is, which is the only version of it that travels.
 SECS=${SECS:-6}
+SECS_RETRY=${SECS_RETRY:-30}
 
 fail=0
 for t in $TOPICS; do
@@ -40,8 +53,23 @@ for t in $TOPICS; do
     printf '  %-10s not drawn here -- %s\n' "$t" "${NOT_DRAWN[$t]}"
     continue
   fi
-  json=$(timeout 30 python3 verify/coverage.py --cols 63 --rows 54 --seconds "$SECS" --json -- \
-    env NULL_COLUMN=1 NULL_ROOT="$ROOT" "$ROOT/bin/null-menu" "$t" 2>/dev/null) || true
+  probe_topic() {  # <seconds>
+    timeout $(( $1 + 20 )) python3 verify/coverage.py --cols 63 --rows 54 \
+      --seconds "$1" --json -- \
+      env NULL_COLUMN=1 NULL_ROOT="$ROOT" "$ROOT/bin/null-menu" "$t" 2>/dev/null
+  }
+  cells_of() {
+    python3 -c "import json,sys; print(json.loads(sys.argv[1])['printable_cells'])" "$1" 2>/dev/null || echo 0
+  }
+
+  json=$(probe_topic "$SECS") || true
+  slow=""
+  if [ -n "$json" ] && [ "$(cells_of "$json")" -eq 0 ]; then
+    # Nothing yet. Slow, or broken? Watch far longer and find out, rather than
+    # guessing a bigger constant.
+    json=$(probe_topic "$SECS_RETRY") || true
+    slow="  [slow here: needed more than ${SECS}s]"
+  fi
   if [ -z "$json" ]; then printf '  %-10s NO OUTPUT\n' "$t"; fail=1; continue; fi
   # A TOPIC REPORTING ABSENT HARDWARE IS SUPPOSED TO BE SHORT.
   #
@@ -67,7 +95,7 @@ print(f"clean ({d['printable_cells']} printable)")
 PY
 )
   st=$?
-  printf '  %-10s %s\n' "$t" "$res"
+  printf '  %-10s %s%s\n' "$t" "$res" "$slow"
   [ $st -ne 0 ] && fail=1
 done
 if [ $fail -eq 0 ]; then echo "PASS: every menu topic draws only glyphs the atlas has"; else exit 1; fi
