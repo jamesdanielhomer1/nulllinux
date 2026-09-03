@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# The machine half of the installation, run once, on the first boot (§0.5).
+#
+# WHAT CANNOT BE DONE EARLIER. A machine profile is generated from the display
+# that is actually attached, and an ISO is built in a chroot that has none. The
+# strike that profile selects then decides which atlas and which prebuilt hero
+# are correct -- so the package ships all of them and this picks.
+#
+# NOTHING HERE IS EXPENSIVE. The choosing is a handful of file copies; the
+# raytrace was done when the package was built. On a machine with no prebuilt
+# hero for its strike this says so and leaves the placeholder, rather than
+# starting a two-hour bake on a machine someone is waiting to log into.
+set -uo pipefail
+ROOT=${NULL_ROOT:-/opt/nulllinux}
+STAMP=/var/lib/nulllinux/firstboot-done
+cd "$ROOT" || exit 1
+
+echo "nullLinux first boot"
+
+# 1. The profile, from the hardware that is actually here.
+if ! bin/machine profile >/dev/null 2>&1; then
+  bin/machine generate || { echo "  could not generate a machine profile" >&2; exit 1; }
+else
+  echo "  profile already present for $(hostname -s 2>/dev/null || hostname)"
+fi
+
+iface=$(bin/machine get interface_strike) || exit 1
+bake=$(bin/machine get bake_strike)       || exit 1
+
+# The interface strike is named for fontconfig; its atlas is named for the
+# console font, which is the same strike with a `1` for the `u` (§6.2).
+iface_psf=$iface; case $iface_psf in ter-u*) iface_psf="ter-1${iface_psf#ter-u}" ;; esac
+
+P="$ROOT/assets/prebuilt"
+took=0
+copy() { [ -e "$1" ] && cp -a "$1" "$2" && took=$((took+1)); }
+
+# 2. The palette and the two strikes' atlases and ramps.
+copy "$P/strikes/palette.bin"                 assets/palette.bin
+copy "$P/strikes/palette.json"                assets/palette.json
+copy "$P/strikes/atlas-$iface_psf.bin"        assets/atlas-interface.bin
+copy "$P/strikes/ramp-$iface_psf.json"        assets/ramp-interface.json
+copy "$P/strikes/atlas-$bake.bin"             assets/atlas-bake.bin
+echo "  strikes: $iface (interface, atlas $iface_psf) + $bake (bake)"
+
+# 3. The hero, for this machine's bake strike.
+if [ -d "$P/$bake" ]; then
+  for f in master.cells target-2.cells target-4.cells tty.cells logo.cells ramp-bake.json; do
+    copy "$P/$bake/$f" "assets/$f"
+  done
+  echo "  hero: prebuilt for $bake"
+else
+  # STATED, not silently substituted. A desktop drawing the placeholder looks
+  # like a working desktop, and someone should be able to find out why.
+  echo "  hero: NO PREBUILT SET FOR $bake"
+  echo "        The package ships heroes for the bake strikes common panels"
+  echo "        select. This machine chose one outside that set."
+  echo "        Bake it with:  $ROOT/bin/null-build --force"
+fi
+
+# 4. The surfaces derived from the above, which are seconds of work.
+for step in "python3 bake/export_theme.py" "python3 bake/make_icons.py"; do
+  $step >/dev/null 2>&1 || echo "  warning: '$step' did not complete"
+done
+
+# 5. The system-wide install, which is what makes a new account need no setup.
+bin/null-install --apply >/dev/null 2>&1 && echo "  installed system-wide" \
+  || echo "  warning: the system-wide install did not complete"
+
+mkdir -p "$(dirname "$STAMP")" && date -Iseconds > "$STAMP"
+echo "  done ($took prebuilt files placed)"

@@ -113,7 +113,38 @@ stage theme config/sway/colours.conf -- python3 bake/export_theme.py
 
 echo
 echo "the hero"
-if [ "$SKIP_HERO" -eq 1 ]; then
+
+# PREBUILT ASSETS ARE PREFERRED, AND THAT IS NOT AN OPTIMISATION.
+#
+# Tracing is 0.39 s a frame on a discrete GPU and 28.27 s on software Vulkan --
+# two minutes against two hours. On a machine with no real Vulkan device, which
+# is most virtual machines and every headless install, baking is not slow, it
+# is impractical. So a set shipped in the package is used when one matches.
+#
+# MATCHING MEANS THE BAKE STRIKE. The quantiser measures ink against the
+# strike's own ramp, so a quantised hero belongs to one strike; a set built for
+# 6x12 is simply wrong on a machine that chose 8x16. The strike is read from
+# this machine's profile, so the match is exact or there is no match.
+PREBUILT="assets/prebuilt/$STRIKE_BAKE"
+if [ "$SKIP_HERO" -eq 0 ] && [ "$FORCE" -eq 0 ] && [ -d "$PREBUILT" ]; then
+  printf '  %-22s ' prebuilt
+  copied=0
+  for f in master.cells target-2.cells target-4.cells tty.cells logo.cells ramp-bake.json; do
+    [ -e "$PREBUILT/$f" ] && cp -a "$PREBUILT/$f" "assets/$f" && copied=$((copied+1))
+  done
+  if [ "$copied" -ge 5 ]; then
+    printf 'ok  (%s files for %s -- the raytrace is not run)\n' "$copied" "$STRIKE_BAKE"
+    SKIP_HERO=2      # 2 means "already have one", distinct from "asked to skip"
+  else
+    printf 'INCOMPLETE (%s of 6 files) -- baking instead\n' "$copied"
+  fi
+elif [ "$SKIP_HERO" -eq 0 ] && [ "$FORCE" -eq 0 ]; then
+  echo "  (no prebuilt hero for $STRIKE_BAKE -- this machine bakes its own)"
+fi
+
+if [ "$SKIP_HERO" -eq 2 ]; then
+  :   # the hero is in place; nothing below it needs to run
+elif [ "$SKIP_HERO" -eq 1 ]; then
   stage placeholder assets/placeholder.cells -- \
     python3 bake/placeholder.py --out assets/placeholder.cells
   echo "  (hero skipped: the placeholder stands in for it)"
@@ -164,6 +195,8 @@ stage icons  assets/icons -- python3 bake/make_icons.py
 if [ "$SKIP_HERO" -eq 1 ]; then
   printf '  %-22s skipped: it rasterises the hero, and the hero was skipped\n' boot
 else
+  # SKIP_HERO=2 means a prebuilt hero was copied in, so the targets exist and
+  # the boot surfaces can be rasterised from them exactly as after a bake.
   stage boot system/plymouth-theme system/sddm-theme -- python3 bake/make_boot_assets.py
 fi
 

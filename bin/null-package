@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Build the nullLinux RPM (NULL.md §0.5).
+#
+# TWO TARBALLS, AND THE SPLIT IS THE POINT. Source0 is the tree as git has it.
+# Source1 is assets/prebuilt -- the raytraced hero and every strike's atlas,
+# made by bin/null-prebake on a machine that has a GPU. Keeping them apart is
+# what lets the package be built on a machine with no graphics at all, which is
+# what a build host usually is.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+cd "$ROOT"
+NAME=nulllinux
+VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head -1)
+[ -n "$VERSION" ] || { echo "null-package: cannot read the version from the spec" >&2; exit 1; }
+TOP=${NULL_RPM_TOP:-$ROOT/packaging/rpmbuild}
+
+[ -d assets/prebuilt ] || {
+  echo "null-package: assets/prebuilt is missing." >&2
+  echo "  It holds the raytraced hero, and this cannot be built without it." >&2
+  echo "  Make it on a machine with a GPU:  bin/null-prebake" >&2; exit 1; }
+
+mkdir -p "$TOP"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+echo "packaging $NAME-$VERSION"
+
+# The tree AS GIT HAS IT -- not the working directory. A package built from
+# uncommitted files is a package nobody can rebuild.
+git archive --format=tar --prefix="$NAME-$VERSION/" HEAD \
+  | gzip > "$TOP/SOURCES/$NAME-$VERSION.tar.gz" || exit 1
+printf '  %-34s %s\n' "$NAME-$VERSION.tar.gz" "$(du -h "$TOP/SOURCES/$NAME-$VERSION.tar.gz" | cut -f1)"
+
+tar -czf "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" assets/prebuilt || exit 1
+printf '  %-34s %s\n' "$NAME-prebuilt-$VERSION.tar.gz" "$(du -h "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" | cut -f1)"
+
+cp packaging/$NAME.spec "$TOP/SPECS/"
+cp packaging/$NAME-firstboot.service "$TOP/SOURCES/" 2>/dev/null || true
+
+echo
+rpmbuild --define "_topdir $TOP" -bb "$TOP/SPECS/$NAME.spec" > "$TOP/build.log" 2>&1
+st=$?
+if [ $st -eq 0 ]; then
+  echo "built:"
+  find "$TOP/RPMS" -name '*.rpm' -printf '  %p  %s bytes\n'
+else
+  echo "rpmbuild FAILED -- last lines of $TOP/build.log:" >&2
+  tail -20 "$TOP/build.log" >&2
+fi
+exit $st

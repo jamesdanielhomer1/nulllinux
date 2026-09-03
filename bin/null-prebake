@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Produce the prebuilt hero assets that ship in the package (NULL.md §0.5).
+#
+# WHY ANY OF THIS SHIPS. The hero is 0.39 s a frame on a discrete GPU and
+# 28.27 s a frame on software Vulkan -- two minutes against two hours for the
+# full 240. A machine with a real Vulkan device can bake its own; a virtual
+# machine or a headless install cannot be asked to. So the expensive part is
+# done once, here, on a machine that has a GPU, and travels in the package.
+#
+# WHAT SHIPS IS THE QUANTISED HERO, NOT THE HDR MASTER. The master is 423 MB
+# and is the thing worth keeping (§5.1) -- but it is an INTERMEDIATE, and
+# everything downstream of it re-runs in about a minute. What a machine needs
+# is the .cells files, which are a thousandth of the size.
+#
+# ONE SET PER BAKE STRIKE. The quantiser measures ink against the strike's own
+# ramp (derive_targets passes assets/ramp-bake.json), so a quantised hero
+# belongs to one strike and cannot be reused across others. Twelve common
+# panel sizes select only FOUR distinct bake strikes between them, and 6x12
+# alone covers every resolution at 1080p and below -- so four sets, about four
+# megabytes, cover essentially all real hardware. A machine that lands outside
+# them bakes its own or falls back to the placeholder, and says which.
+#
+# Everything else -- palette, ramps, atlases, the compositor colours, the icon
+# theme, the boot surfaces -- is seconds of work and is NOT shipped. Shipping a
+# thing that is cheap to derive is how a package comes to disagree with the
+# source it was built from.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+cd "$ROOT"
+
+MASTER=${1:-assets/master.hdrcells}
+OUT=assets/prebuilt
+
+# The bake strikes real hardware selects. Derived by asking bin/machine's own
+# chooser for every common panel size, not by picking sizes that seemed likely.
+STRIKES="ter-112n ter-116n ter-118n ter-124n"
+
+[ -d "$MASTER" ] || { echo "null-prebake: no HDR master at $MASTER" >&2
+                      echo "  Run the bake first: bin/null-build" >&2; exit 1; }
+
+# The tone curve is swept ONCE, against the master, and the same curve is used
+# for every strike. It is a property of the emission model (§4.1, Appendix A),
+# not of the font -- so sweeping it per strike would be four answers to one
+# question, and they would differ only by quantisation noise.
+echo "sweeping the tone curve against $MASTER"
+TONE=$(python3 bake/tune.py --frames-dir "$MASTER" 2>/dev/null \
+       | grep -oE -- '--black-pct [0-9.]+ --white-pct [0-9.]+ --gamma [0-9.]+' | head -1)
+[ -n "$TONE" ] || { echo "null-prebake: the tone sweep produced nothing" >&2; exit 1; }
+echo "  $TONE"
+echo
+
+saved_ramp=$(mktemp); cp assets/ramp-bake.json "$saved_ramp" 2>/dev/null || true
+restore() { [ -s "$saved_ramp" ] && cp "$saved_ramp" assets/ramp-bake.json; rm -f "$saved_ramp"; }
+trap restore EXIT
+
+fail=0
+for strike in $STRIKES; do
+  font="/usr/lib/kbd/consolefonts/$strike.psf.gz"
+  if [ ! -r "$font" ]; then
+    printf '  %-10s SKIPPED -- %s is not installed\n' "$strike" "$font"; fail=1; continue
+  fi
+  printf '  %-10s ' "$strike"
+  d="$OUT/$strike"; mkdir -p "$d"
+
+  # The ramp for THIS strike, then the hero quantised against it. Both stages
+  # write to the tree's fixed paths, so the result is moved into place after.
+  if ! python3 bake/derive_ramp.py --font "$font" --out assets/ramp-bake.json >/dev/null 2>&1; then
+    printf 'FAILED (ramp)\n'; fail=1; continue
+  fi
+  if ! python3 bake/derive_targets.py --master "$MASTER" $TONE >/dev/null 2>&1; then
+    printf 'FAILED (targets)\n'; fail=1; continue
+  fi
+  cp assets/ramp-bake.json "$d/ramp-bake.json"
+  for f in master.cells target-2.cells target-4.cells tty.cells logo.cells; do
+    [ -e "assets/$f" ] && cp "assets/$f" "$d/$f"
+  done
+  printf 'ok  (%s)\n' "$(du -sh "$d" | cut -f1)"
+done
+
+
+# THE ATLASES AND RAMPS FOR EVERY STRIKE, because they are tiny and because
+# the alternative is a compiler on the target.
+#
+# Which strike a machine uses depends on its panel, which is unknown when the
+# package is built -- so the choice is made at install time from a set that
+# contains all of them. Nine strikes is about 400 kB; requiring python, numpy
+# and a font parser on every installed machine to save that is a bad trade.
+#
+# The palette goes with them: it is derived from the Planckian locus and has no
+# machine in it at all.
+echo
+echo "atlases and ramps, for every strike"
+mkdir -p "$OUT/strikes"
+python3 bake/derive_palette.py >/dev/null 2>&1 \
+  && cp assets/palette.bin assets/palette.json "$OUT/strikes/" \
+  && echo "  palette    ok"
+for f in /usr/lib/kbd/consolefonts/ter-1*n.psf.gz; do
+  [ -r "$f" ] || continue
+  name=$(basename "$f" .psf.gz)
+  printf '  %-10s ' "$name"
+  if python3 bake/derive_ramp.py --font "$f" --out "$OUT/strikes/ramp-$name.json" >/dev/null 2>&1 \
+     && python3 bake/bake_atlas.py --font "$f" --out "$OUT/strikes/atlas-$name.bin" >/dev/null 2>&1; then
+    printf 'ok  (%s)\n' "$(du -h "$OUT/strikes/atlas-$name.bin" | cut -f1)"
+  else
+    printf 'FAILED\n'; fail=1
+  fi
+done
+
+echo
+echo "total: $(du -sh "$OUT" 2>/dev/null | cut -f1) in $OUT"
+[ "$fail" -eq 0 ] || echo "null-prebake: some strikes did not build" >&2
+exit $fail
