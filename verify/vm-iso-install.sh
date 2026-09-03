@@ -24,8 +24,15 @@ WORK=${NULL_VM_WORK:-/var/lib/nulllinux-test}
 # images present it picked the older one twice in a row, so two full install
 # attempts tested a stale build and I read the result as a bug in the image
 # rather than in the harness.
-SRC_ISO=${NULL_ISO:-$(find /var/lib/nulllinux-iso -name '*.iso' -printf '%T@ %p\n' 2>/dev/null \
-                      | sort -rn | head -1 | cut -d' ' -f2-)}
+# THE INSTALLER ISO BY DEFAULT, not the live one.
+#
+# The live image cannot be driven by a kickstart on Fedora 44 -- liveinst wants
+# a browser and a display, and with --text anaconda parses its own
+# interactive-defaults.ks rather than the file it was handed. The installer ISO
+# boots anaconda directly, which is what inst.ks is designed for.
+SRC_ISO=${NULL_ISO:-$(ls -t /var/lib/nulllinux-iso/nulllinux-installer-*.iso 2>/dev/null | head -1)}
+[ -n "$SRC_ISO" ] || SRC_ISO=$(find /var/lib/nulllinux-iso -name '*.iso' -printf '%T@ %p\n' 2>/dev/null \
+                               | sort -rn | head -1 | cut -d' ' -f2-)
 KS_ISO="$WORK/nulllinux-autoinstall.iso"
 DISK="$WORK/installed.qcow2"
 KEY="$WORK/id_guest"
@@ -73,7 +80,26 @@ stop_guest() {
 mkdir -p "$WORK"
 
 if [ "${1:-install}" = install ]; then
-  sed "s|NULLLINUX_TEST_KEY|$(cat "$KEY.pub")|" \
+  # THE REPOSITORY MUST BE REACHABLE BY THE GUEST, which means a URL on the
+  # host's side of qemu's network and not a path on this filesystem. The whole
+  # tree is served from $WORK, so the repo is linked into it.
+  ln -sfn "$ROOT/packaging/repo" "$WORK/repo"
+  # Concrete URLs, checked before they are used. anaconda does not expand
+  # $releasever in a kickstart url line, and the failure it produces --
+  # "Error setting up repositories" -- names none of that.
+  REL=$(rpm -q --qf '%{version}' fedora-release-common 2>/dev/null || echo 44)
+  BASEURL="https://download.fedoraproject.org/pub/fedora/linux/releases/$REL/Everything/x86_64/os/"
+  UPDATES="https://download.fedoraproject.org/pub/fedora/linux/updates/$REL/Everything/x86_64/"
+  for u in "$BASEURL" "$UPDATES"; do
+    code=$(curl -sIL -o /dev/null -w '%{http_code}' "${u}repodata/repomd.xml" 2>/dev/null)
+    [ "$code" = 200 ] || die "install source $u does not answer (HTTP ${code:-none})"
+  done
+  echo "  install source: $BASEURL"
+
+  sed -e "s|NULLLINUX_TEST_KEY|$(cat "$KEY.pub")|" \
+      -e "s|NULLLINUX_REPO|http://10.0.2.2:8899/repo|" \
+      -e "s|NULLLINUX_BASEURL|$BASEURL|" \
+      -e "s|NULLLINUX_UPDATES|$UPDATES|" \
       "$ROOT/packaging/nulllinux-install.ks" > "$KS"
   ksvalidator "$KS" >/dev/null 2>&1 || die "the install kickstart does not validate"
 
@@ -136,7 +162,7 @@ if [ "${1:-install}" = install ]; then
   # untouched. console=ttyS0 so the install is readable without a screenshot.
   BOOTARGS+=(-cdrom "$SRC_ISO"
              -kernel "$WORK/boot/vmlinuz" -initrd "$WORK/boot/initrd.img"
-             -append "root=live:CDLABEL=$LABEL rd.live.image inst.ks=http://10.0.2.2:8899/install.ks inst.text inst.notmux nulllinux.sshkey=http://10.0.2.2:8899/testkey.pub console=ttyS0,115200 console=tty0")
+             -append "inst.ks=http://10.0.2.2:8899/install.ks inst.text inst.notmux inst.sshd inst.stage2=hd:LABEL=$LABEL console=ttyS0,115200 console=tty0")
 else
   BOOTARGS+=(-boot c)
 fi
