@@ -276,6 +276,30 @@ choose_interface() {  # <screen-w> <screen-h>
   printf '%s %s %s %s %s\n' "$a" "$r" "${cell%x*}" "${cell#*x}" "$cols"
 }
 
+# The EXACT hero grid for a screen, now that grids are derived and not chosen.
+#
+# choose_assets picks the best of the prebuilt rungs, and no rung fits most
+# screens. With the master shipped (bake/pack_master.py) the grid is simply
+# what the screen is: width divided by the cell, height divided by the cell.
+# The only thing still to choose is the STRIKE, because that sets the cell size
+# and so how much detail the screen gets -- scored the same way as before,
+# against a ~320 column target.
+#
+# Prints:  <atlas> <ramp> <cell-w> <cell-h> <cols> <rows> <unreached-w> <unreached-h>
+choose_bake() {  # <screen-w> <screen-h>
+  local W=$1 H=$2 P="$ROOT/assets/prebuilt"
+  local b cell name con rem cols cw ch rows
+  b=$(choose_strike "$W" "$H" 320) || { echo "no bake strike fits ${W}x${H}" >&2; return 1; }
+  IFS=: read -r cell name con rem cols <<<"$b"
+  cw=${cell%x*}; ch=${cell#*x}
+  cols=$(( W / cw )); rows=$(( H / ch ))
+  local a="$P/strikes/atlas-$con.bin" r="$P/strikes/ramp-$con.json"
+  [ -r "$a" ] || a="$ROOT/assets/atlas-bake.bin"
+  [ -r "$r" ] || r="$ROOT/assets/ramp-bake.json"
+  printf '%s %s %s %s %s %s %s %s\n' \
+    "$a" "$r" "$cw" "$ch" "$cols" "$rows" "$(( W - cols * cw ))" "$(( H - rows * ch ))"
+}
+
 check_grid() {
   local w h ok=0
   w=$(get width); h=$(get height)
@@ -345,6 +369,7 @@ usage: machine <verb> [argument]
   capabilities         list probeable capabilities, with their current state
   check-grid           verify the grid fits, and report any unreached pixels
   check-profile        does the recorded profile still match the hardware?
+  choose-bake W H      the EXACT hero grid for that screen, and its strike
   choose-assets W H    best prebuilt hero+atlas for a screen of that size
   choose-interface W H best prebuilt interface atlas+ramp for that size
   generate             write machines/<hostname>.conf from the detected hardware
@@ -364,6 +389,7 @@ case $verb in
   check-grid) check_grid ;;
   check-profile) check_profile ;;
   choose-interface) [ $# -eq 2 ] || die "choose-interface needs <width> <height>"; choose_interface "$1" "$2" ;;
+  choose-bake) [ $# -eq 2 ] || die "choose-bake needs <width> <height>"; choose_bake "$1" "$2" ;;
   choose-assets) [ $# -eq 2 ] || die "choose-assets needs <width> <height>"; choose_assets "$1" "$2" ;;
   generate)   generate ;;
   capabilities)

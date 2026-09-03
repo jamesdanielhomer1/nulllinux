@@ -93,7 +93,18 @@ cava                            # the audio spectrum in the column (§10.7 warns
 # tried to run it: numpy for the simulation and the quantiser, pillow for the
 # boot surfaces, gobject for the icon theme. They are on nox because something
 # else pulled them in, which is exactly why they were never noticed missing.
-python3-numpy                   # build-only
+# numpy IS NO LONGER BUILD-ONLY, and that is a deliberate reversal.
+#
+# The package used to ship forty-five fixed grids of quantised ASCII, so an
+# installed machine derived nothing and needed no numpy. It now ships the
+# MASTER and derives its own grid (bin/null-hero), because a fixed grid fits
+# almost no real screen -- so the quantiser runs here, and the quantiser is
+# numpy. That is roughly 30 MB to make every screen exact instead of nearest.
+#
+# The honest end state is a Rust deriver and no numpy at all; until then this
+# is a runtime dependency and saying otherwise would leave a machine unable to
+# draw its own wallpaper.
+python3-numpy
 python3-pillow                  # build-only
 python3-gobject                 # build-only
 

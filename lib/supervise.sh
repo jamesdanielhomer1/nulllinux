@@ -23,8 +23,26 @@ _supervise_cleanup() {
   exit 0
 }
 
+# How many consecutive times the compositor failed to answer. A surface
+# supervisor has no reason to outlive its compositor, and this one did: when
+# sway went away the event stream hit EOF and it dropped into the poll loop
+# below, where it sat for ever asking a dead compositor what screens it had.
+# One leaked process per session, invisible because it does nothing.
+_gone=0
+
 reconcile() {
-  local seen=() name w h scale p found s
+  local seen=() name w h scale p found s out
+  if ! out=$("$RENDER" outputs 2>/dev/null); then
+    _gone=$((_gone + 1))
+    # Three strikes, not one: a compositor restarting is not a compositor gone,
+    # and reaping every surface over one dropped query would be worse.
+    if [ "$_gone" -ge 3 ]; then
+      echo "$TAG: no compositor answers -- stopping"
+      _supervise_cleanup
+    fi
+    return 0
+  fi
+  _gone=0
   while IFS=$'\t' read -r name w h scale; do
     [ -n "$name" ] || continue
     seen+=("$name")
@@ -43,7 +61,7 @@ reconcile() {
     if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then continue; fi
     [ -n "$p" ] && unset "CHILD[$name]"
     if start_one "$name" "$w" "$h"; then GEOM["$name"]="${w}x${h}"; fi
-  done < <("$RENDER" outputs 2>/dev/null)
+  done <<<"$out"
 
   for name in "${!CHILD[@]}"; do
     found=0
@@ -66,9 +84,29 @@ supervise() {
   # something changes. A compositor that cannot is polled instead, because
   # "works on any device" has to include the ones that are not sway.
   if command -v swaymsg >/dev/null 2>&1 && swaymsg -t get_version >/dev/null 2>&1; then
-    while IFS= read -r _; do
-      reconcile
-    done < <(swaymsg -t subscribe -m '["output"]' 2>/dev/null)
+    # AN EVENT IS NOT THE ONLY REASON TO LOOK.
+    #
+    # This blocked on sway's output events alone, which is right for hotplug
+    # and wrong for everything else: a renderer that DIED -- crashed, or killed
+    # on purpose when its exact hero finished deriving -- produces no output
+    # event, so nothing ever noticed and that screen stayed blank until a
+    # monitor happened to be plugged in. The derivation landing was silent in
+    # exactly this way.
+    #
+    # So: block on events, but wake every few seconds anyway and sweep. `read`
+    # returns >128 on timeout and something else at EOF, which is how the loop
+    # tells "nothing happened yet" from "sway has gone".
+    exec {SUBFD}< <(swaymsg -t subscribe -m '["output"]' 2>/dev/null)
+    while true; do
+      if read -t 5 -r _ <&$SUBFD; then
+        reconcile
+      elif [ $? -gt 128 ]; then
+        reconcile          # the periodic sweep; catches a child that died
+      else
+        break              # EOF: sway is gone, fall through to polling
+      fi
+    done
+    exec {SUBFD}<&-
   fi
 
   # Reached when there is no sway, or when it went away. One Wayland round-trip

@@ -31,14 +31,59 @@ done
 . "$ROOT/lib/supervise.sh"
 
 start_one() {  # <output-name> <w> <h>
-  local name=$1 w=$2 h=$3 pick cells atlas pw ph cov
+  local name=$1 w=$2 h=$3
+  local batlas bramp cw ch cols rows shortw shorth exact
+
+  # THE EXACT GRID FOR THIS SCREEN, derived from the master rather than picked
+  # from a ladder. Cached, because deriving 240 frames costs about two minutes.
+  if bake=$("$ROOT/bin/machine" choose-bake "$w" "$h" 2>/dev/null); then
+    read -r batlas bramp cw ch cols rows shortw shorth <<<"$bake"
+    exact=$("$ROOT/bin/null-hero" path "$cols" "$rows" "$bramp" 2>/dev/null)
+  fi
+
+  if [ -n "${exact:-}" ] && [ -s "$exact" ]; then
+    "$RENDER" --file "$exact" --atlas "$batlas" layershell --output "$name" &
+    CHILD["$name"]=$!
+    printf '%s: %-12s %sx%s  hero %sx%s cells at %sx%s, exact%s\n' \
+      "$TAG" "$name" "$w" "$h" "$cols" "$rows" "$cw" "$ch" \
+      "$([ "$shortw" = 0 ] && [ "$shorth" = 0 ] && echo "" || echo " (${shortw}x${shorth}px unreached)")"
+    return 0
+  fi
+
+  # NOT DERIVED YET, so start on the nearest prebuilt rung NOW and derive in the
+  # background. A login that blocked two minutes on a wallpaper would be a worse
+  # defect than the one this fixes. When the derivation lands it kills this
+  # renderer, and the supervisor -- which already restarts a child that died --
+  # brings it back on the exact grid.
+  local pick cells atlas pw ph cov
   pick=$("$ROOT/bin/machine" choose-assets "$w" "$h" 2>/dev/null) || {
     echo "$TAG: no prebuilt hero fits ${w}x${h} on $name" >&2; return 1; }
   read -r cells atlas pw ph cov <<<"$pick"
   "$RENDER" --file "$cells" --atlas "$atlas" layershell --output "$name" &
   CHILD["$name"]=$!
-  printf '%s: %-12s %sx%s  hero %sx%s (%s%%)  %s\n' \
-    "$TAG" "$name" "$w" "$h" "$pw" "$ph" "$cov" "$(basename "$(dirname "$cells")")/$(basename "$cells")"
+  printf '%s: %-12s %sx%s  hero %sx%s (%s%%) from a prebuilt rung\n' \
+    "$TAG" "$name" "$w" "$h" "$pw" "$ph" "$cov"
+
+  if [ -n "${exact:-}" ]; then
+    local pid=${CHILD[$name]}
+    printf '%s: %-12s deriving %sx%s in the background\n' "$TAG" "$name" "$cols" "$rows"
+    # THE REASON GOES SOMEWHERE. Sending stderr to /dev/null here meant a
+    # derivation that failed left no trace at all -- the wallpaper simply stayed
+    # on the rung for ever, looking like a working desktop. It is a background
+    # job, so it cannot report to a terminal; it reports to a file.
+    local derr="${XDG_RUNTIME_DIR:-/tmp}/null-hero-$name.log"
+    (
+      if "$ROOT/bin/null-hero" ensure "$cols" "$rows" "$bramp" >/dev/null 2>"$derr"; then
+        echo "$TAG: $name derived ${cols}x${rows}, restarting on it"
+        rm -f "$derr"
+        kill "$pid" 2>/dev/null
+      else
+        echo "$TAG: $name could NOT derive ${cols}x${rows} -- staying on the rung."
+        echo "$TAG: $name why: $(tail -1 "$derr" 2>/dev/null)"
+        echo "$TAG: $name full output in $derr"
+      fi
+    ) &
+  fi
 }
 
 supervise

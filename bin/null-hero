@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# This screen's hero, derived from the master and cached (NULL.md §5.3, §0.5).
+#
+# The package ships the MASTER, not forty-five fixed grids, so the grid for a
+# given screen is derived on that screen -- exactly, rather than by picking the
+# nearest rung of a ladder that fits almost nothing.
+#
+# DERIVING COSTS ABOUT TWO MINUTES for 240 frames, so it happens ONCE per
+# (grid, strike) and the answer is cached. Nothing waits on it: the wallpaper
+# starts immediately on the nearest prebuilt rung and is restarted on the exact
+# one when it is ready. A login that blocks for two minutes on a wallpaper
+# would be a worse defect than the one this fixes.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+MASTER="$ROOT/assets/prebuilt/master.hero"
+
+# System-wide where possible: the grid depends on the screen, not on who is
+# logged in, and two accounts on one machine should not derive it twice.
+if [ -w /var/cache ] || [ -w /var/cache/nulllinux ] 2>/dev/null; then
+  CACHE=/var/cache/nulllinux/hero
+else
+  CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/nulllinux/hero"
+fi
+
+die() { printf 'null-hero: %s\n' "$*" >&2; exit 1; }
+
+key() {  # <cols> <rows> <ramp-file>
+  local cols=$1 rows=$2 ramp=$3 h
+  # The ramp is part of the key: the same grid quantised against a different
+  # strike's ramp is a different picture, and handing one to the other's atlas
+  # is exactly the §2.3 inversion this project already has a check for.
+  h=$(sha256sum "$ramp" 2>/dev/null | cut -c1-12)
+  [ -n "$h" ] || die "cannot read ramp $ramp"
+  printf '%sx%s-%s' "$cols" "$rows" "$h"
+}
+
+path() { printf '%s/%s.cells\n' "$CACHE" "$(key "$@")"; }
+
+case "${1:-}" in
+  path)
+    [ $# -eq 4 ] || die "path needs <cols> <rows> <ramp>"
+    path "$2" "$3" "$4" ;;
+
+  have)
+    [ $# -eq 4 ] || die "have needs <cols> <rows> <ramp>"
+    p=$(path "$2" "$3" "$4"); [ -s "$p" ] ;;
+
+  ensure)
+    [ $# -eq 4 ] || die "ensure needs <cols> <rows> <ramp>"
+    cols=$2; rows=$3; ramp=$4
+    [ -r "$MASTER" ] || die "no master at $MASTER -- this package shipped without one"
+    p=$(path "$cols" "$rows" "$ramp")
+    [ -s "$p" ] && { echo "$p"; exit 0; }
+    mkdir -p "$CACHE" || die "cannot create $CACHE"
+
+    # ONE DERIVATION AT A TIME for a given grid. Two outputs of the same size,
+    # or a restart racing the first run, would otherwise do the same two
+    # minutes of work twice and write the same file underneath each other.
+    lock="$p.lock"
+    exec 9>"$lock" || die "cannot lock $lock"
+    if ! flock -w 600 9; then die "timed out waiting for another derivation"; fi
+    [ -s "$p" ] && { echo "$p"; exit 0; }
+
+    tmp="$p.partial.$$"
+    if python3 "$ROOT/bake/derive_for_screen.py" \
+         --master "$MASTER" --cols "$cols" --rows "$rows" \
+         --ramp "$ramp" \
+         --palette-meta "$ROOT/assets/palette.json" \
+         --palette "$ROOT/assets/palette.bin" \
+         --out "$tmp" >&2; then
+      # Rename, never write in place: a reader that opens a half-written cells
+      # file sees a truncated animation rather than an error.
+      mv -f "$tmp" "$p" && echo "$p"
+    else
+      rm -f "$tmp"; die "deriving ${cols}x${rows} failed"
+    fi ;;
+
+  where)  echo "$CACHE" ;;
+  list)   ls -la "$CACHE" 2>/dev/null || echo "  nothing derived yet" ;;
+  clear)  rm -rf "$CACHE" && echo "cleared $CACHE" ;;
+  *) cat >&2 <<USAGE
+usage: null-hero <verb> [args]
+
+  have   <cols> <rows> <ramp>   exit 0 if this grid is already derived
+  path   <cols> <rows> <ramp>   where it would be
+  ensure <cols> <rows> <ramp>   derive it if absent, print the path
+  where                          the cache directory
+  list                           what has been derived
+  clear                          throw it all away
+USAGE
+    exit 2 ;;
+esac
