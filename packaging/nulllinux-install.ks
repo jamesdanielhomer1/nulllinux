@@ -11,6 +11,18 @@
 # chipset. Those need metal and are not pretended at here.
 
 text
+
+# THE INSTALL SOURCE. A live image installs by copying its own filesystem; an
+# Anaconda boot.iso installs by running a package transaction, so it has to be
+# told where the packages are. This is the difference that made the live path
+# the wrong road: `inst.ks` is designed for THIS kind of medium.
+#
+# NULLLINUX_REPO is substituted by verify/vm-iso-install.sh with a URL the
+# guest can actually reach -- the host, over the network qemu provides.
+url --url=https://download.fedoraproject.org/pub/fedora/linux/releases/$releasever/Everything/$basearch/os/
+repo --name=updates --baseurl=https://download.fedoraproject.org/pub/fedora/linux/updates/$releasever/Everything/$basearch/
+repo --name=nulllinux --baseurl=NULLLINUX_REPO
+
 lang en_GB.UTF-8
 keyboard --vckeymap=gb --xlayouts='gb'
 timezone Europe/London --utc
@@ -37,6 +49,8 @@ reboot
 %packages
 @core
 kernel
+# One line for the whole desktop: its Requires pull in sway, foot, fzf, thunar
+# and the rest, and the package carries the raytraced hero prebuilt.
 nulllinux
 %end
 

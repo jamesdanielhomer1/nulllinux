@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Build the nullLinux INSTALLER ISO -- Anaconda boot media (NULL.md §0.5).
+#
+# NOT THE LIVE IMAGE, AND FOR A REASON THAT WAS LEARNED THE HARD WAY.
+#
+# bin/null-iso builds a live image: it boots into the desktop so someone can
+# look at it. Installing FROM that image cannot be automated on Fedora 44 --
+# liveinst launches a web UI in Firefox and needs a display, and when driven
+# with --text anaconda parses /usr/share/anaconda/interactive-defaults.ks
+# rather than the kickstart it was handed. Four attempts and a shell inside the
+# running image established that.
+#
+# THIS is what `inst.ks` was designed for. lorax's own summary of itself is
+# "Create the Anaconda boot.iso": installer media, which boots the installer
+# rather than a desktop, and for which unattended kickstart installation is the
+# documented, supported path.
+#
+# The two images are complementary and both are wanted: one to try, one to
+# install with.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+cd "$ROOT"
+NAME=nulllinux
+VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head -1)
+RELEASEVER=$(rpm -q --qf '%{version}' fedora-release-common 2>/dev/null || echo 44)
+WORK=${NULL_ISO_WORK:-/var/lib/nulllinux-iso}
+OUT="$WORK/installer"
+MIRROR=${NULL_MIRROR:-https://download.fedoraproject.org/pub/fedora/linux}
+
+command -v lorax >/dev/null 2>&1 || { echo "null-installer-iso: lorax is not installed" >&2; exit 1; }
+[ "$(id -u)" -eq 0 ] || { echo "null-installer-iso: must be root" >&2; exit 1; }
+[ -d packaging/repo/repodata ] || { echo "null-installer-iso: no local repository at packaging/repo" >&2
+  echo "  Build the package first:  bin/null-package" >&2; exit 1; }
+
+avail=$(df --output=avail -BG "$WORK" 2>/dev/null | tail -1 | tr -dc '0-9')
+[ "${avail:-99}" -ge 15 ] || { echo "null-installer-iso: ${avail}G free; this wants 15G or more" >&2; exit 1; }
+
+# lorax refuses to write into an existing directory rather than overwrite one,
+# which is the right instinct and means this has to clear it deliberately.
+rm -rf "$OUT"
+mkdir -p "$WORK"
+
+echo "building the nullLinux installer ISO ($NAME-$VERSION, Fedora $RELEASEVER)"
+echo "  sources: $MIRROR + $ROOT/packaging/repo"
+echo
+
+# --isfinal: without it lorax marks the image as a pre-release and anaconda
+#   shows a warning at every boot.
+# --nomacboot: no Apple bootloader; it needs tooling this host does not have
+#   and produces nothing usable on the hardware this targets.
+# -i nulllinux: the package is put ON the installer image, so a machine with no
+#   route to this repository can still install the desktop. That is the whole
+#   point of shipping the hero prebuilt -- the payload is 9 MB.
+lorax -p "nullLinux" -v "$VERSION" -r "$RELEASEVER" \
+  --isfinal --nomacboot \
+  -s "$MIRROR/releases/$RELEASEVER/Everything/x86_64/os/" \
+  -s "$MIRROR/updates/$RELEASEVER/Everything/x86_64/" \
+  -s "file://$ROOT/packaging/repo" \
+  --volid "nullLinux-inst-$VERSION" \
+  --logfile "$WORK/lorax.log" \
+  "$OUT"
+st=$?
+
+echo
+if [ $st -eq 0 ] && iso=$(find "$OUT" -name 'boot.iso' | head -1) && [ -n "$iso" ]; then
+  final="$WORK/$NAME-installer-$VERSION.iso"
+  cp -f "$iso" "$final"
+  echo "built: $final"
+  echo "  $(du -h "$final" | cut -f1)"
+  echo
+  echo "This boots the INSTALLER, not a desktop. Unattended:"
+  echo "  inst.ks=<url or hd:LABEL=...:/path>"
+else
+  echo "null-installer-iso: FAILED -- last lines of $WORK/lorax.log" >&2
+  tail -25 "$WORK/lorax.log" 2>/dev/null >&2
+fi
+exit $st
