@@ -45,7 +45,21 @@ avail=$(df --output=avail -BG "$WORK" 2>/dev/null | tail -1 | tr -dc '0-9')
 
 # lorax refuses to write into an existing directory rather than overwrite one,
 # which is the right instinct and means this has to clear it deliberately.
-rm -rf "$OUT"
+# --embed-only MUST NOT DESTROY WHAT IT MEANS TO REUSE.
+#
+# This ran unconditionally, so the flag added to avoid a multi-hour rebuild
+# deleted the freshly built media before discovering it was gone. Checked
+# first, and refused loudly, rather than silently falling back to a rebuild
+# that would look like the flag simply being slow.
+if [ "$EMBED_ONLY" = 1 ]; then
+  [ -f "$OUT/images/boot.iso" ] || {
+    echo "null-installer-iso: --embed-only, but there is no boot media at" >&2
+    echo "  $OUT/images/boot.iso -- build it first, without the flag." >&2
+    exit 1
+  }
+else
+  rm -rf "$OUT"
+fi
 mkdir -p "$WORK"
 
 echo "building the nullLinux installer ISO ($NAME-$VERSION, Fedora $RELEASEVER)"
