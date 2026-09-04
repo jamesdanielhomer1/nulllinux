@@ -88,13 +88,24 @@ if [ "${1:-install}" = install ]; then
   # $releasever in a kickstart url line, and the failure it produces --
   # "Error setting up repositories" -- names none of that.
   REL=$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)
-  BASEURL="https://download.fedoraproject.org/pub/fedora/linux/releases/$REL/Everything/x86_64/os/"
-  UPDATES="https://download.fedoraproject.org/pub/fedora/linux/updates/$REL/Everything/x86_64/"
+  # A SPECIFIC MIRROR, not the redirector.
+  #
+  # download.fedoraproject.org hands out a random mirror per request, and a bad
+  # draw is not a slow install -- it is a FAILED one: anaconda gave up with
+  # "Failed to download" on a dozen base packages, all reporting "Interrupted",
+  # and the same thing had already killed a multi-hour lorax run. Measured from
+  # here, the redirector sustained 185 kB/s and ftp.nluug.nl 832 kB/s on the
+  # same 15 MB file. NULL_MIRROR overrides it for a machine somewhere else.
+  # METALINKS, so dnf can fail over. Pinning one mirror traded a slow install
+  # for a failed one -- see the kickstart's own note.
+  BASEURL="https://mirrors.fedoraproject.org/metalink?repo=fedora-$REL&arch=x86_64"
+  UPDATES="https://mirrors.fedoraproject.org/metalink?repo=updates-released-f$REL&arch=x86_64"
   for u in "$BASEURL" "$UPDATES"; do
-    code=$(curl -sIL -o /dev/null -w '%{http_code}' "${u}repodata/repomd.xml" 2>/dev/null)
-    [ "$code" = 200 ] || die "install source $u does not answer (HTTP ${code:-none})"
+    n=$(curl -sL -m 30 "$u" 2>/dev/null | grep -c "<url")
+    [ "${n:-0}" -gt 0 ] || die "metalink $u offered no mirrors"
+    echo "  $(echo "$u" | grep -oE 'repo=[^&]*'): $n mirrors"
   done
-  echo "  install source: $BASEURL"
+
 
   # WHICH COPY OF THE PACKAGE THE INSTALL USES.
   #

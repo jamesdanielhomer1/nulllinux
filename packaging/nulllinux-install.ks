@@ -23,15 +23,23 @@ text
 #                              desktop and its raytraced hero need no network
 #   verify/vm-iso-install.sh -> an http:// URL the guest can reach, so the test
 #                              exercises the network path too
-# NO $releasever OR $basearch HERE.
+# A METALINK, NOT ONE MIRROR, AND NO $releasever OR $basearch HERE.
+#
+# A single baseurl is a single mirror, so one interrupted transfer ends the
+# install: anaconda reported "Failed to download 'kernel-modules-...': No more
+# mirrors to try" for a file that was present and answering 200 the moment
+# afterwards. The metalink offers over a hundred mirrors and dnf fails over
+# between them, which is what makes an install survive a bad connection.
+#
+# The release number is still written concretely, for the reason below.
 #
 # Those are dnf's variables and anaconda does not reliably expand them in a
 # kickstart `url` line -- the installer reported "Error setting up
 # repositories" and set up none of them, which then took Software selection
 # down with it. Both URLs are substituted with concrete ones by
 # verify/vm-iso-install.sh, which checks they answer 200 before using them.
-url --url=NULLLINUX_BASEURL
-repo --name=updates --baseurl=NULLLINUX_UPDATES
+url --metalink=NULLLINUX_BASEURL
+repo --name=updates --metalink=NULLLINUX_UPDATES
 repo --name=nulllinux --baseurl=NULLLINUX_REPO
 
 lang en_GB.UTF-8

@@ -134,8 +134,8 @@ if [ $st -eq 0 ] && iso=$(find "$OUT" -name 'boot.iso' | head -1) && [ -n "$iso"
     # `url` line, and reports "Error setting up repositories" without saying
     # which one or why.
     sed -e "s|NULLLINUX_REPO|file:///run/install/repo/nulllinux|" \
-        -e "s|NULLLINUX_BASEURL|$MIRROR/releases/$RELEASEVER/Everything/x86_64/os/|" \
-        -e "s|NULLLINUX_UPDATES|$MIRROR/updates/$RELEASEVER/Everything/x86_64/|" \
+        -e "s|NULLLINUX_BASEURL|https://mirrors.fedoraproject.org/metalink?repo=fedora-$RELEASEVER\&arch=x86_64|" \
+        -e "s|NULLLINUX_UPDATES|https://mirrors.fedoraproject.org/metalink?repo=updates-released-f$RELEASEVER\&arch=x86_64|" \
         "$ROOT/packaging/$NAME-install.ks" > "$ks"
     # THE DEBUG KEY IS STRIPPED, not substituted. The kickstart carries a block
     # that drops an ssh key into root's authorized_keys so a test with no
