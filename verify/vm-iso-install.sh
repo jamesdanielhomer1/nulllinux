@@ -96,8 +96,23 @@ if [ "${1:-install}" = install ]; then
   done
   echo "  install source: $BASEURL"
 
+  # WHICH COPY OF THE PACKAGE THE INSTALL USES.
+  #
+  # By default the harness serves packaging/repo over HTTP, which exercises the
+  # network path. NULL_TEST_EMBEDDED=1 points the kickstart at the copy ON THE
+  # ISO instead -- the one a stranger's machine uses, with no repository of ours
+  # to reach. That is the path worth proving, because it is the one that cannot
+  # be tested by accident: everything works on a build host either way.
+  if [ "${NULL_TEST_EMBEDDED:-0}" = 1 ]; then
+    NULLREPO="file:///run/install/repo/nulllinux"
+    echo "  package source: the copy embedded ON the ISO"
+  else
+    NULLREPO="http://10.0.2.2:8899/repo"
+    echo "  package source: served over HTTP from this host"
+  fi
+
   sed -e "s|NULLLINUX_TEST_KEY|$(cat "$KEY.pub")|" \
-      -e "s|NULLLINUX_REPO|http://10.0.2.2:8899/repo|" \
+      -e "s|NULLLINUX_REPO|$NULLREPO|" \
       -e "s|NULLLINUX_BASEURL|$BASEURL|" \
       -e "s|NULLLINUX_UPDATES|$UPDATES|" \
       "$ROOT/packaging/nulllinux-install.ks" > "$KS"

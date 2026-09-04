@@ -164,11 +164,20 @@ STRIP
 
     echo "embedding the package (and the hero inside it) on the ISO"
     printf '  %s\n' "$(ls -1 "$stage/nulllinux"/*.rpm | xargs -n1 basename)"
-    if mkksiso --ks "$ks" -a "$stage/nulllinux" "$iso" "$final" >"$WORK/mkksiso.log" 2>&1; then
+    # mkksiso REFUSES to overwrite its output, and after a multi-hour lorax run
+    # the failure it reports is "already exists" -- for a stale ISO from a
+    # previous build. Written to a temporary name and moved into place, so the
+    # final path only ever holds a complete image and a half-written one cannot
+    # be mistaken for a finished one.
+    tmpiso="$final.new"
+    rm -f "$tmpiso"
+    if mkksiso --ks "$ks" -a "$stage/nulllinux" "$iso" "$tmpiso" >"$WORK/mkksiso.log" 2>&1 \
+       && mv -f "$tmpiso" "$final"; then
       echo "  embedded"
     else
       echo "null-installer-iso: mkksiso FAILED -- $WORK/mkksiso.log" >&2
       tail -20 "$WORK/mkksiso.log" >&2
+      rm -f "$tmpiso"
       exit 1
     fi
     rm -rf "$stage"
