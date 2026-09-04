@@ -58,6 +58,7 @@ Requires:       git
 Requires:       grim
 Requires:       iw
 Requires:       playerctl
+Requires:       python3-numpy
 Requires:       slurp
 Requires:       sway
 Requires:       terminus-fonts
@@ -94,8 +95,24 @@ cargo build --release --manifest-path render/Cargo.toml --offline || \
 
 %install
 install -d %{buildroot}%{_prefix}/%{name}
-cp -a bin lib config machines packages verify docs assets NULL.md README.md \
+# bake/ SHIPS NOW, and that is not an oversight reversed lightly.
+#
+# It was excluded because an installed machine derived nothing: the package
+# carried forty-five quantised grids and picked the nearest. It derives its own
+# grid from the master now (bin/null-hero), and the deriver IS bake/ -- so a
+# package without it installs a null-hero that calls a script that is not
+# there, falls back to a rung, and looks like a working desktop for ever.
+#
+# This was invisible while testing from a source tree, which is what a build
+# host has and an installed machine does not.
+cp -a bin lib bake config machines packages verify docs assets NULL.md README.md \
       %{buildroot}%{_prefix}/%{name}/
+# The bake's own working directories are not shipped: hundreds of megabytes of
+# HDR frames whose only purpose was to be packed into assets/prebuilt/master.hero.
+rm -rf %{buildroot}%{_prefix}/%{name}/bake/out \
+       %{buildroot}%{_prefix}/%{name}/bake/frames \
+       %{buildroot}%{_prefix}/%{name}/bake/gpu/target \
+       %{buildroot}%{_prefix}/%{name}/bake/__pycache__
 install -d %{buildroot}%{_prefix}/%{name}/render/target/release
 for b in column bar dwindle render; do
   [ -x render/target/release/$b ] && \
