@@ -122,11 +122,26 @@ if [ "${1:-install}" = install ]; then
     echo "  package source: served over HTTP from this host"
   fi
 
-  sed -e "s|NULLLINUX_TEST_KEY|$(cat "$KEY.pub")|" \
-      -e "s|NULLLINUX_REPO|$NULLREPO|" \
-      -e "s|NULLLINUX_BASEURL|$BASEURL|" \
-      -e "s|NULLLINUX_UPDATES|$UPDATES|" \
+  # & IS NOT A LITERAL IN A SED REPLACEMENT -- it means "everything that
+  # matched". A metalink URL contains one, so `repo=fedora-44&arch=x86_64`
+  # became `repo=fedora-44NULLLINUX_BASEURLarch=x86_64` and anaconda reported
+  # only "Failed to download metadata", naming neither the ampersand nor the
+  # placeholder it had just pasted into the middle of the URL.
+  esc() { printf '%s' "$1" | sed -e 's/[&|\\]/\\&/g'; }
+  sed -e "s|NULLLINUX_TEST_KEY|$(esc "$(cat "$KEY.pub")")|" \
+      -e "s|NULLLINUX_REPO|$(esc "$NULLREPO")|" \
+      -e "s|NULLLINUX_BASEURL|$(esc "$BASEURL")|" \
+      -e "s|NULLLINUX_UPDATES|$(esc "$UPDATES")|" \
       "$ROOT/packaging/nulllinux-install.ks" > "$KS"
+
+  # NOTHING RUNS WITH A PLACEHOLDER IN IT. The ISO builder already refuses; the
+  # harness did not, so it booted a VM for twenty minutes against a URL with
+  # NULLLINUX_BASEURL embedded in it before anything complained.
+  if grep -q NULLLINUX_ "$KS"; then
+    echo "the kickstart still contains a placeholder:" >&2
+    grep -n NULLLINUX_ "$KS" | cut -c1-120 >&2
+    die "refusing to boot with an unsubstituted kickstart"
+  fi
   ksvalidator "$KS" >/dev/null 2>&1 || die "the install kickstart does not validate"
 
   # THE KERNEL COMMAND LINE, NOT A REBUILT IMAGE.
@@ -194,7 +209,14 @@ else
 fi
 
 # The server stays up for the guest to fetch from.
-setsid qemu-system-x86_64 -enable-kvm -m "$MEM" -smp 4 \
+  # -cpu host, NOT qemu's default.
+  #
+  # The default model is "QEMU Virtual CPU version 2.5+", which has no SSE4.2
+  # and is therefore below x86-64-v2 -- the baseline Fedora builds numpy for.
+  # numpy would not import, so the machine could not derive its own hero, and
+  # the failure looked like a defect in this project rather than in the harness.
+  # Any machine this decade is v2 or better; the VM should not be the exception.
+setsid qemu-system-x86_64 -enable-kvm -cpu host -m "$MEM" -smp 4 \
   "${BOOTARGS[@]}" \
   -netdev user,id=n0,hostfwd=tcp::"$PORT"-:22 -device virtio-net-pci,netdev=n0 \
   -display none -serial file:"$WORK/install-console.log" \
