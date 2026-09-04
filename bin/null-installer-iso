@@ -59,7 +59,12 @@ echo
 # checkout that lands in git -- which is exactly what happened once.
 mkdir -p "$WORK/run"
 ( cd "$WORK/run" && \
+# A PERSISTENT PACKAGE CACHE. lorax defaults to a temporary directory, so a
+# build that dies on one interrupted download -- which is how this failed after
+# downloading nine hundred packages -- throws all of them away and starts again
+# from nothing. The cache makes a retry a retry rather than a repeat.
 lorax -p "nullLinux" -v "$VERSION" -r "$RELEASEVER" \
+  --cachedir "$WORK/dnfcache" \
   --isfinal --nomacboot \
   -s "$MIRROR/releases/$RELEASEVER/Everything/x86_64/os/" \
   -s "$MIRROR/updates/$RELEASEVER/Everything/x86_64/" \
