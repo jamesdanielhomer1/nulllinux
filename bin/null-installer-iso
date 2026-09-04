@@ -23,6 +23,11 @@ cd "$ROOT"
 NAME=nulllinux
 VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head -1)
 RELEASEVER=$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)
+# Rebuilding the boot media takes hours; embedding takes seconds. When the
+# only thing that changed is what goes ON the ISO, reuse the media.
+EMBED_ONLY=0
+[ "${1:-}" = "--embed-only" ] && { EMBED_ONLY=1; shift; }
+
 WORK=${NULL_ISO_WORK:-/var/lib/nulllinux-iso}
 # Absolute, because lorax is run from inside it and every other path here is
 # resolved before that cd.
@@ -57,6 +62,10 @@ echo
 # Run lorax from the work directory, NOT from the checkout.  It writes an
 # 88 MB debugdata/ dump of its dependency solver into the CWD, and from the
 # checkout that lands in git -- which is exactly what happened once.
+if [ "$EMBED_ONLY" = 1 ]; then
+  echo "--embed-only: reusing the boot media already in $OUT"
+  st=0
+else
 mkdir -p "$WORK/run"
 ( cd "$WORK/run" && \
 # A PERSISTENT PACKAGE CACHE. lorax defaults to a temporary directory, so a
@@ -73,6 +82,7 @@ lorax -p "nullLinux" -v "$VERSION" -r "$RELEASEVER" \
   --logfile "$WORK/lorax.log" \
   "$OUT" )
 st=$?
+fi
 
 echo
 if [ $st -eq 0 ] && iso=$(find "$OUT" -name 'boot.iso' | head -1) && [ -n "$iso" ]; then
@@ -113,6 +123,26 @@ if [ $st -eq 0 ] && iso=$(find "$OUT" -name 'boot.iso' | head -1) && [ -n "$iso"
         -e "s|NULLLINUX_BASEURL|$MIRROR/releases/$RELEASEVER/Everything/x86_64/os/|" \
         -e "s|NULLLINUX_UPDATES|$MIRROR/updates/$RELEASEVER/Everything/x86_64/|" \
         "$ROOT/packaging/$NAME-install.ks" > "$ks"
+    # THE DEBUG KEY IS STRIPPED, not substituted. The kickstart carries a block
+    # that drops an ssh key into root's authorized_keys so a test with no
+    # console can get in, and says in its own comment that a real image would
+    # not do that. verify/vm-iso-install.sh fills it in; a shipped ISO must not
+    # have it at all -- shipping it with the placeholder left in would put the
+    # literal string NULLLINUX_TEST_KEY in authorized_keys, which is harmless
+    # only by accident.
+    python3 - "$ks" <<'STRIP'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = re.sub(r"\n# A way in, for a test that has no console.*?chmod 600 /root/\.ssh/authorized_keys\n",
+           "\n# (the test-only ssh key block is stripped from shipped media)\n",
+           s, flags=re.S)
+open(p, "w").write(s)
+STRIP
+
+    # NOTHING SHIPS WITH A PLACEHOLDER IN IT. This caught the key block above:
+    # the build had already run for hours and would otherwise have produced an
+    # ISO that looked fine and carried a placeholder as a credential.
     if grep -q NULLLINUX_ "$ks"; then
       echo "null-installer-iso: a placeholder was left unsubstituted:" >&2
       grep -n NULLLINUX_ "$ks" >&2; exit 1
