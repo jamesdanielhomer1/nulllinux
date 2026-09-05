@@ -46,6 +46,16 @@ ax86-terminus-ttf-fonts         # outline build, for browser engines (§8.10)
 # packaged for Fedora and must not be used here -- it would come from a
 # third-party repository, which §9.1 forbids for a core component.
 sway
+# THE THING THAT STARTS THE DESKTOP.
+#
+# Absent from this list, so a machine installed from the ISO had sway, had the
+# whole desktop, and booted to a text console with no way to reach it: no
+# display manager, and multi-user.target as the default. It went unnoticed
+# because the build host already had sddm from before, and because every VM
+# test started sway by hand over ssh -- neither is how anyone uses a machine.
+#
+# sddm specifically, because §9.7 and bin/null-system theme its greeter.
+sddm
 
 # --- GPU / bake --------------------------------------------------------
 # The simulation is a Vulkan compute workload (§5.5). NVK exposes the

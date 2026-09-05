@@ -142,6 +142,33 @@ else
   say "would install /etc/profile.d/nulllinux.sh and set include.path in /etc/gitconfig"
 fi
 
+head_ "something has to start the desktop"
+# A DESKTOP NOBODY CAN REACH IS NOT INSTALLED.
+#
+# Every other step here puts configuration where the system looks, so a new
+# account "gets this desktop by logging in". That promise assumed something was
+# offering a login. Nothing was: a machine installed from the ISO had sway and
+# the whole desktop and booted to a text console, because no display manager
+# was installed and the default target was multi-user.
+#
+# Invisible on the build host, which had sddm from before, and in every VM
+# test, which started sway by hand over ssh.
+say "sddm offers the login; graphical.target is what makes the machine boot to it"
+if [ -f /usr/lib/systemd/system/sddm.service ]; then
+  say "currently: default target $(systemctl get-default 2>/dev/null), display-manager $(systemctl is-enabled display-manager.service 2>/dev/null || echo not-found)"
+  if [ "$APPLY" -eq 1 ]; then
+    systemctl enable sddm.service >/dev/null 2>&1 && say "enabled sddm.service" || say "could not enable sddm.service"
+    systemctl set-default graphical.target >/dev/null 2>&1 && say "default target is now graphical.target" || say "could not set the default target"
+  else
+    say "would enable sddm.service and set graphical.target as the default"
+  fi
+else
+  # NAMED, not silently skipped: the package Requires it, so its absence means
+  # the install did not finish rather than a choice anyone made.
+  say "sddm is NOT INSTALLED -- this machine will boot to a text console."
+  say "  The package requires it; if it is missing the install did not finish."
+fi
+
 head_ "the GTK theme, as a theme"
 say "a per-user gtk.css lives in one home; a theme in /usr/share/themes is everyone's"
 # THE SAME NAMING BUG AS THE ICONS, and it hid for the same reason.

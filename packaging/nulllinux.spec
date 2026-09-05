@@ -58,7 +58,6 @@ Requires:       git
 Requires:       grim
 Requires:       iw
 Requires:       playerctl
-Requires:       python3-numpy
 Requires:       slurp
 Requires:       sway
 Requires:       terminus-fonts
