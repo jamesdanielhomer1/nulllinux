@@ -132,7 +132,17 @@ def make_sddm(outdir, cells, atlas, count, total_frames, palette):
     # of spacing plus a 260px box is 310px, which is 31 cells.
     label_px, gap_px, box_px, cell_px = 4 * 10, 10, 260, 10
     cols = (label_px + gap_px + box_px) // cell_px
-    title = " nox "
+    # THE MACHINE'S OWN NAME, not the name of the machine this was written on.
+    #
+    # This was the literal string " nox ", so every greeter everywhere announced
+    # a laptop in someone else's house. The theme is built once at prebake and
+    # cannot know where it will end up, so it ships a placeholder and
+    # bin/null-system substitutes the hostname when it installs it -- and
+    # refuses to install a theme with the placeholder still in it.
+    #
+    # Padded to a fixed width so the box rule above still spans exactly, which
+    # is the whole reason this surface is drawn on a 10px cell.
+    title = " __NULL_HOSTNAME__ "
     top = "\u250c\u2500" + title + "\u2500" * (cols - 3 - len(title)) + "\u2510"
     bot = "\u2514" + "\u2500" * (cols - 2) + "\u2518"
     assert len(top) == len(bot) == cols, (len(top), len(bot), cols)

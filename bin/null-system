@@ -168,6 +168,21 @@ cmd_sddm() {
     rm -rf /usr/share/sddm/themes/nullLinux
     mkdir -p /usr/share/sddm/themes
     cp -a "$theme" /usr/share/sddm/themes/nullLinux
+    # THE GREETER NAMES THIS MACHINE. The theme is built once, at prebake, and
+    # cannot know where it will be installed -- so it carries a placeholder and
+    # the machine's own name goes in here. The rule above the fields is drawn to
+    # an exact cell count, so the title is padded or trimmed to the width the
+    # generator reserved rather than allowed to shift it.
+    qml=/usr/share/sddm/themes/nullLinux/Main.qml
+    if [ -r "$qml" ]; then
+      hn=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo nullLinux)
+      want=$(printf '%.14s' "$hn")
+      sed -i "s/__NULL_HOSTNAME__/$want/g" "$qml"
+      if grep -q __NULL_HOSTNAME__ "$qml"; then
+        refuse "the greeter still names no machine -- refusing to install it"
+      fi
+      say "the greeter names this machine: $want"
+    fi
     command -v restorecon >/dev/null && restorecon -RF /usr/share/sddm/themes/nullLinux 2>/dev/null
     mkdir -p /etc/sddm.conf.d
     # A superseded name that still RESOLVES is worse than one that does not.
