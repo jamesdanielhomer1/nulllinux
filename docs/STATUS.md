@@ -382,4 +382,18 @@ out of.
 - A grid whose ratio differs from the master's 640:180 is letterboxed, because
   a different framing needs its own camera (§5.3) and there is no GPU on an
   installed machine. On 16:9 at any strike this is within one cell.
-- Audio has never worked in any environment tested.
+- **Audio was never broken** -- that claim, repeated here for weeks, was wrong.
+  It had never worked in *testing* for two reasons, both of them the test's:
+  the VM had no sound device at all (`/dev/snd` held only `seq` and `timer`),
+  and every session it was tried in was `root` or `su`. Neither is a seat, and
+  logind grants the device ACL to the user on the active seat -- so PipeWire
+  started correctly and saw nothing, every time.
+
+  Given a card and a session, the sink appears immediately. The card is tagged
+  `uaccess`, so adding users to the `audio` group is unnecessary and wrong; the
+  kickstart is right to leave it out. What was genuinely broken was the
+  message: "cava exited -- is an audio daemon running?" for every cause, when
+  the daemon was usually the one thing that was fine.
+
+  The harness gives the guest a card now -- `hda-output`, because `hda-duplex`
+  with a null audiodev hangs the guest at switch-root.
