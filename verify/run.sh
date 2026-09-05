@@ -19,6 +19,7 @@ run "package abstraction (§9.1)"      ./verify/check-package-abstraction.sh
 run "branding is safe"               ./verify/check-branding.sh
 run "every tool has a caller (§10.1)"     ./verify/check-callers.sh
 run "themes have one name (§8.10)"       ./verify/check-theme-names.sh
+run "the splash is complete (§9.6)"      ./verify/check-splash-complete.sh
 run "the two derivers agree (§5.3)"      ./verify/check-derive-parity.sh
 run "no hard-coded screen size (§0.2)"    ./verify/check-no-hardcoded-geometry.sh
 run "one surface per screen (§6.3)"      ./verify/check-per-output.sh

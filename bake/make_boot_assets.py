@@ -41,6 +41,72 @@ def rasterise(cells, atlas, frame, out_png):
     return Path(out_png).stat().st_size
 
 
+def write_prompt_images(outdir, ink=(255, 120, 0), dim=(35, 44, 64),
+                       pane=(10, 12, 20), ground=(5, 6, 10)):
+    """The password-prompt furniture two-step loads BEFORE it draws anything.
+
+    THIS IS WHY THE SPLASH WAS STOCK FEDORA FOR SO LONG. The two-step plugin
+    loads lock.png, box.png and the entry widget unconditionally at
+    show_splash_screen -- before it ever reaches the animation -- and one
+    missing file aborts the whole splash:
+
+        two-step/plugin.c:1862 show_splash_scree: loading lock image
+        ply-boot-splash.c:553  can't show splash: No such file or directory
+        main.c:505             Could not start default splash screen,
+                               showing text splash screen
+
+    Nothing said "lock.png". The visible result was plymouth's own grey and its
+    built-in three-dot spinner, which looks like a theme that loaded and drew
+    something plain rather than one that was thrown away. Found with
+    plymouth.debug=file:... on the kernel command line; nothing else showed it.
+
+    Fedora's own themes get these from packages a minimal install does not
+    pull in -- the spinner theme here ships watermark.png and nothing else --
+    so they are drawn here, in the palette, and travel with the theme.
+    """
+    from PIL import ImageDraw
+    outdir = Path(outdir)
+    A = lambda c, a=255: tuple(c) + (a,)
+
+    def new(w, h):
+        return Image.new("RGBA", (w, h), A(ground, 0))
+
+    # lock.png -- beside the prompt when a passphrase is wanted.
+    im = new(24, 32); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([2, 13, 21, 30], 3, fill=A(pane, 235), outline=A(ink), width=2)
+    d.arc([6, 2, 17, 20], 180, 360, fill=A(ink), width=3)
+    d.rectangle([11, 19, 12, 24], fill=A(ink))
+    im.save(outdir / "lock.png")
+
+    # box.png -- the panel behind the prompt.
+    im = new(64, 64); d = ImageDraw.Draw(im)
+    d.rectangle([0, 0, 63, 63], fill=A(pane, 235), outline=A(dim), width=1)
+    im.save(outdir / "box.png")
+
+    # entry.png -- the field itself.
+    im = new(300, 34); d = ImageDraw.Draw(im)
+    d.rectangle([0, 0, 299, 33], fill=A(pane, 235), outline=A(dim), width=1)
+    im.save(outdir / "entry.png")
+
+    # bullet.png -- one typed character. A square, because every other surface
+    # in this system draws in cells.
+    im = new(10, 10); d = ImageDraw.Draw(im)
+    d.rectangle([2, 2, 7, 7], fill=A(ink))
+    im.save(outdir / "bullet.png")
+
+    # keyboard.png -- the keymap indicator. Optional: plymouth logs that it
+    # failed and carries on, but a missing file it asks for by name is worth
+    # providing rather than leaving in the log for someone else to chase.
+    im = new(28, 18); d = ImageDraw.Draw(im)
+    d.rectangle([0, 0, 27, 17], fill=A(pane, 235), outline=A(dim), width=1)
+    for x in range(3, 25, 5):
+        d.rectangle([x, 4, x + 2, 6], fill=A(ink))
+    d.rectangle([6, 10, 21, 12], fill=A(ink))
+    im.save(outdir / "keyboard.png")
+
+    return ["lock.png", "box.png", "entry.png", "bullet.png", "keyboard.png"]
+
+
 def make_plymouth(outdir, cells, atlas, count, total_frames, palette):
     """Emit a `two-step` theme.
 
@@ -72,6 +138,7 @@ def make_plymouth(outdir, cells, atlas, count, total_frames, palette):
     for i in range(count):
         total += rasterise(cells, atlas, i * step, outdir / f"throbber-{i + 1:04d}.png")
 
+    extra = write_prompt_images(outdir)
     (outdir / "nullLinux.plymouth").write_text(f"""\
 [Plymouth Theme]
 Name=nullLinux
