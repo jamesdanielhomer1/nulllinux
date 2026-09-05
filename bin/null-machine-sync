@@ -38,6 +38,21 @@ echo "nullLinux: reconciling with the hardware"
 #
 # THE TEST IS "does it still describe this machine", not "does it exist". The
 # second is true on a disk that has been moved, which is the whole problem.
+# THE ORDINARY BOOT IS THE ONE TO MAKE CHEAP.
+#
+# Every boot after the first has nothing to do, and this ran two `bin/machine`
+# subprocesses to find that out -- each one a shell that re-derives its root,
+# re-reads the profile and probes DRM. Measured at ~300 ms of "nothing to do"
+# on every boot, on the path that gates the greeter.
+#
+# The stamp is a single stat, and without it there is work to do regardless of
+# what the profile says. So it is checked FIRST, and the expensive question is
+# only asked when the answer can still change the outcome.
+if [ -e "$STAMP" ] && bin/machine check-profile >/dev/null 2>&1; then
+  echo "  profile matches the hardware, surfaces already placed -- nothing to do"
+  exit 0
+fi
+
 if ! bin/machine profile >/dev/null 2>&1; then
   echo "  no profile yet"
   bin/machine generate || { echo "  could not generate a machine profile" >&2; exit 1; }

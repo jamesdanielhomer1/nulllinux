@@ -60,6 +60,38 @@ sudo -u nobody test -r "$ROOT/config/sway/config" 2>/dev/null \
   && say "readable by an unprivileged user" \
   || refuse "not readable by an unprivileged user; every other step would be pointless"
 
+# IS THIS MACHINE ALREADY SOMEBODY ELSE'S?
+#
+# This installs itself as the system-wide desktop: /etc/sway/config, the
+# greeter theme, the GTK and icon themes, a dconf drop-in, /etc/profile.d, an
+# /etc/gitconfig include. On a machine running a DIFFERENT checkout that is not
+# an install, it is a takeover -- and it is silent, because every step succeeds.
+#
+# It happened: running bin/null-machine-sync on a build host repointed
+# /etc/sway/config from the other installation to this one, added a second
+# sddm theme and a second dconf drop-in, and would have handed that machine a
+# different desktop at its next login. Nothing failed; there was nothing to
+# notice.
+#
+# So: if /etc/sway/config includes a checkout that is not this one AND that
+# checkout is still there, refuse. NULL_REPLACE=1 says you mean it.
+if [ -r /etc/sway/config ]; then
+  other=$(grep -oE '^\s*include\s+\S+' /etc/sway/config 2>/dev/null | awk '{print $2}' | head -1)
+  other_root=${other%/config/sway/config}
+  if [ -n "$other_root" ] && [ "$other_root" != "$ROOT" ] && [ -d "$other_root" ]; then
+    if [ "${NULL_REPLACE:-0}" != 1 ]; then
+      head_ "this machine already runs a different installation"
+      say "/etc/sway/config includes $other_root/config/sway/config"
+      say "and that checkout is still present. Installing over it would replace"
+      say "someone else's desktop -- silently, because every step would succeed."
+      say ""
+      say "  NULL_REPLACE=1 $0 --apply    to replace it deliberately"
+      exit 3
+    fi
+    say "NULL_REPLACE=1: replacing the installation at $other_root"
+  fi
+fi
+
 head_ "sway, for users with no configuration of their own"
 say "/etc/sway/config is what sway reads when ~/.config/sway/config is absent"
 if [ "$APPLY" -eq 1 ]; then

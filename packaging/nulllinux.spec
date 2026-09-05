@@ -42,6 +42,7 @@ BuildRequires:  systemd-rpm-macros
 
 # Runtime. Kept in step with packages/fedora/base.list by
 # verify/check-package-list.sh, so the two cannot drift.
+Requires:       NetworkManager-tui
 Requires:       ax86-terminus-ttf-fonts
 Requires:       bluez
 Requires:       brightnessctl
@@ -62,11 +63,14 @@ Requires:       plymouth-plugin-two-step
 Requires:       sddm
 Requires:       slurp
 Requires:       sway
+Requires:       swayidle
+Requires:       swaylock
 Requires:       terminus-fonts
 Requires:       terminus-fonts-console
 Requires:       thunar
 Requires:       webkit2gtk4.1
 Requires:       wf-recorder
+Requires:       wiremix
 Requires:       wl-clipboard
 Requires:       wlsunset
 Requires:       xfconf
