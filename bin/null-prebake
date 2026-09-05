@@ -79,6 +79,11 @@ saved_ramp=$(mktemp); cp assets/ramp-bake.json "$saved_ramp" 2>/dev/null || true
 restore() { [ -s "$saved_ramp" ] && cp "$saved_ramp" assets/ramp-bake.json; rm -f "$saved_ramp"; }
 trap restore EXIT
 
+# The strike the splash and greeter are rendered at. One of the nine, chosen
+# because 8x16 is the commonest console cell; nothing downstream depends on
+# which, because the frames are rasterised PNGs by the time anyone sees them.
+BOOT_STRIKE=${BOOT_STRIKE:-ter-116n}
+
 fail=0
 for strike in $STRIKES; do
   font="/usr/lib/kbd/consolefonts/$strike.psf.gz"
@@ -103,6 +108,27 @@ for strike in $STRIKES; do
   printf 'ok  (%s)\n' "$(du -sh "$d" | cut -f1)"
 done
 
+
+# THE BOOT SPLASH AND THE LOGIN GREETER.
+#
+# These are the first two things anyone sees, and they were stock Fedora on
+# every installed machine: bake/make_boot_assets.py built them into system/ on
+# the BUILD HOST, system/ was not in the package, and nothing called
+# bin/null-system to install them. Written, generated, shipped nowhere.
+#
+# One set, from one strike, rather than nine. A splash is a centred image and
+# does not have to match the panel -- and a brand that looks the same on every
+# machine is the better answer anyway. 1.3 MB.
+echo "the boot splash and the greeter"
+if ! python3 bake/make_boot_assets.py \
+     --plymouth-cells "$OUT/$BOOT_STRIKE/target-4.cells" \
+     --sddm-cells "$OUT/$BOOT_STRIKE/target-2.cells" \
+     --atlas "$OUT/strikes/atlas-$BOOT_STRIKE.bin" \
+     --palette assets/palette.json \
+     --out "$OUT/boot" 2>&1 | sed 's/^/  /'; then
+  echo "null-prebake: the boot assets failed" >&2; exit 1
+fi
+echo
 
 # THE ATLASES AND RAMPS FOR EVERY STRIKE, because they are tiny and because
 # the alternative is a compiler on the target.

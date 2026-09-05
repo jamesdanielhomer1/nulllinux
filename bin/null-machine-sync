@@ -117,7 +117,40 @@ else
   python3 bake/export_theme.py >/dev/null 2>&1 || echo "  warning: export_theme did not complete"
 fi
 
-# 5. The system-wide install, which is what makes a new account need no setup.
+# 5. The boot splash and the login greeter, which are the first two surfaces
+#    anyone sees and were the two that never got installed. bin/null-system
+#    puts them where plymouth and sddm look; it was only ever SUGGESTED, by a
+#    line bin/null-bootstrap prints, so on every machine installed from an ISO
+#    both were stock Fedora.
+if [ -d "$P/boot" ]; then
+  mkdir -p system
+  cp -a "$P/boot/plymouth-theme" system/ 2>/dev/null
+  cp -a "$P/boot/sddm-theme" system/ 2>/dev/null
+  if bin/null-system sddm --apply >/dev/null 2>&1; then
+    echo "  greeter: installed and selected"
+  else
+    echo "  greeter: could NOT be installed"
+  fi
+  # PLYMOUTH IS NOT APPLIED HERE, and that is deliberate.
+  #
+  # The splash lives in the initramfs, so a bad one is not a cosmetic problem:
+  # it is a machine that does not boot. null-system refuses without
+  # --fallback-verified, meaning somebody has confirmed the fallback entry
+  # works BY ACTUALLY REBOOTING INTO IT. A first-boot service is exactly the
+  # wrong place to make that promise on a user's behalf.
+  #
+  # So the theme is placed where it can be applied, and the machine says how.
+  if [ -d /usr/share/plymouth/themes ]; then
+    echo "  splash:  staged, not applied -- it rewrites the initramfs, so it"
+    echo "           waits for someone to verify the fallback boot entry:"
+    echo "             null-system plymouth --check"
+    echo "             null-system plymouth --apply --fallback-verified"
+  fi
+else
+  echo "  boot surfaces: not in the package -- splash and greeter stay stock"
+fi
+
+# 6. The system-wide install, which is what makes a new account need no setup.
 bin/null-install --apply >/dev/null 2>&1 && echo "  installed system-wide" \
   || echo "  warning: the system-wide install did not complete"
 

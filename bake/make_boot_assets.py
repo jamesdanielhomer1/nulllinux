@@ -263,16 +263,33 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--frames", type=int, default=16)
     ap.add_argument("--total-frames", type=int, default=240)
+    # WHERE THE ASSETS COME FROM AND WHERE THE THEMES GO.
+    #
+    # These were fixed at the tree's own paths, which meant the themes could
+    # only be built on a machine that had already had a hero placed -- so they
+    # were built on the build host, into system/, and never shipped or
+    # installed anywhere. An installed machine booted and logged in with stock
+    # Fedora chrome.
+    #
+    # Parameterised so bin/null-prebake can build one set from a chosen strike
+    # and put it in assets/prebuilt/boot/, which ships and is placed like every
+    # other prebuilt surface. A splash is a centred image; it does not have to
+    # match the panel, and one rendering looking the same on every machine is
+    # the right answer for a brand anyway.
+    ap.add_argument("--plymouth-cells", default="assets/target-4.cells")
+    ap.add_argument("--sddm-cells", default="assets/target-2.cells")
+    ap.add_argument("--atlas", default="assets/atlas-bake.bin")
+    ap.add_argument("--palette", default="assets/palette.json")
+    ap.add_argument("--out", default="system", help="directory to hold both themes")
     args = ap.parse_args()
 
-    n, c = make_plymouth("system/plymouth-theme", "assets/target-4.cells",
-                         "assets/atlas-bake.bin", args.frames, args.total_frames,
-                         "assets/palette.json")
-    print(f"  plymouth: {c} frames, {n/1000:.0f} kB  -> system/plymouth-theme")
-    n, c = make_sddm("system/sddm-theme", "assets/target-2.cells",
-                     "assets/atlas-bake.bin", args.frames, args.total_frames,
-                     "assets/palette.json")
-    print(f"  sddm:     {c} frames, {n/1000:.0f} kB  -> system/sddm-theme")
+    out = Path(args.out)
+    n, c = make_plymouth(out / "plymouth-theme", args.plymouth_cells,
+                         args.atlas, args.frames, args.total_frames, args.palette)
+    print(f"  plymouth: {c} frames, {n/1000:.0f} kB  -> {out}/plymouth-theme")
+    n, c = make_sddm(out / "sddm-theme", args.sddm_cells,
+                     args.atlas, args.frames, args.total_frames, args.palette)
+    print(f"  sddm:     {c} frames, {n/1000:.0f} kB  -> {out}/sddm-theme")
 
 
 if __name__ == "__main__":
