@@ -136,6 +136,21 @@ xfconf                          # xfconf-query, which sets thunar's defaults
 firefox                         # named by a binding; the command check fails without it
 git                             # the diff and status terminal surfaces (§7.6)
 bluez                           # bluetoothctl, for the bluetooth menu topic
+
+# THINGS THE DESKTOP OFFERS AND THE PACKAGE DID NOT INSTALL.
+#
+# Found by auditing a machine installed from the ISO rather than this build
+# host: the settings menu has a `netconfig` topic that runs nmtui and a `mixer`
+# topic that runs wiremix, and neither program was there. A menu entry that
+# cannot work is worse than one that is absent -- it looks like a feature.
+#
+# The §10.1 check that every command exists runs against the SWAY BINDINGS, and
+# these are reached through the menu, so it never saw them. And on this build
+# host they happen to be installed, which is why nobody noticed.
+NetworkManager-tui              # nmtui, the network topic in the settings menu
+wiremix                         # the PipeWire mixer the column hosts (bin/null-mixer)
+swaylock                        # the lock the idle ladder calls (§8.5)
+swayidle                        # and the daemon that decides when
 playerctl                       # the player topic and the column's now-playing
 wlsunset                        # the night light
 iw                              # wireless signal, where /proc/net/wireless is absent
