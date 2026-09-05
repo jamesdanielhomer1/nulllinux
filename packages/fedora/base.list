@@ -57,6 +57,18 @@ sway
 # sddm specifically, because §9.7 and bin/null-system theme its greeter.
 sddm
 
+# THE SPLASH'S OWN MODULE.
+#
+# bake/make_boot_assets.py builds a theme whose ModuleName is two-step, and a
+# plymouth theme naming a module that is not installed does not fall back --
+# plymouth-set-default-theme refuses and the machine keeps whatever splash it
+# had. Fedora ships the module separately from plymouth itself, and a minimal
+# install has details, text and tribar and not this one.
+#
+# The same shape as sddm above: a surface this project builds, needing a
+# package nothing asked for.
+plymouth-plugin-two-step
+
 # --- GPU / bake --------------------------------------------------------
 # The simulation is a Vulkan compute workload (§5.5). NVK exposes the
 # discrete adapter, so no proprietary driver is required; this was verified

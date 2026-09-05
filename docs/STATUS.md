@@ -397,3 +397,50 @@ out of.
 
   The harness gives the guest a card now -- `hda-output`, because `hda-duplex`
   with a null audiodev hangs the guest at switch-root.
+
+---
+
+## The boot splash: applied, safe, and still not ours (2026-09-05)
+
+`null-system plymouth --apply --fallback-verified` works, the machine boots
+fine afterwards, and the risk the gate guards against did not materialise. The
+fallback entry was verified the way §9.6 asks -- `grub2-reboot 1`, an actual
+boot into the rescue entry, confirmed by `BOOT_IMAGE=...vmlinuz-0-rescue-...`
+and a running system -- rather than asserted.
+
+**One real defect found:** `plymouth-plugin-two-step` was not in `base.list`.
+The theme names `ModuleName=two-step`, Fedora ships that module separately, and
+a minimal install has `details`, `text` and `tribar` and not it. Without it
+`plymouth-set-default-theme` refuses outright:
+
+    REFUSING: plymouth module 'two-step' is not installed
+
+Same shape as the missing display manager: a surface this project builds,
+needing a package nothing asked for.
+
+**And one that is not solved.** With the module installed the splash applies,
+but plymouth draws its own grey background (`#2e3436`) and built-in three-dot
+spinner instead of the theme. Everything that could be missing is present:
+
+| | |
+|---|---|
+| theme installed | `/usr/share/plymouth/themes/nullLinux/nullLinux.plymouth` |
+| in the initramfs | 34 files, including every frame |
+| module in the initramfs | `two-step.so` |
+| renderer in the initramfs | `drm.so`, `frame-buffer.so` |
+| `plymouthd.conf` | `Theme=nullLinux`, on the system and inside the image |
+| `default.plymouth` | symlinked to ours, and in the image |
+| plymouth ran | 9 s, `plymouth-start.service` active |
+
+It draws the stock background, so it is not failing to draw -- it is drawing
+something else. Not diagnosed. **The splash therefore stays staged rather than
+applied**: `null-machine-sync` installs the theme and prints how to commit it,
+and does not commit it. Shipping a splash that renders as stock Fedora would be
+worse than shipping none, because it looks like it worked.
+
+**A harness note worth keeping:** with `console=ttyS0` on the kernel command
+line plymouth stays in text mode entirely and no splash of any kind appears.
+The installed system inherits that from the installer's own boot arguments, so
+the graphical path can only be tested after removing it -- `grubby
+--remove-args`. A real machine booted from the ISO has no serial console and
+does not have this.
