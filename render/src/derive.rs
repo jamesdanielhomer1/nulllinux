@@ -110,6 +110,13 @@ pub struct Ramp {
     /// spacing would put every boundary in the wrong place (§2.4).
     bounds: Vec<f32>,
     steps: Vec<f32>,
+    /// Glyph count, counted ONCE.
+    ///
+    /// `len()` was `self.chars.chars().count()` -- a full UTF-8 walk of the
+    /// ramp string -- and `hysteresis()` calls it for every cell. At 3840x2160
+    /// that is 55 million decodes of the same short string, and it was most of
+    /// what a derive spent its time on.
+    n_glyphs: usize,
 }
 
 impl Ramp {
@@ -131,10 +138,11 @@ impl Ramp {
         let peak = *coverage.last().unwrap();
         let bounds: Vec<f32> = coverage.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect();
         let steps: Vec<f32> = coverage.windows(2).map(|w| w[1] - w[0]).collect();
-        Ok(Ramp { chars, coverage, peak, bounds, steps })
+        let n_glyphs = chars.chars().count();
+        Ok(Ramp { chars, coverage, peak, bounds, steps, n_glyphs })
     }
 
-    fn len(&self) -> usize { self.chars.chars().count() }
+    fn len(&self) -> usize { self.n_glyphs }
 
     /// numpy's searchsorted(bounds, t, side='left'): how many bounds are < t.
     fn ideal_index(&self, t: f32) -> u8 {
@@ -230,9 +238,33 @@ mod rounding {
 /// Log-exposure with two INDEPENDENT anchors (§4.1). One parameter cannot serve
 /// as both toe and spread.
 fn tone_curve(l: f32, black: f32, white: f32, gamma: f32) -> f32 {
-    let num = l.max(1e-12).ln() - black.ln();
-    let den = white.ln() - black.ln();
-    (num / den).clamp(0.0, 1.0).powf(gamma)
+    Tone::new(black, white, gamma).apply(l)
+}
+
+/// The tone curve with its constants worked out once.
+///
+/// `tone_curve` recomputed `black.ln()` and `white.ln()` on every call, and
+/// called `powf` on every call -- and it is called once per cell, per frame,
+/// per hysteresis iteration: 110 million times for a 3840x2160 grid. Two
+/// logarithms and a pow of loop-invariant arguments, 110 million times.
+///
+/// The arithmetic is UNCHANGED, deliberately: `num / den` stays a division
+/// rather than becoming a multiply by a precomputed reciprocal, which would
+/// give different last bits and therefore, occasionally, a different glyph.
+/// `powf(1.0)` is exactly the identity in IEEE 754, so skipping it when gamma
+/// is 1 is not an approximation either.
+struct Tone { lb: f32, den: f32, gamma: f32, unit_gamma: bool }
+
+impl Tone {
+    fn new(black: f32, white: f32, gamma: f32) -> Self {
+        let lb = black.ln();
+        Tone { lb, den: white.ln() - lb, gamma, unit_gamma: gamma == 1.0 }
+    }
+    #[inline]
+    fn apply(&self, l: f32) -> f32 {
+        let v = ((l.max(1e-12).ln() - self.lb) / self.den).clamp(0.0, 1.0);
+        if self.unit_gamma { v } else { v.powf(self.gamma) }
+    }
 }
 
 /// numpy.percentile with the default linear interpolation.
@@ -262,6 +294,18 @@ pub struct Derived {
 pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
               pal_temps: &[f32], k_residual: f32, hysteresis: f32,
               log: &mut dyn FnMut(&str)) -> Result<Derived, String> {
+    // WHERE THE TIME WENT, every time. A derive is the longest thing this
+    // system does on demand -- a newly plugged monitor waits for it -- and it
+    // used to be a single opaque pause. Two rounds of optimising the wrong
+    // phase is what this line is here to prevent.
+    let t_start = std::time::Instant::now();
+    let mut mark = t_start;
+    let mut phase = |what: &str, log: &mut dyn FnMut(&str)| {
+        let d = mark.elapsed();
+        mark = std::time::Instant::now();
+        log(&format!("  {what}: {:.2}s", d.as_secs_f64()));
+    };
+
     let (hc, hr) = fit_preserving_aspect(master.cols, master.rows, cols, rows);
     log(&format!("master {}x{} -> hero {hc}x{hr} inside a {cols}x{rows} grid ({}% of the cells)",
                  master.cols, master.rows, 100 * hc * hr / (cols * rows)));
@@ -273,46 +317,75 @@ pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
     // Separable area resample, in the HDR domain. Quantisation happens once,
     // afterwards -- never the other way round, because glyph indices cannot be
     // averaged: the mean of '.' and '@' is a different glyph, not a tone.
-    let mut l_frames: Vec<Vec<f32>> = Vec::with_capacity(master.frames);
-    let mut t_frames: Vec<Vec<f32>> = Vec::with_capacity(master.frames);
-    let mut mid = vec![0f32; hr * master.cols * 2];
-    for f in 0..master.frames {
-        let base = f * master.rows * master.cols * 2;
-        for (oy, wrow) in wr.iter().enumerate() {
-            for x in 0..master.cols {
-                let (mut al, mut at) = (0f32, 0f32);
-                for &(sy, w) in wrow {
-                    let i = base + (sy * master.cols + x) * 2;
-                    al += master.data[i] * w;
-                    at += master.data[i + 1] * w;
+    //
+    // ONE THREAD PER CHUNK OF FRAMES. Frames do not see each other here -- each
+    // reads its own slice of the master and writes its own output -- so this
+    // splits with no coordination beyond the join. (Quantisation below is a
+    // different matter: hysteresis carries state from one frame to the next,
+    // and it stays sequential.)
+    //
+    // It is the whole cost of a derive. Measured on a 4-core guest, a first
+    // sight of a new monitor: 24.3s at 1920x1080, 57.8s at 3840x2160. That is
+    // how long a freshly plugged screen shows the prebuilt rung instead of its
+    // own exact grid.
+    //
+    // std::thread::scope rather than a thread pool crate, because the RPM
+    // builds with `cargo build --offline` and a new dependency would have to be
+    // vendored to be worth 3x.
+    let mut l_frames: Vec<Vec<f32>> = vec![Vec::new(); master.frames];
+    let mut t_frames: Vec<Vec<f32>> = vec![Vec::new(); master.frames];
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(master.frames.max(1));
+    let per = master.frames.div_ceil(threads.max(1));
+    log(&format!("  resampling {} frames across {threads} thread(s)", master.frames));
+    std::thread::scope(|scope| {
+        for (ci, (lch, tch)) in l_frames.chunks_mut(per).zip(t_frames.chunks_mut(per)).enumerate() {
+            let (wc, wr, master) = (&wc, &wr, &*master);
+            scope.spawn(move || {
+                let mut mid = vec![0f32; hr * master.cols * 2];
+                for (k, (lslot, tslot)) in lch.iter_mut().zip(tch.iter_mut()).enumerate() {
+                    let f = ci * per + k;
+                    let base = f * master.rows * master.cols * 2;
+                    for (oy, wrow) in wr.iter().enumerate() {
+                        for x in 0..master.cols {
+                            let (mut al, mut at) = (0f32, 0f32);
+                            for &(sy, w) in wrow {
+                                let i = base + (sy * master.cols + x) * 2;
+                                al += master.data[i] * w;
+                                at += master.data[i + 1] * w;
+                            }
+                            mid[(oy * master.cols + x) * 2] = al;
+                            mid[(oy * master.cols + x) * 2 + 1] = at;
+                        }
+                    }
+                    // The void outside the hero carries the coolest temperature
+                    // present, so the palette does not read it as a different
+                    // kind of nothing.
+                    let mut tmin = f32::INFINITY;
+                    for oy in 0..hr { for x in 0..master.cols {
+                        let t = mid[(oy * master.cols + x) * 2 + 1];
+                        if t < tmin { tmin = t }
+                    }}
+                    let mut lf = vec![0f32; rows * cols];
+                    let mut tf = vec![tmin; rows * cols];
+                    for oy in 0..hr {
+                        for (ox, wcol) in wc.iter().enumerate() {
+                            let (mut al, mut at) = (0f32, 0f32);
+                            for &(sx, w) in wcol {
+                                al += mid[(oy * master.cols + sx) * 2] * w;
+                                at += mid[(oy * master.cols + sx) * 2 + 1] * w;
+                            }
+                            lf[(y0 + oy) * cols + x0 + ox] = al;
+                            tf[(y0 + oy) * cols + x0 + ox] = at;
+                        }
+                    }
+                    *lslot = lf;
+                    *tslot = tf;
                 }
-                mid[(oy * master.cols + x) * 2] = al;
-                mid[(oy * master.cols + x) * 2 + 1] = at;
-            }
+            });
         }
-        // The void outside the hero carries the coolest temperature present, so
-        // the palette does not read it as a different kind of nothing.
-        let mut tmin = f32::INFINITY;
-        for oy in 0..hr { for x in 0..master.cols {
-            let t = mid[(oy * master.cols + x) * 2 + 1];
-            if t < tmin { tmin = t }
-        }}
-        let mut lf = vec![0f32; rows * cols];
-        let mut tf = vec![tmin; rows * cols];
-        for oy in 0..hr {
-            for (ox, wcol) in wc.iter().enumerate() {
-                let (mut al, mut at) = (0f32, 0f32);
-                for &(sx, w) in wcol {
-                    al += mid[(oy * master.cols + sx) * 2] * w;
-                    at += mid[(oy * master.cols + sx) * 2 + 1] * w;
-                }
-                lf[(y0 + oy) * cols + x0 + ox] = al;
-                tf[(y0 + oy) * cols + x0 + ox] = at;
-            }
-        }
-        l_frames.push(lf);
-        t_frames.push(tf);
-    }
+    });
+
+    phase("resample", log);
 
     // --- global exposure over the whole sequence (§4.1) ---------------------
     let mut lit: Vec<f32> = l_frames.iter().flatten().copied().filter(|&v| v > 0.0).collect();
@@ -324,11 +397,27 @@ pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
     log(&format!("  exposure: black P{} = {black:.6}, white P{} = {white:.6}, gamma {gamma}",
                  master.tone.0, master.tone.1));
 
+    phase("exposure", log);
+
     let n = cols * rows;
+
+    // THE BIN EDGES DO NOT DEPEND ON THE CELL.
+    //
+    // This was `pal_temps.windows(2).map(...).collect::<Vec<f32>>()` INSIDE the
+    // per-cell loop: one heap allocation and one full pass over the palette for
+    // every cell, of every frame, of every hysteresis iteration. At 320x90 that
+    // is 28800 cells x frames x iterations allocations to compute the same
+    // array every time.
+    //
+    // Hoisting it is where a derive's time actually was. Splitting the resample
+    // across cores first bought 2%; this bought the rest.
+    let t_edges: Vec<f32> = pal_temps.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect();
+    let tone = Tone::new(black, white, gamma);
+
     let quantise_frame = |l: &[f32], t: &[f32], state: &[u8], g: &mut Vec<u8>, c: &mut Vec<u8>| {
         g.clear(); c.clear();
         for i in 0..n {
-            let target = tone_curve(l[i], black, white, gamma) * ramp.peak;
+            let target = tone.apply(l[i]) * ramp.peak;
             let glyph = ramp.hysteresis(target, state[i], hysteresis);
             // The residual is what the chosen glyph over- or under-states.
             // Colour carries it, which is what removes banding without
@@ -336,8 +425,7 @@ pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
             let residual = (target - ramp.coverage[glyph as usize]) / ramp.peak;
             let v = (0.5 + k_residual * residual).clamp(0.0, 1.0);
             let value_idx = ((v * (N_VALUES - 1) as f32).round() as i32).clamp(0, N_VALUES as i32 - 1) as u16;
-            let t_idx = pal_temps.windows(2).map(|w| (w[0] + w[1]) / 2.0)
-                .collect::<Vec<f32>>().partition_point(|&e| e < t[i]) as u16;
+            let t_idx = t_edges.partition_point(|&e| e < t[i]) as u16;
             // The void is the space character and carries no colour (I3).
             let colour = if glyph == 0 { 0 } else { (t_idx * N_VALUES + value_idx) as u8 };
             g.push(glyph); c.push(colour);
@@ -346,7 +434,7 @@ pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
 
     // --- hysteresis to a fixed point (§4.4) --------------------------------
     let mut state: Vec<u8> = l_frames[0].iter()
-        .map(|&l| ramp.ideal_index(tone_curve(l, black, white, gamma) * ramp.peak)).collect();
+        .map(|&l| ramp.ideal_index(tone.apply(l) * ramp.peak)).collect();
     let mut glyphs: Option<Vec<Vec<u8>>> = None;
     let mut colours: Vec<Vec<u8>> = Vec::new();
     for it in 0..12 {
@@ -370,6 +458,7 @@ pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
         if it == 11 { return Err("hysteresis did not converge in 12 iterations".into()) }
     }
     let glyphs = glyphs.unwrap();
+    phase("hysteresis", log);
 
     // --- loop closure, exact (§10.3) ---------------------------------------
     // Re-quantise frame 0 from the state AFTER the last frame. If it does not
@@ -393,7 +482,22 @@ pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
 const CEL_MAGIC: &[u8; 4] = b"RCEL";
 const CEL_VERSION: u16 = 1;
 
-pub fn write_cells(path: &Path, d: &Derived, ramp: &Ramp, palette: &[[u8; 3]]) -> Result<(), String> {
+// COMPRESSION LEVEL IS A CHOICE, AND 19 WAS THE WRONG ONE HERE.
+//
+// This was hard-coded at zstd 19 -- near maximum -- and it was the single
+// largest cost of deriving a hero: 12.3s of a 19.6s derive at 1920x1080, and
+// well over half a minute at 3840x2160. A newly plugged monitor waits for that.
+//
+// These files are a LOCAL CACHE under /var/cache/nulllinux, written once and
+// mmapped thereafter. What level 19 buys over level 3 is a few percent of a
+// file nobody ships. What it costs is the entire wait.
+//
+// The shipped assets are a different matter and are written by the bake in
+// Python, which is not on anyone's critical path and can take as long as it
+// likes.
+pub const CACHE_ZSTD_LEVEL: i32 = 9;
+
+pub fn write_cells(path: &Path, d: &Derived, ramp: &Ramp, palette: &[[u8; 3]], level: i32) -> Result<(), String> {
     let mut header: Vec<u8> = Vec::new();
     header.extend_from_slice(CEL_MAGIC);
     header.extend_from_slice(&CEL_VERSION.to_le_bytes());
@@ -413,7 +517,7 @@ pub fn write_cells(path: &Path, d: &Derived, ramp: &Ramp, palette: &[[u8; 3]]) -
         payload.extend_from_slice(g);
         payload.extend_from_slice(c);
     }
-    let body = zstd::encode_all(&payload[..], 19).map_err(|e| e.to_string())?;
+    let body = zstd::encode_all(&payload[..], level).map_err(|e| e.to_string())?;
 
     let mut out = header;
     out.extend_from_slice(&(payload.len() as u64).to_le_bytes());
@@ -421,4 +525,68 @@ pub fn write_cells(path: &Path, d: &Derived, ramp: &Ramp, palette: &[[u8; 3]]) -
     // Written whole, then renamed by the caller: a reader that opens a
     // half-written cells file sees a truncated animation rather than an error.
     std::fs::write(path, &out).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod speed_is_not_a_licence_to_change_the_picture {
+    use super::*;
+
+    // The optimisations in this file are only allowed because they compute the
+    // same numbers. These pin that, so a later "obvious" tidy-up -- folding the
+    // division into a reciprocal, dropping the gamma branch -- fails here
+    // rather than quietly moving glyphs.
+
+    /// The hoisted form must equal the literal formula, bit for bit.
+    #[test]
+    fn hoisting_the_logs_changes_nothing() {
+        let (black, white) = (0.000005_f32, 0.895874_f32);
+        for &gamma in &[1.0_f32, 0.8, 2.2] {
+            let tone = Tone::new(black, white, gamma);
+            for i in 0..2000 {
+                let l = (i as f32) * 0.0007;
+                let literal = {
+                    let num = l.max(1e-12).ln() - black.ln();
+                    let den = white.ln() - black.ln();
+                    (num / den).clamp(0.0, 1.0).powf(gamma)
+                };
+                assert_eq!(tone.apply(l).to_bits(), literal.to_bits(),
+                           "l={l} gamma={gamma}: hoisting changed the value");
+            }
+        }
+    }
+
+    /// Skipping powf at gamma 1 is exact, not an approximation.
+    #[test]
+    fn powf_one_is_the_identity() {
+        for i in 0..1000 {
+            let v = (i as f32) / 999.0;
+            assert_eq!(v.powf(1.0).to_bits(), v.to_bits(), "powf(1.0) moved {v}");
+        }
+        assert!(Tone::new(0.1, 0.9, 1.0).unit_gamma);
+        assert!(!Tone::new(0.1, 0.9, 2.2).unit_gamma);
+    }
+
+    /// n_glyphs replaced chars().count(); it must still be the glyph count and
+    /// not the byte count, because the ramp is not necessarily ASCII.
+    #[test]
+    fn glyph_count_counts_glyphs_not_bytes() {
+        let r = Ramp {
+            chars: " ·▒█".to_string(),           // 4 glyphs, 10 bytes
+            coverage: vec![0.0, 0.3, 0.6, 1.0],
+            peak: 1.0,
+            bounds: vec![0.15, 0.45, 0.8],
+            steps: vec![0.3, 0.3, 0.4],
+            n_glyphs: " ·▒█".chars().count(),
+        };
+        assert_eq!(r.len(), 4);
+        assert_ne!(r.chars.len(), 4, "the fixture is not testing anything");
+    }
+
+    /// The cache level is a cache level. If someone raises it back to 19 for
+    /// tidiness, a derive gets twelve seconds slower for a file nobody ships.
+    #[test]
+    fn the_cache_is_not_compressed_for_shipping() {
+        assert!(CACHE_ZSTD_LEVEL <= 12,
+                "zstd {CACHE_ZSTD_LEVEL} on a local cache costs more time than the bytes are worth");
+    }
 }

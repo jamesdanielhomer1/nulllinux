@@ -32,6 +32,7 @@ options:
   --force-animate         never suspend, even when occluded
   --output NAME           pin the surface to one screen (layershell)
   --master F --cols N --rows M --ramp F --out F      (derive)
+  --zstd-level N                                     (derive; default 9)
 "
     );
     std::process::exit(2)
@@ -111,8 +112,12 @@ fn main() {
         let mut log = |s: &str| println!("{s}");
         let d = derive::derive(&m, cols, rows, &ramp, &temps, k_residual, hyst, &mut log)
             .unwrap_or_else(|e| die(e));
-        derive::write_cells(std::path::Path::new(&out), &d, &ramp, &palette)
+        let level: i32 = arg(&args, "--zstd-level").and_then(|v| v.parse().ok())
+            .unwrap_or(derive::CACHE_ZSTD_LEVEL);
+        let t_w = std::time::Instant::now();
+        derive::write_cells(std::path::Path::new(&out), &d, &ramp, &palette, level)
             .unwrap_or_else(|e| die(e));
+        println!("  write (zstd {level}): {:.2}s", t_w.elapsed().as_secs_f64());
         let n = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
         println!("  -> {out}  {n} bytes");
         return;
