@@ -1,0 +1,56 @@
+#!/usr/sbin/nft -f
+#
+# The same policy firewalld's `public` zone gave us, written out.
+#
+# firewalld produced 366 lines of nftables and took 3.0 seconds to do it, and
+# it sits on the ordering chain that ends at the greeter: firewalld ->
+# network-pre.target -> NetworkManager -> network.target ->
+# systemd-user-sessions -> sddm. Three seconds of every boot, spent generating
+# rules that do not change between boots.
+#
+# This is the same ruleset, static. What is given up is firewalld's D-Bus API:
+# `firewall-cmd`, and the zone juggling libvirt and podman do when they set up
+# virtual networks. If either of those is ever installed here, this file is
+# where their rules have to be added by hand.
+#
+# Derived from `firewall-cmd --list-all` on the test install, not from memory:
+#   target: default (= drop), services: dhcpv6-client mdns ssh, forward: yes
+
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority filter; policy drop;
+
+    # The overwhelming majority of accepted packets are replies to something
+    # this machine sent. Matching them first keeps the rest of the chain off
+    # the hot path.
+    ct state established,related accept
+    ct state invalid drop
+
+    iif lo accept
+
+    # NOT optional. Dropping ICMPv6 breaks IPv6 outright -- neighbour
+    # discovery and path-MTU both ride on it -- and dropping ICMPv4 echo
+    # breaks path-MTU discovery on v4.
+    meta l4proto icmp accept
+    meta l4proto ipv6-icmp accept
+
+    udp dport 546 accept      # dhcpv6-client
+    udp dport 5353 accept     # mdns  -- printers and .local names
+    tcp dport 22 accept       # ssh
+
+    # Answer rather than blackhole, so a connection to a closed port fails at
+    # once instead of after the client's timeout.
+    reject with icmpx type port-unreachable
+  }
+
+  chain forward {
+    type filter hook forward priority filter; policy drop;
+    ct state established,related accept
+  }
+
+  chain output {
+    type filter hook output priority filter; policy accept;
+  }
+}

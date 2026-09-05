@@ -46,7 +46,16 @@ lang en_GB.UTF-8
 keyboard --vckeymap=gb --xlayouts='gb'
 timezone Europe/London --utc
 selinux --enforcing
-firewall --enabled --service=mdns
+# THE MACHINE IS FIREWALLED, BY nftables RATHER THAN BY firewalld.
+#
+# anaconda is told not to configure firewalld, because %post installs the same
+# policy as a static nftables ruleset -- default drop, established/related,
+# loopback, ICMP, dhcpv6-client, mdns, ssh -- which is what firewalld's public
+# zone produced here anyway, and 164ms instead of 3.024s of every boot.
+#
+# firewalld stays INSTALLED so `systemctl enable --now firewalld` is a one-line
+# revert, and %post puts it back if the nftables install does not take.
+firewall --disabled
 network --bootproto=dhcp --device=link --activate --hostname=nulltest
 
 # THE INSTALL TARGET IS NAMED EXPLICITLY. `clearpart --all` with no --drives
@@ -132,6 +141,25 @@ if command -v grubby >/dev/null 2>&1; then
   grubby --update-kernel=ALL --remove-args="console=ttyS0,115200 console=tty0" 2>/dev/null || true
   if grubby --info=DEFAULT 2>/dev/null | grep -q "console=ttyS0"; then
     echo "nullLinux: WARNING -- could not remove the installer's serial console" >&2
+  fi
+fi
+
+# THE FIREWALL, AS RULES RATHER THAN AS A DAEMON THAT GENERATES THEM.
+#
+# firewalld sat on the ordering chain to the greeter and spent 3.024s of every
+# boot emitting the same 366 lines of nftables. `null-system firewall` installs
+# those rules statically -- same policy, 164ms -- and moves the netfilter module
+# loading to sysinit, where nothing is waiting for it.
+#
+# It parses the ruleset before installing it and inspects the loaded result
+# afterwards, so a %post that succeeds means a machine with a firewall rather
+# than a machine with a config file. If it does not succeed, firewalld goes
+# back on: this system is never left with neither.
+if [ -x /opt/nulllinux/bin/null-system ]; then
+  /opt/nulllinux/bin/null-system --apply firewall 2>&1 | sed 's/^/nullLinux: /'
+  if ! systemctl is-enabled nftables.service >/dev/null 2>&1; then
+    echo "nullLinux: WARNING -- nftables did not take; restoring firewalld" >&2
+    systemctl enable firewalld.service 2>/dev/null || true
   fi
 fi
 

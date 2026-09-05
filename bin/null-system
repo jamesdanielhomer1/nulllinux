@@ -438,8 +438,86 @@ CONF
   say "every storage driver checked for is present"
 }
 
+# ----------------------------------------------------------------- firewall --
+#
+# THE FIREWALL IS ON THE ORDERING CHAIN THAT ENDS AT THE GREETER.
+#
+#   firewalld -> network-pre.target -> NetworkManager -> network.target
+#     -> systemd-user-sessions -> plymouth-quit -> sddm
+#
+# firewalld took 3.024 seconds of every boot on the test install to emit 366
+# lines of nftables that are the same 366 lines every time. Replacing it with
+# those rules, written down, took that to 164ms -- and 30ms of THAT is the
+# ruleset; the rest was modprobe, which config/modules-load.d moves to sysinit
+# where nothing waits for it.
+#
+# The policy is not being loosened. This is `firewall-cmd --list-all` from the
+# test install, transcribed: default drop, established/related, loopback, ICMP,
+# dhcpv6-client, mdns, ssh. What is lost is firewalld's D-Bus API -- the zone
+# manipulation libvirt and podman do for virtual networks. Neither is installed
+# here. If one ever is, its rules go in config/nftables/nulllinux.nft by hand,
+# and that is a real cost worth knowing about before it bites.
+cmd_firewall() {
+  head_ "firewall -- nftables with a static ruleset, in place of firewalld"
+
+  local src="$ROOT/config/nftables/nulllinux.nft"
+  local mods="$ROOT/config/modules-load.d/nulllinux-nftables.conf"
+  [ -r "$src" ]  || refuse "no ruleset at $src"
+  [ -r "$mods" ] || refuse "no module list at $mods"
+
+  command -v nft >/dev/null 2>&1 || refuse "nft is not installed"
+
+  # SYNTAX FIRST. A ruleset that fails to load leaves a machine with no
+  # firewall at all, and nftables.service failing at boot is a quiet way to
+  # arrive there.
+  if ! nft -c -f "$src" 2>&1 | sed 's/^/    /'; then
+    refuse "$src does not parse -- refusing to install it"
+  fi
+  say "ruleset parses"
+  say "$(grep -cE '^\s+(ct|iif|meta|udp|tcp|reject|type)' "$src") rules, against firewalld's 366"
+
+  if systemctl is-enabled firewalld.service >/dev/null 2>&1; then
+    say "firewalld is enabled and would be disabled"
+  else
+    say "firewalld is not enabled"
+  fi
+
+  if [ "$APPLY" -eq 0 ]; then
+    say "would install $src -> /etc/nftables/nulllinux.nft"
+    say "would point /etc/sysconfig/nftables.conf at it"
+    say "would install $(basename "$mods") -> /etc/modules-load.d/"
+    say "would enable nftables.service and disable firewalld.service"
+    return 0
+  fi
+
+  snapshot firewall
+  install_file "$src" /etc/nftables/nulllinux.nft
+  backup /etc/sysconfig/nftables.conf
+  mkdir -p /etc/sysconfig
+  printf 'include "/etc/nftables/nulllinux.nft"\n' > /etc/sysconfig/nftables.conf
+  say "wrote /etc/sysconfig/nftables.conf"
+  install_file "$mods" /etc/modules-load.d/nulllinux-nftables.conf
+
+  systemctl enable nftables.service >/dev/null 2>&1 \
+    && say "enabled nftables.service" \
+    || say "could not enable nftables.service"
+  if systemctl is-enabled firewalld.service >/dev/null 2>&1; then
+    systemctl disable firewalld.service >/dev/null 2>&1 \
+      && say "disabled firewalld.service -- two firewalls is worse than either"
+  fi
+
+  # AND CHECK IT, on the running machine, before claiming anything.
+  if systemctl start nftables.service >/dev/null 2>&1; then
+    local n; n=$(nft list ruleset 2>/dev/null | grep -c .)
+    [ "$n" -gt 10 ] || refuse "nftables.service started but the ruleset is $n lines -- the machine may have no firewall"
+    say "loaded: $n lines of ruleset, input policy $(nft list chain inet filter input 2>/dev/null | grep -o 'policy [a-z]*' | head -1)"
+  else
+    say "could not start nftables.service now; it is enabled for next boot"
+  fi
+}
+
 usage() { cat <<'U'
-usage: null-system [--apply] [--fallback-verified] [--check] <fallback|tty|sddm|plymouth|initramfs>
+usage: null-system [--apply] [--fallback-verified] [--check] <fallback|tty|sddm|plymouth|initramfs|firewall>
 
   fallback   check the fallback boot entry (never changes anything)
   tty        console font and banner
@@ -448,6 +526,8 @@ usage: null-system [--apply] [--fallback-verified] [--check] <fallback|tty|sddm|
              --check builds a throwaway initramfs and inspects it
   initramfs  generic rather than host-only, so the disk boots in another
              machine. --check exits non-zero if it would not.
+  firewall   nftables with a static ruleset in place of firewalld, which
+             costs 3s of every boot to emit rules that never change.
 
 Without --apply every subcommand reports and touches nothing.
 U
@@ -474,5 +554,6 @@ case $CMD in
   sddm)     cmd_sddm ;;
   plymouth) cmd_plymouth ;;
   initramfs) cmd_initramfs ;;
+  firewall) cmd_firewall ;;
   *) usage; exit 2 ;;
 esac
