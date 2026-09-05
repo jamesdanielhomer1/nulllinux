@@ -69,6 +69,25 @@ print(o["name"], m.get("width", 0), m.get("height", 0), o.get("scale", 1.0))'
   fi
   # No compositor: ask DRM directly. The connector that is "connected" and has
   # a mode is the one a compositor would pick too.
+  #
+  # WAIT FOR IT, BRIEFLY, RATHER THAN FOR THE WHOLE DEVICE QUEUE.
+  #
+  # This used to be guaranteed by systemd-udev-settle, which the unit pulled in
+  # and which cost 3.5 s of every boot -- the largest single item on the
+  # critical path -- to wait for every device on the machine. What is actually
+  # needed is one connected connector. So: look, and if the graphics driver has
+  # not finished coldplugging yet, look again for up to NULL_DRM_WAIT seconds.
+  #
+  # A machine with a display pays one pass. A machine without one pays the wait
+  # once and then reports honestly that it cannot detect an output, which the
+  # unit treats as success (SuccessExitStatus=0 1).
+  local waited=0 limit=${NULL_DRM_WAIT:-5}
+  while [ ! -d /sys/class/drm ] || ! grep -qsx connected /sys/class/drm/card*-*/status; do
+    [ "$waited" -ge "$limit" ] && break
+    sleep 0.25
+    waited=$(awk "BEGIN{print $waited + 0.25}")
+  done
+
   local d
   for d in /sys/class/drm/card*-*/; do
     [ -r "$d/status" ] || continue

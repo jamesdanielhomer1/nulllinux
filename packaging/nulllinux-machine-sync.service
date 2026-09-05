@@ -1,8 +1,22 @@
 [Unit]
 Description=nullLinux: reconcile the machine profile and surfaces with the hardware
 Documentation=file:/opt/nulllinux/bin/null-machine-sync
-After=systemd-udev-settle.service local-fs.target
-Wants=systemd-udev-settle.service
+
+# NOT systemd-udev-settle. It cost 3.5 s of every boot and was the single
+# largest thing on the critical path, and it was there because this unit asked
+# for it: `systemd-analyze critical-chain` put it directly under this service.
+#
+# settle waits for the WHOLE device queue to drain, which is far more than
+# "has a display appeared". udev-trigger is enough to have started the coldplug,
+# and bin/machine waits, briefly and only when it has to, for a connector to
+# actually show up -- so a machine with a display pays milliseconds and a
+# machine without one pays a bounded wait instead of the whole queue.
+After=systemd-udev-trigger.service local-fs.target
+
+# The assets have to be right before anything DRAWS them, which means before the
+# greeter -- not before the rest of userspace. Ordering it here rather than
+# gating multi-user.target lets everything else come up in parallel.
+Before=display-manager.service
 
 [Service]
 Type=oneshot
@@ -14,4 +28,4 @@ ExecStart=/opt/nulllinux/bin/null-machine-sync
 SuccessExitStatus=0 1
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target multi-user.target
