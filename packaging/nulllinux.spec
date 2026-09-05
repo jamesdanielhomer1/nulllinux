@@ -58,6 +58,7 @@ Requires:       git
 Requires:       grim
 Requires:       iw
 Requires:       playerctl
+Requires:       sddm
 Requires:       slurp
 Requires:       sway
 Requires:       terminus-fonts

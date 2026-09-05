@@ -95,6 +95,43 @@ echo
 # A settings.ini that is installed NOWHERE is how the third answer hid: it can
 # say anything, for years, and nothing reads it. If it is worth keeping in the
 # tree it is worth installing.
+# THE GREETER AND THE SPLASH, which were the third and fourth surfaces to get
+# this wrong. sddm looks its theme up by DIRECTORY NAME and plymouth resolves
+# <name> to themes/<name>/<name>.plymouth -- so the directory, the file and the
+# call all have to agree. They did not: the greeter installed to
+# themes/nulllinux while Current= said nullLinux, so sddm fell back to its own
+# default and a machine booting to the wrong login screen looks exactly like a
+# machine booting to the right one.
+echo "== the greeter and the splash agree with themselves"
+gr_dir=$(grep -oE '/usr/share/sddm/themes/[A-Za-z0-9._-]+' bin/null-system \
+         | grep -v nulllinux | sort -u | head -1)
+gr_sel=$(grep -oP 'Current=\K[A-Za-z0-9._-]+' bin/null-system | head -1)
+pl_dir=$(grep -oE '/usr/share/plymouth/themes/[A-Za-z0-9._-]+' bin/null-system \
+         | grep -v nulllinux | sort -u | head -1)
+# THE COMMAND, not every mention of it. null-system names this tool five
+# times: a `command -v` guard, a reporting line whose `2>/dev/null` a loose
+# pattern read as a theme called "2", two comments, and one actual invocation.
+# Comments and `say` lines are stripped, and what is left must be a bare call.
+pl_set=$(sed -e 's/[[:space:]]#.*$//' -e '/^[[:space:]]*#/d' -e '/say /d' bin/null-system \
+         | grep -oP '^\s*plymouth-set-default-theme \K[A-Za-z][A-Za-z0-9._-]*' | head -1)
+pl_file=$(grep -oP 'outdir / "\K[A-Za-z0-9._-]+(?=\.plymouth")' bake/make_boot_assets.py | head -1)
+pl_img=$(grep -oP 'ImageDir=/usr/share/plymouth/themes/\K[A-Za-z0-9._-]+' bake/make_boot_assets.py | head -1)
+
+same2() {  # <label> <value> <want>
+  printf '  %-38s %s' "$1" "${2:-(unset)}"
+  if [ "${2:-}" = "$3" ]; then echo; else echo "   <- not '$3'"; fail=1; fi
+}
+want_gr=$(basename "${gr_dir:-none}")
+printf '  %-38s %s\n' "sddm theme directory" "$want_gr"
+same2 "sddm Current=" "$gr_sel" "$want_gr"
+
+want_pl=$(basename "${pl_dir:-none}")
+printf '  %-38s %s\n' "plymouth theme directory" "$want_pl"
+same2 "plymouth-set-default-theme" "$pl_set" "$want_pl"
+same2 "the .plymouth file's name" "$pl_file" "$want_pl"
+same2 "ImageDir inside it" "$pl_img" "$want_pl"
+echo
+
 echo "== settings.ini reaches the machine"
 if grep -q 'etc/xdg/gtk-\$v/settings.ini' bin/null-install; then
   echo "  ok    null-install installs /etc/xdg/gtk-{3.0,4.0}/settings.ini"

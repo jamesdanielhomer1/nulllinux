@@ -159,19 +159,29 @@ cmd_sddm() {
   snapshot greeter
   if [ "$APPLY" -eq 1 ]; then
     backup /etc/sddm.conf.d/10-nulllinux.conf
-    rm -rf /usr/share/sddm/themes/nulllinux
+    # THE DIRECTORY NAME IS THE THEME NAME, case-sensitively, and this is the
+    # THIRD surface to get it wrong: the GTK theme, the icon theme, and now the
+    # greeter. sddm looked up "nullLinux" in Current= and the directory said
+    # "nulllinux", so it silently fell back to its own default -- a machine that
+    # boots to a login screen looks exactly like one that boots to the right
+    # login screen.
+    rm -rf /usr/share/sddm/themes/nullLinux
     mkdir -p /usr/share/sddm/themes
-    cp -a "$theme" /usr/share/sddm/themes/nulllinux
-    command -v restorecon >/dev/null && restorecon -RF /usr/share/sddm/themes/nulllinux 2>/dev/null
+    cp -a "$theme" /usr/share/sddm/themes/nullLinux
+    command -v restorecon >/dev/null && restorecon -RF /usr/share/sddm/themes/nullLinux 2>/dev/null
     mkdir -p /etc/sddm.conf.d
+    # A superseded name that still RESOLVES is worse than one that does not.
+    [ -d /usr/share/sddm/themes/nulllinux ] \
+      && [ ! /usr/share/sddm/themes/nulllinux -ef /usr/share/sddm/themes/nullLinux ] \
+      && rm -rf /usr/share/sddm/themes/nulllinux
     printf '[Theme]\nCurrent=nullLinux\n' > /etc/sddm.conf.d/10-nulllinux.conf
-    say "installed /usr/share/sddm/themes/nulllinux and selected it"
+    say "installed /usr/share/sddm/themes/nullLinux and selected it"
     say ""
     say "NOT yet confirmed. A greeter that fails to start is a machine with no"
     say "graphical login, and the way out is a virtual console -- which is why"
     say "the console is done first. Verify before rebooting into it."
   else
-    say "would install /usr/share/sddm/themes/nulllinux"
+    say "would install /usr/share/sddm/themes/nullLinux"
     say "would write /etc/sddm.conf.d/10-nulllinux.conf selecting it"
   fi
 }
@@ -216,12 +226,12 @@ cmd_plymouth() {
 
   if [ "$CHECK" -eq 1 ]; then
     head_ "check: build a THROWAWAY initramfs and inspect it"
-    say "this writes theme files under /usr/share/plymouth/themes/nulllinux, which"
+    say "this writes theme files under /usr/share/plymouth/themes/nullLinux, which"
     say "nothing references until the default is changed, and an image in /tmp."
     say "NO boot path is touched."
-    rm -rf /usr/share/plymouth/themes/nulllinux
-    cp -a "$theme" /usr/share/plymouth/themes/nulllinux
-    command -v restorecon >/dev/null && restorecon -RF /usr/share/plymouth/themes/nulllinux 2>/dev/null
+    rm -rf /usr/share/plymouth/themes/nullLinux
+    cp -a "$theme" /usr/share/plymouth/themes/nullLinux
+    command -v restorecon >/dev/null && restorecon -RF /usr/share/plymouth/themes/nullLinux 2>/dev/null
     local img=/tmp/null-initramfs-check.img
     say "running dracut (this takes a minute) ..."
     if ! PLYMOUTH_THEME_NAME=nullLinux dracut --force --quiet \
@@ -231,7 +241,7 @@ cmd_plymouth() {
     fi
     say "built $(stat -c%s "$img" | numfmt --to=iec)"
     local got_theme got_mod
-    got_theme=$(lsinitrd "$img" 2>/dev/null | grep -c 'themes/nulllinux/' || true)
+    got_theme=$(lsinitrd "$img" 2>/dev/null | grep -c 'themes/nullLinux/' || true)
     got_mod=$(lsinitrd "$img" 2>/dev/null | grep -c "plymouth/$module.so" || true)
     say "theme files in the image: $got_theme"
     say "module in the image:      $got_mod"
@@ -271,9 +281,13 @@ cmd_plymouth() {
   say "  null-system plymouth --apply --fallback-verified  commit"
   if [ "$APPLY" -eq 1 ] && [ "$FALLBACK_VERIFIED" -eq 1 ]; then
     snapshot splash
-    rm -rf /usr/share/plymouth/themes/nulllinux
-    cp -a "$theme" /usr/share/plymouth/themes/nulllinux
-    command -v restorecon >/dev/null && restorecon -RF /usr/share/plymouth/themes/nulllinux 2>/dev/null
+    rm -rf /usr/share/plymouth/themes/nullLinux
+    cp -a "$theme" /usr/share/plymouth/themes/nullLinux
+    command -v restorecon >/dev/null && restorecon -RF /usr/share/plymouth/themes/nullLinux 2>/dev/null
+    # A superseded name that still resolves is worse than one that does not.
+    [ -d /usr/share/plymouth/themes/nulllinux ] \
+      && [ ! /usr/share/plymouth/themes/nulllinux -ef /usr/share/plymouth/themes/nullLinux ] \
+      && rm -rf /usr/share/plymouth/themes/nulllinux
     plymouth-set-default-theme nullLinux
     say "regenerating ONLY the running kernel's initramfs; the rescue image is untouched"
     dracut --force --kver "$(uname -r)"

@@ -72,7 +72,7 @@ def make_plymouth(outdir, cells, atlas, count, total_frames, palette):
     for i in range(count):
         total += rasterise(cells, atlas, i * step, outdir / f"throbber-{i + 1:04d}.png")
 
-    (outdir / "nulllinux.plymouth").write_text(f"""\
+    (outdir / "nullLinux.plymouth").write_text(f"""\
 [Plymouth Theme]
 Name=nullLinux
 Description=One baked asset, rendered as text
@@ -81,7 +81,7 @@ ModuleName=two-step
 [two-step]
 Font=Cantarell 12
 TitleFont=Cantarell Light 30
-ImageDir=/usr/share/plymouth/themes/nulllinux
+ImageDir=/usr/share/plymouth/themes/nullLinux
 HorizontalAlignment=.5
 VerticalAlignment=.5
 DialogHorizontalAlignment=.5
