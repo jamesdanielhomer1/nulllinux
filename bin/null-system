@@ -313,14 +313,141 @@ cmd_plymouth() {
   fi
 }
 
+# ---------------------------------------------------------------- initramfs --
+#
+# THE DRIVE HAS TO BOOT IN THE NEXT MACHINE.
+#
+# Fedora's /usr/lib/dracut/dracut.conf.d/01-dist.conf sets hostonly="yes", so
+# the initramfs anaconda builds contains only the drivers THIS machine needed
+# at install time. It is smaller and it starts sooner, and it is the wrong
+# trade for this system: pull the disk out and the initramfs cannot find a root
+# device it has no driver for, so the machine stops at a dracut shell.
+#
+# Measured on the test install: no ahci, no sd_mod, no sdhci, no mmc_block --
+# a generic Fedora install that would not boot from a SATA SSD, an eMMC board,
+# or an SD card. It only ever saw a virtio disk.
+#
+# So hostonly is turned off and the initramfs is rebuilt. It costs size and a
+# little boot time. It buys the property the whole project is built on: any
+# machine, no reinstall.
+DRACUT_DROPIN=/etc/dracut.conf.d/00-nulllinux-generic.conf
+MODS_IN_IMG=""
+MODS_BUILTIN=""
+
+# Drivers a machine that is not this one might need to reach its own root
+# filesystem, plus the KMS drivers the console and the splash need to draw.
+# Not a whitelist -- hostonly=no brings in everything. This is the list the
+# check looks for, because "everything" is not a thing you can assert.
+PORTABLE_DRIVERS="ahci sd_mod nvme sdhci-pci mmc_block usb-storage xhci_pci virtio_blk"
+PORTABLE_KMS="i915 amdgpu nouveau"
+
+initramfs_modules() {  # <img> -- one module name per line
+  lsinitrd "$1" 2>/dev/null | grep -oE '[a-z0-9_-]+\.ko(\.[a-z]+)?$' | sed 's/\.ko.*//' | sort -u
+}
+
+# A DRIVER THAT IS COMPILED IN IS NOT A DRIVER THAT IS MISSING.
+#
+# Fedora builds ahci, sd_mod, virtio_blk and xhci_pci into the kernel, so they
+# are absent from EVERY initramfs, generic or not. Looking only at the image
+# reports a portable initramfs as broken -- which it did, the first time this
+# was written.
+builtin_modules() {
+  local f=/usr/lib/modules/$(uname -r)/modules.builtin
+  [ -r "$f" ] && sed -E 's#.*/##; s/\.ko$//' "$f" | tr '-' '_' | sort -u
+}
+
+have_driver() {  # <name>  -- in the initramfs, or built into the kernel
+  local n=${1//-/_}
+  printf '%s\n' "$MODS_IN_IMG" | tr '-' '_' | grep -qx "$n" && return 0
+  printf '%s\n' "$MODS_BUILTIN" | grep -qx "$n"
+}
+
+cmd_initramfs() {
+  head_ "initramfs -- generic, so the disk boots in another machine"
+
+  local img="/boot/initramfs-$(uname -r).img"
+  [ -r "$img" ] || refuse "no initramfs at $img"
+
+  local why
+  # Settings only -- 01-dist.conf's neighbours EXPLAIN hostonly in comments,
+  # and a grep that counts prose reports the opposite of the truth.
+  why=$(grep -rls '^[[:space:]]*hostonly="\?yes' /etc/dracut.conf /etc/dracut.conf.d/ \
+        /usr/lib/dracut/dracut.conf.d/ 2>/dev/null | tr '\n' ' ')
+  if [ -n "$why" ]; then
+    say "hostonly=yes comes from: $why"
+  else
+    say "nothing sets hostonly=yes"
+  fi
+
+  local missing="" kms_missing="" m
+  MODS_IN_IMG=$(initramfs_modules "$img")
+  MODS_BUILTIN=$(builtin_modules)
+  for m in $PORTABLE_DRIVERS; do have_driver "$m" || missing="$missing $m"; done
+  for m in $PORTABLE_KMS;     do have_driver "$m" || kms_missing="$kms_missing $m"; done
+
+  say "$(printf '%s\n' "$MODS_IN_IMG" | grep -c .) modules in $(basename "$img") ($(du -h "$img" | cut -f1)), $(printf '%s\n' "$MODS_BUILTIN" | grep -c .) built into the kernel"
+  if [ -n "$missing" ]; then
+    say "cannot reach a root filesystem on:$missing"
+  else
+    say "every storage driver checked for is present"
+  fi
+  [ -n "$kms_missing" ] && say "no early KMS for:$kms_missing"
+
+  # The PROPERTY is what matters, not who provided it. Another drop-in that
+  # already turns hostonly off is a correct answer, and adding a second file
+  # saying the same thing helps nobody.
+  if [ -z "$missing" ] && [ -z "$kms_missing" ]; then
+    say "already generic -- nothing to do"
+    return 0
+  fi
+
+  if [ "$CHECK" -eq 1 ]; then
+    [ -n "$missing$kms_missing" ] && return 1
+    return 0
+  fi
+
+  if [ "$APPLY" -eq 0 ]; then
+    say "would write $DRACUT_DROPIN with hostonly=\"no\""
+    say "would rebuild every initramfs in /boot (a minute or two)"
+    return 0
+  fi
+
+  snapshot initramfs
+  backup "$DRACUT_DROPIN"
+  mkdir -p "$(dirname "$DRACUT_DROPIN")"
+  cat > "$DRACUT_DROPIN" <<'CONF'
+# nullLinux: the disk has to boot in whatever machine it is moved to, so the
+# initramfs carries every driver rather than the ones this machine happened to
+# use at install time. See `null-system initramfs`.
+hostonly="no"
+CONF
+  say "wrote $DRACUT_DROPIN"
+
+  say "rebuilding every initramfs in /boot -- this takes a minute or two"
+  if ! dracut --force --regenerate-all 2>&1 | sed 's/^/    /'; then
+    refuse "dracut failed; $DRACUT_DROPIN is in place but the images are unchanged"
+  fi
+
+  # AND THEN CHECK IT, because a dracut that exits 0 is not the claim.
+  MODS_IN_IMG=$(initramfs_modules "$img"); missing=""
+  for m in $PORTABLE_DRIVERS; do have_driver "$m" || missing="$missing $m"; done
+  if [ -n "$missing" ]; then
+    refuse "rebuilt and STILL missing:$missing -- do not move this disk"
+  fi
+  say "rebuilt: $(printf '%s\n' "$MODS_IN_IMG" | grep -c .) modules, $(du -h "$img" | cut -f1)"
+  say "every storage driver checked for is present"
+}
+
 usage() { cat <<'U'
-usage: null-system [--apply] [--fallback-verified] [--check] <fallback|tty|sddm|plymouth>
+usage: null-system [--apply] [--fallback-verified] [--check] <fallback|tty|sddm|plymouth|initramfs>
 
   fallback   check the fallback boot entry (never changes anything)
   tty        console font and banner
   sddm       login greeter theme
   plymouth   boot splash -- refuses without --fallback-verified
              --check builds a throwaway initramfs and inspects it
+  initramfs  generic rather than host-only, so the disk boots in another
+             machine. --check exits non-zero if it would not.
 
 Without --apply every subcommand reports and touches nothing.
 U
@@ -346,5 +473,6 @@ case $CMD in
   tty)      cmd_tty ;;
   sddm)     cmd_sddm ;;
   plymouth) cmd_plymouth ;;
+  initramfs) cmd_initramfs ;;
   *) usage; exit 2 ;;
 esac

@@ -69,6 +69,20 @@ sddm
 # package nothing asked for.
 plymouth-plugin-two-step
 
+# THE DISK HAS TO BOOT IN THE NEXT MACHINE.
+#
+# Fedora's dracut default is hostonly=yes, so the initramfs anaconda builds
+# carries drivers for the storage the INSTALLING machine had. Measured on the
+# test install: no sdhci, no mmc_block, no megaraid_sas, no i915, no amdgpu.
+# That disk boots in the VM it was made in and drops to a dracut shell in a
+# laptop with an SD-card reader or a RAID controller.
+#
+# This package is nine kilobytes of /usr/lib/dracut/dracut.conf.d saying
+# hostonly="no". It is in the transaction, so the image anaconda builds is
+# already generic; %post rebuilds and CHECKS anyway, because package ordering
+# inside a transaction is not a guarantee. See `null-system initramfs`.
+dracut-config-generic
+
 # --- GPU / bake --------------------------------------------------------
 # The simulation is a Vulkan compute workload (§5.5). NVK exposes the
 # discrete adapter, so no proprietary driver is required; this was verified

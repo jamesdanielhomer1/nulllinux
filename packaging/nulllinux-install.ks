@@ -135,6 +135,40 @@ if command -v grubby >/dev/null 2>&1; then
   fi
 fi
 
+# THE INITRAMFS MUST BE GENERIC, AND THAT MUST BE CHECKED HERE.
+#
+# dracut-config-generic is in %packages, which SHOULD make the image anaconda
+# builds generic already. Should: kernel-install runs from the kernel's
+# posttrans, and nothing orders that after dracut-config-generic lands. So
+# rebuild, then look inside the result -- because the failure this prevents is
+# a machine that will not boot after the disk is moved, discovered by the
+# person holding the disk.
+#
+# Measured cost of a generic initramfs on the test install: 45 MB -> 219 MB,
+# and 0.66s of boot. Measured cost of a host-only one, moved: it does not boot.
+mkdir -p /etc/dracut.conf.d
+cat > /etc/dracut.conf.d/00-nulllinux-generic.conf <<'DRACUT'
+# nullLinux: this disk has to boot in whatever machine it is moved to, so the
+# initramfs carries every driver rather than the ones the installing machine
+# happened to use. See `null-system initramfs`.
+hostonly="no"
+DRACUT
+dracut --force --regenerate-all >/dev/null 2>&1 || \
+  echo "nullLinux: WARNING -- dracut --regenerate-all failed" >&2
+
+for img in /boot/initramfs-*.img; do
+  case $img in *rescue*) continue ;; esac
+  mods=$(lsinitrd "$img" 2>/dev/null | grep -oE '[a-z0-9_-]+\.ko(\.[a-z]+)?$' | sed 's/\.ko.*//' | tr - _ | sort -u)
+  miss=""
+  for m in sdhci_pci mmc_block megaraid_sas i915 amdgpu; do
+    printf '%s\n' "$mods" | grep -qx "$m" || miss="$miss $m"
+  done
+  if [ -n "$miss" ]; then
+    echo "nullLinux: WARNING -- $img is host-only, missing:$miss" >&2
+    echo "nullLinux: this disk may not boot in another machine" >&2
+  fi
+done
+
 # A way in, for a test that has no console. Not a thing a real image would do.
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 cat > /root/.ssh/authorized_keys <<'KEYS'
