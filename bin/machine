@@ -14,22 +14,48 @@ ROOT=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)
 
 die() { printf 'machine: %s\n' "$*" >&2; exit 1; }
 
+# READ ONCE. `check-profile` runs on every boot, before the display manager,
+# and it used to spend 670 ms of that boot doing this: three `get` calls, each
+# one running `hostname`, `sed` and `awk` over the same twenty-line file. The
+# file does not change between the first read and the third.
+declare -A PROFILE=()
+PROFILE_PATH=""
+PROFILE_LOADED=0
+
 profile_path() {
-  local n=${NULL_MACHINE:-$(hostname -s 2>/dev/null || hostname)}
-  local p="$ROOT/machines/$n.conf"
-  [ -r "$p" ] || die "no profile for '$n' (expected $p; set NULL_MACHINE to override)"
-  echo "$p"
+  if [ -z "$PROFILE_PATH" ]; then
+    local n=${NULL_MACHINE:-$(hostname -s 2>/dev/null || hostname)}
+    local p="$ROOT/machines/$n.conf"
+    [ -r "$p" ] || die "no profile for '$n' (expected $p; set NULL_MACHINE to override)"
+    PROFILE_PATH=$p
+  fi
+  printf '%s\n' "$PROFILE_PATH"
+}
+
+load_profile() {
+  [ "$PROFILE_LOADED" = 1 ] && return 0
+  local p; p=$(profile_path) || return 1
+  local line k v
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}
+    case $line in *=*) ;; *) continue ;; esac
+    k=${line%%=*}; v=${line#*=}
+    # Trim, without spawning anything to do it.
+    k=${k#"${k%%[![:space:]]*}"}; k=${k%"${k##*[![:space:]]}"}
+    v=${v#"${v%%[![:space:]]*}"}; v=${v%"${v##*[![:space:]]}"}
+    [ -n "$k" ] || continue
+    PROFILE["$k"]=$v
+  done < "$p"
+  PROFILE_LOADED=1
 }
 
 # Read one key. Strips comments and surrounding whitespace. Fails loudly on a
 # key that is not there, rather than returning empty -- an empty geometry that
 # silently becomes zero is worse than a stopped program.
 get() {
-  local key=$1 val
-  val=$(sed -e 's/#.*//' "$(profile_path)" \
-        | awk -F= -v k="$key" '$1 ~ "^[[:space:]]*"k"[[:space:]]*$" {sub(/^[[:space:]]*/,"",$2); sub(/[[:space:]]*$/,"",$2); print $2; found=1} END{exit !found}') \
-    || die "profile has no key '$key'"
-  printf '%s\n' "$val"
+  load_profile
+  [ -n "${PROFILE[$1]+set}" ] || die "profile has no key '$1'"
+  printf '%s\n' "${PROFILE[$1]}"
 }
 
 # Derived, never stored. A grid that is written down in two places is a grid
@@ -59,13 +85,20 @@ STRIKES="6x12:ter-u12n:ter-112n 8x14:ter-u14n:ter-114n 8x16:ter-u16n:ter-116n
 # a machine that has not started one yet -- which is every machine, once, and
 # is the whole difficulty of installing onto hardware nobody has seen.
 detect_output() {
-  if command -v swaymsg >/dev/null 2>&1 && swaymsg -t get_version >/dev/null 2>&1; then
-    swaymsg -t get_outputs -r | python3 -c '
-import json, sys
-o = json.load(sys.stdin)[0]
-m = o.get("current_mode") or {}
-print(o["name"], m.get("width", 0), m.get("height", 0), o.get("scale", 1.0))'
-    return 0
+  # ASK THE COMPOSITOR, NOT sway.
+  #
+  # This used to shell out to `swaymsg -t get_outputs -r` and parse the JSON
+  # with python3 -- two processes and a Python interpreter start, about 140ms,
+  # on a path that runs before the display manager. `render outputs` is a
+  # wl_output listener over the running compositor's own protocol: it costs a
+  # few milliseconds, it needs no sway, and it prints name/width/height/scale
+  # tab-separated, which is the shape this function returns anyway.
+  local rbin="$ROOT/render/target/release/render" line
+  if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -x "$rbin" ]; then
+    if line=$("$rbin" outputs 2>/dev/null | head -1) && [ -n "$line" ]; then
+      printf '%s\n' "$line" | tr '\t' ' '
+      return 0
+    fi
   fi
   # No compositor: ask DRM directly. The connector that is "connected" and has
   # a mode is the one a compositor would pick too.
@@ -197,8 +230,16 @@ PROFILE
 # compositor exists and regenerate the profile for no reason.
 check_profile() {
   local p; p=$(profile_path 2>/dev/null) || { echo "  no profile for $(hostname -s 2>/dev/null || hostname)"; return 1; }
+  # Read the array directly rather than through three `$(get ...)`, each of
+  # which is a subshell that would parse the file again and throw the result
+  # away. The caching only helps if the cache survives the read.
   local rout rw rh
-  rout=$(get output) ; rw=$(get width) ; rh=$(get height)
+  load_profile
+  rout=${PROFILE[output]-} ; rw=${PROFILE[width]-} ; rh=${PROFILE[height]-}
+  if [ -z "$rout" ] || [ -z "$rw" ] || [ -z "$rh" ]; then
+    echo "  $p is missing output/width/height"
+    return 1
+  fi
   local dout dw dh dscale
   if ! read -r dout dw dh dscale < <(detect_output); then
     # NOT A MISMATCH. Nothing is attached, or nothing can be read -- and

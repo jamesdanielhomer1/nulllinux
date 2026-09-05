@@ -49,6 +49,7 @@ Requires:       brightnessctl
 Requires:       btop
 Requires:       cava
 Requires:       cliphist
+Requires:       dracut-config-generic
 Requires:       dunst
 Requires:       fd-find
 Requires:       firefox
