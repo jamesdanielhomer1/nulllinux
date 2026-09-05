@@ -61,8 +61,20 @@ case "${1:-}" in
     if ! flock -w 600 9; then die "timed out waiting for another derivation"; fi
     [ -s "$p" ] && { echo "$p"; exit 0; }
 
+    # THE RUST DERIVER, not the Python one.
+    #
+    # They do the same work and agree to within one ramp step
+    # (verify/check-derive-parity.sh). The Python needs numpy -- about 30 MB on
+    # every installed machine, to run for two minutes once per screen, when
+    # nothing else installed needs numpy at all. The Rust does it in twelve
+    # seconds with no dependency beyond what the renderer already links.
+    #
+    # bake/derive_for_screen.py stays as the reference the parity check
+    # measures against, and is what a build host uses.
     tmp="$p.partial.$$"
-    if python3 "$ROOT/bake/derive_for_screen.py" \
+    RENDER="$ROOT/render/target/release/render"
+    [ -x "$RENDER" ] || die "$RENDER is not built"
+    if "$RENDER" derive \
          --master "$MASTER" --cols "$cols" --rows "$rows" \
          --ramp "$ramp" \
          --palette-meta "$ROOT/assets/palette.json" \

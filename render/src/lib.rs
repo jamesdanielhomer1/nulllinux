@@ -7,6 +7,7 @@
 
 pub mod atlas;
 pub mod cells;
+pub mod derive;
 pub mod grid;
 pub mod ipc;
 pub mod outputs;

@@ -9,6 +9,7 @@ mod ansi;
 mod raster;
 mod ipc;
 mod layershell;
+use nulllinux::derive;
 
 use std::time::Duration;
 
@@ -23,12 +24,14 @@ backends:
   still --frame N --out   write one frame as ANSI text (for /etc/issue)
   layershell              animate as a compositor surface
   outputs                 list the compositor's screens: name, w, h, scale
+  derive                  build a cells file for one grid from the master
 
 options:
   --seconds N             stop after N seconds (ansi)
   --layer overlay         map on the overlay layer (implies --force-animate)
   --force-animate         never suspend, even when occluded
   --output NAME           pin the surface to one screen (layershell)
+  --master F --cols N --rows M --ramp F --out F      (derive)
 "
     );
     std::process::exit(2)
@@ -75,6 +78,43 @@ fn main() {
             Ok(v) => { for (n, w, h, sc) in v { println!("{n}\t{w}\t{h}\t{sc}") } }
             Err(e) => { eprintln!("render: {e}"); std::process::exit(1) }
         }
+        return;
+    }
+
+    // `derive` builds a cells file from the master; it reads no cells file, so
+    // it must not require --file. Decided by the backend, before loading.
+    if backend == "derive" {
+        let need = |n: &str| arg(&args, n).unwrap_or_else(|| {
+            eprintln!("render derive: {n} is required"); std::process::exit(2) });
+        let master = need("--master");
+        let out = need("--out");
+        let cols: usize = need("--cols").parse().unwrap_or_else(|_| { eprintln!("--cols must be a number"); std::process::exit(2) });
+        let rows: usize = need("--rows").parse().unwrap_or_else(|_| { eprintln!("--rows must be a number"); std::process::exit(2) });
+        let ramp_p = need("--ramp");
+        let pal_meta = arg(&args, "--palette-meta").unwrap_or_else(|| "assets/palette.json".into());
+        let pal_bin = arg(&args, "--palette").unwrap_or_else(|| "assets/palette.bin".into());
+        let k_residual: f32 = arg(&args, "--k-residual").and_then(|v| v.parse().ok()).unwrap_or(1.5);
+        let hyst: f32 = arg(&args, "--hysteresis").and_then(|v| v.parse().ok()).unwrap_or(0.25);
+
+        let die = |e: String| -> ! { eprintln!("render derive: {e}"); std::process::exit(1) };
+        let m = derive::Master::load(std::path::Path::new(&master)).unwrap_or_else(|e| die(e));
+        let ramp = derive::Ramp::load(std::path::Path::new(&ramp_p)).unwrap_or_else(|e| die(e));
+
+        let meta = std::fs::read_to_string(&pal_meta).unwrap_or_else(|e| die(format!("{pal_meta}: {e}")));
+        let mv: serde_json::Value = serde_json::from_str(&meta).unwrap_or_else(|e| die(e.to_string()));
+        let temps: Vec<f32> = mv.get("temperatures_K").and_then(|t| t.as_array())
+            .unwrap_or_else(|| die(format!("{pal_meta}: no temperatures_K")))
+            .iter().filter_map(|x| x.as_f64()).map(|x| x as f32).collect();
+        let raw = std::fs::read(&pal_bin).unwrap_or_else(|e| die(format!("{pal_bin}: {e}")));
+        let palette: Vec<[u8; 3]> = raw.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+
+        let mut log = |s: &str| println!("{s}");
+        let d = derive::derive(&m, cols, rows, &ramp, &temps, k_residual, hyst, &mut log)
+            .unwrap_or_else(|e| die(e));
+        derive::write_cells(std::path::Path::new(&out), &d, &ramp, &palette)
+            .unwrap_or_else(|e| die(e));
+        let n = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+        println!("  -> {out}  {n} bytes");
         return;
     }
 
