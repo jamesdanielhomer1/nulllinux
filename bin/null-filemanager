@@ -11,6 +11,17 @@ set -uo pipefail
 Q=xfconf-query
 command -v $Q >/dev/null || { echo "null-filemanager: xfconf-query is not installed" >&2; exit 1; }
 
+# xfconf ANSWERS OVER D-BUS, so with no session bus every key reads as unset --
+# which looks exactly like a machine that was never configured. Reporting that
+# as a failure is wrong twice over: it is not measuring the setting, and it
+# cannot, so it should say so.
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ ! -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]; then
+  echo "null-filemanager: no session bus, so xfconf cannot be read here."
+  echo "  Every key would report <unset> whether it is set or not."
+  echo "  SKIPPED -- run this from a desktop session."
+  exit 0
+fi
+
 set_one() { $Q -c thunar -p "$1" -n -t "$2" -s "$3" 2>/dev/null || $Q -c thunar -p "$1" -t "$2" -s "$3"; }
 
 case "${1:-open}" in

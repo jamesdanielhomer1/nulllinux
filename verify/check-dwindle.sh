@@ -14,8 +14,15 @@ set -uo pipefail
 N=${1:-5}
 WS=${NULL_TEST_WS:-99}
 
-command -v swaymsg >/dev/null || { echo "no swaymsg"; exit 1; }
-swaymsg -t get_version >/dev/null 2>&1 || { echo "no compositor"; exit 1; }
+# A CHECK THAT CANNOT RUN HERE IS NOT A CHECK THAT FAILED.
+#
+# These exited 1, so the suite reported a failure whenever it was run without a
+# graphical session -- from a systemd unit or cron, say. That is indistinguish-
+# able from the layout being broken, and it trains people to ignore the suite.
+command -v swaymsg >/dev/null || {
+  echo "SKIPPED: no swaymsg, so there is no compositor to ask"; exit 0; }
+swaymsg -t get_version >/dev/null 2>&1 || {
+  echo "SKIPPED: no compositor answering; run this from a graphical session"; exit 0; }
 
 pgrep -x dwindle >/dev/null || { echo "FAIL: the dwindle daemon is not running"; exit 1; }
 echo "daemon running (pid $(pgrep -x dwindle | head -1))"

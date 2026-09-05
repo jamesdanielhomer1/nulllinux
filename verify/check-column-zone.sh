@@ -18,6 +18,37 @@ COL=./render/target/release/column
 # A check that damages the thing it checks is worse than no check: it is a
 # check with a cost nobody attributed to it, so the surface looked flaky and
 # the verifier looked innocent.
+# REFUSE BEFORE TOUCHING ANYTHING.
+#
+# The restore path below needs a compositor to start the column again. Run
+# without one -- from a systemd unit, from cron, from any shell with no session
+# -- this killed the live column and then could not put it back, and reported
+# "could not restart the column: the desktop is left without it" as if that
+# were a finding rather than damage it had just done.
+#
+# Checked FIRST, so the failure mode is a skipped check rather than a desktop
+# missing its sidebar.
+if [ -z "${SWAYSOCK:-}" ] && ! swaymsg -t get_version >/dev/null 2>&1; then
+  echo "SKIPPED: no compositor to measure against, and this check tears the"
+  echo "         column down to do its work. Run it from a graphical session."
+  exit 0
+fi
+
+# AND THE COLUMN IT WOULD RESTART MUST BE THE ONE IT KILLS.
+#
+# This restarts $ROOT/bin/null-column. On a machine running a different
+# checkout -- a build host with the predecessor installed, say -- that means
+# killing theirs and starting ours, which is not a test, it is a takeover.
+running_exe=$(for p in $(pgrep -x column 2>/dev/null); do
+                readlink -f "/proc/$p/exe" 2>/dev/null | sed 's/ (deleted)$//'; done | head -1)
+ours=$(readlink -f "$ROOT/render/target/release/column" 2>/dev/null)
+if [ -n "$running_exe" ] && [ "$running_exe" != "$ours" ]; then
+  echo "SKIPPED: the running column is $running_exe,"
+  echo "         not this tree's $ours."
+  echo "         Tearing it down would replace another installation's sidebar."
+  exit 0
+fi
+
 was_running=0
 pgrep -x column >/dev/null 2>&1 && was_running=1
 

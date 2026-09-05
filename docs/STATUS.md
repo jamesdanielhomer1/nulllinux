@@ -305,3 +305,81 @@ than the checker growing exemptions.
 - Audio has never been exercised anywhere -- root cannot run PipeWire and the
   VM has no sound device -- so the mixer and the equaliser are unverified
   against real audio.
+
+---
+
+## The ISO carries the bake, and each screen derives its own (2026-09-04)
+
+The package shipped forty-five quantised grids -- nine strikes by five rungs --
+and a screen was given whichever came closest. That is exact on 1920x1080 and
+2560x1440 and on nothing else. The laptop this now runs on is 1366x768, and
+1366 = 2 x 683 with 683 prime, so no rung divides it: the wallpaper drew a
+1920x1080 surface and the black hole fell off the edge of the screen.
+
+**The master ships instead.** `bake/pack_master.py` packs the bake into 9.1 MB
+-- smaller than the forty-five grids it replaces -- and any grid is derived
+from it exactly. The quantiser only ever read two things from an HDR frame:
+
+    L = arr[..., :3] @ LUMA     luminance
+    T = arr[..., 3]             observed temperature
+
+Colour is a function of one variable (§4.5), so RGB exists only to be collapsed
+into L. Two channels at float16 is lossless for everything downstream: 423 MB
+becomes 9.1 MB, 46x. float16 was checked rather than assumed -- it loses no lit
+cell and moves the P30 black point by four parts in a million.
+
+`quantise.py` grew `quantise_frame_lt` and `quantise_sequence` so the bake and a
+screen run the SAME exposure, hysteresis and loop closure; the refactor was
+proved by quantising the whole master before and after and comparing bytes.
+
+**The tone curve travels inside the master.** It is swept by `bake/tune.py` and
+is a property of the emission model, not of any grid -- a machine deriving its
+own cannot re-run a sweep. Leaving it out did not look like an error: the
+defaults blank 34% of the subject and drop ink from 15.4% to 10.2%, which reads
+as a dimmer picture. Found by deriving a grid that MATCHES a prebuilt rung and
+comparing: with the curve carried, ink is 16.21% against 16.22%, glyphs
+identical in 98.3% of cells and within one ramp step in 100.0%.
+
+Nothing waits for it. The wallpaper starts on the nearest rung and derives
+behind it; `bin/null-hero` caches per (grid, ramp), flock-guarded, system-wide.
+Measured: up instantly, exact about two minutes later, and a warm start goes
+straight to exact.
+
+### The ISO now contains the package
+
+lorax builds boot media with no payload, so every package came over the
+network -- the raytraced hero travelled separately from the thing that installs
+it. A comment claimed `-i nulllinux` put it on the image; there was no such
+flag. `mkksiso` embeds the repo and the kickstart now, and the build refuses to
+ship a kickstart with a placeholder left in it.
+
+**Verified on a machine installed from that ISO**, with no source tree and no
+repository of ours reachable: it installed from `file:///run/install/repo/
+nulllinux`, then derived 213x60 from the shipped master and swapped onto it.
+
+### What this cost, and what it taught
+
+Five things failed on the way, and only one was the product:
+
+| what failed | why |
+|---|---|
+| `bake/` absent from the RPM | excluded deliberately when nothing derived; the deriver IS `bake/`. Every test passed because they ran from a source tree on the build host. |
+| lorax died at 12:37, no trace | the machine was shut down under it |
+| "Failed to download packages" | a single `baseurl` is a single mirror: one interrupted transfer, and *"No more mirrors to try"* for a file answering 200 seconds later. Metalinks now. |
+| "Failed to download metadata" | `&` in a sed replacement means *the whole match*, so `repo=fedora-44&arch=x86_64` became `repo=fedora-44NULLLINUX_BASEURLarch=x86_64` |
+| numpy would not import | qemu's default CPU is below x86-64-v2, the baseline Fedora builds numpy for |
+
+Only the first was a defect in nulllinux, and it was found by asking what the
+RPM contains rather than what works on this machine -- which is a different
+question, because this machine predates nulllinux and runs the tree it grew
+out of.
+
+### Still open
+
+- Deriving is ~2 minutes of numpy per grid. `python3-numpy` is a runtime
+  dependency now, about 30 MB. The honest end state is a Rust deriver and no
+  numpy at all.
+- A grid whose ratio differs from the master's 640:180 is letterboxed, because
+  a different framing needs its own camera (§5.3) and there is no GPU on an
+  installed machine. On 16:9 at any strike this is within one cell.
+- Audio has never worked in any environment tested.
