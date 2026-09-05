@@ -400,7 +400,7 @@ out of.
 
 ---
 
-## The boot splash: applied, safe, and still not ours (2026-09-05)
+## The boot splash (2026-09-05) -- SOLVED, see the end of this section
 
 `null-system plymouth --apply --fallback-verified` works, the machine boots
 fine afterwards, and the risk the gate guards against did not materialise. The
@@ -432,11 +432,36 @@ spinner instead of the theme. Everything that could be missing is present:
 | `default.plymouth` | symlinked to ours, and in the image |
 | plymouth ran | 9 s, `plymouth-start.service` active |
 
-It draws the stock background, so it is not failing to draw -- it is drawing
-something else. Not diagnosed. **The splash therefore stays staged rather than
-applied**: `null-machine-sync` installs the theme and prints how to commit it,
-and does not commit it. Shipping a splash that renders as stock Fedora would be
-worse than shipping none, because it looks like it worked.
+**Diagnosed and fixed.** `plymouth.debug=file:/var/log/plymouth-debug.log` on
+the kernel command line was the only thing that showed it:
+
+    two-step/plugin.c:1862  show_splash_scree: loading lock image
+    ply-boot-splash.c:553   can't show splash: No such file or directory
+    main.c:505              Could not start default splash screen,
+                            showing text splash screen
+
+The two-step plugin loads the password-prompt furniture -- `lock.png`,
+`box.png`, and the entry widget -- at `show_splash_screen`, BEFORE it reaches
+the animation, and one missing file abandons the whole splash. It never names
+the file. Fedora's themes get those images from packages a minimal install does
+not pull in; the `spinner` theme on a fresh install ships `watermark.png` and
+nothing else.
+
+The generator draws them now, in the palette, and
+`verify/check-splash-complete.sh` asserts each one -- the failure is silent and
+looks like a plain theme that loaded.
+
+Measured through a boot, from the package, with the hand-copied experiment
+deleted first:
+
+    t+0    to t+10.2s   splash   hero on (5,6,10), no login box
+    t+11   to t+14.4s   handover
+    t+15.3s onward      greeter  hero and login box
+
+The splash still stays STAGED rather than applied by `null-machine-sync`: it
+rewrites the initramfs, and §9.6 wants the fallback entry confirmed by an
+actual reboot first. That is a decision for whoever owns the machine, not for a
+first-boot service. It is verified to render correctly when applied.
 
 **A harness note worth keeping:** with `console=ttyS0` on the kernel command
 line plymouth stays in text mode entirely and no splash of any kind appears.

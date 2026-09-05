@@ -58,6 +58,7 @@ Requires:       git
 Requires:       grim
 Requires:       iw
 Requires:       playerctl
+Requires:       plymouth-plugin-two-step
 Requires:       sddm
 Requires:       slurp
 Requires:       sway
