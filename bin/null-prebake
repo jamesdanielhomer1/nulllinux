@@ -80,9 +80,10 @@ restore() { [ -s "$saved_ramp" ] && cp "$saved_ramp" assets/ramp-bake.json; rm -
 trap restore EXIT
 
 # The strike the splash and greeter are rendered at. One of the nine, chosen
-# because 8x16 is the commonest console cell; nothing downstream depends on
-# which, because the frames are rasterised PNGs by the time anyone sees them.
-BOOT_STRIKE=${BOOT_STRIKE:-ter-116n}
+# because 6x12 with target-4 gives 960x540 -- small enough to fit any screen
+# worth booting, and the frames are rasterised PNGs by the time anyone sees
+# them, so nothing downstream depends on which strike drew them.
+BOOT_STRIKE=${BOOT_STRIKE:-ter-112n}
 
 fail=0
 for strike in $STRIKES; do
@@ -119,10 +120,20 @@ done
 # One set, from one strike, rather than nine. A splash is a centred image and
 # does not have to match the panel -- and a brand that looks the same on every
 # machine is the better answer anyway. 1.3 MB.
+#
+# IT MUST FIT, WHICH IS NOT THE SAME AS FILLING. Both themes place the frames
+# with fillMode Pad, because resampling a cell grid turns crisp glyphs into
+# mush -- so an image LARGER than the screen is cropped, not shrunk. The first
+# greeter was rendered from target-2 at 8x16, which is 2560x1440, and on a
+# 1280x800 panel the login fields sat in the middle of a cropped hero.
+#
+# target-4 at 6x12 is 960x540: it fits inside anything from a 1024x600 netbook
+# upward, and is centred with void around it on everything larger, which is
+# what the surface is meant to look like anyway.
 echo "the boot splash and the greeter"
 if ! python3 bake/make_boot_assets.py \
      --plymouth-cells "$OUT/$BOOT_STRIKE/target-4.cells" \
-     --sddm-cells "$OUT/$BOOT_STRIKE/target-2.cells" \
+     --sddm-cells "$OUT/$BOOT_STRIKE/target-4.cells" \
      --atlas "$OUT/strikes/atlas-$BOOT_STRIKE.bin" \
      --palette assets/palette.json \
      --out "$OUT/boot" 2>&1 | sed 's/^/  /'; then
