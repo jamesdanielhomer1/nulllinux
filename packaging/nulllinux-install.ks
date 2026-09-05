@@ -57,7 +57,22 @@ zerombr
 clearpart --all --initlabel --drives=vda
 autopart --type=plain --noswap
 
-bootloader --location=mbr --boot-drive=vda
+# THE INSTALLED SYSTEM'S KERNEL ARGUMENTS ARE SET HERE, NOT INHERITED.
+#
+# anaconda copies the INSTALLER's console= arguments into the installed
+# system's boot entries. The harness boots the installer with
+# console=ttyS0,115200 so it can capture the install log -- and the installed
+# system then inherited a serial console it has no reason to have.
+#
+# That is not cosmetic. With plymouth's graphical plugin present, a serial
+# console hangs the boot at initrd-switch-root: no further output, no ssh, and
+# zero disk I/O -- verified by querying qemu's blockstats twice twenty seconds
+# apart. Removing exactly those two arguments from the boot entry and nothing
+# else took the same disk from hung to a login screen in 32 seconds.
+#
+# It went unnoticed because it only appears once plymouth has a graphical
+# plugin to load, which it did not until plymouth-plugin-two-step was added.
+bootloader --location=mbr --boot-drive=vda --append="rhgb quiet"
 
 # A shell in the INSTALLER ENVIRONMENT, which is a different machine from the
 # one being installed. With inst.sshd on the command line this is the only way
