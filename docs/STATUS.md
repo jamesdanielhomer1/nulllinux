@@ -469,3 +469,24 @@ The installed system inherits that from the installer's own boot arguments, so
 the graphical path can only be tested after removing it -- `grubby
 --remove-args`. A real machine booted from the ISO has no serial console and
 does not have this.
+
+---
+
+## A boot hang I could not reproduce (2026-09-05)
+
+One install from the ISO hung at `initrd-switch-root` -- no further console
+output, no ssh, and **zero disk I/O** across twenty seconds of qemu
+`query-blockstats`, which is how "hung" was told from "slow". Removing
+`console=ttyS0,115200 console=tty0` from that disk's boot entry offline, and
+changing nothing else, took it from hung to a login screen in 32 seconds.
+
+A later identical install booted fine with those arguments still present.
+
+So: a serial console makes some race reachable at switch-root, and it is not
+deterministic. **No fix is claimed.** The installer's console arguments are now
+removed from the installed system in `%post` -- with `grubby`, checked
+afterwards -- because a machine inheriting the installer's serial console is
+wrong on its own terms, not because it is known to fix this.
+
+Worth knowing if it recurs: it appeared only after `plymouth-plugin-two-step`
+was installed, which is the first time plymouth had a graphical plugin to load.
