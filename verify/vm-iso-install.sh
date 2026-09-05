@@ -209,6 +209,17 @@ else
 fi
 
 # The server stays up for the guest to fetch from.
+  # A SOUND CARD, so audio is testable at all.
+  #
+  # Without one /dev/snd holds only seq and timer, PipeWire has nothing to
+  # attach to, and every audio surface reports a failure that is really the
+  # harness having no hardware. That is why "audio has never worked" was in the
+  # status notes for weeks: it had never been given anything to work with.
+  #
+  # hda-OUTPUT, not hda-duplex: with a null audiodev the duplex device hangs the
+  # guest at switch-root -- ten minutes, no ssh, no further console output --
+  # and playback alone is enough, because cava reads the monitor of a sink.
+  #
   # -cpu host, NOT qemu's default.
   #
   # The default model is "QEMU Virtual CPU version 2.5+", which has no SSE4.2
@@ -219,6 +230,7 @@ fi
 setsid qemu-system-x86_64 -enable-kvm -cpu host -m "$MEM" -smp 4 \
   "${BOOTARGS[@]}" \
   -netdev user,id=n0,hostfwd=tcp::"$PORT"-:22 -device virtio-net-pci,netdev=n0 \
+  -audiodev none,id=snd0 -device ich9-intel-hda -device hda-output,audiodev=snd0 \
   -display none -serial file:"$WORK/install-console.log" \
   -monitor unix:"$WORK/install-monitor",server,nowait \
   >/dev/null 2>&1 &

@@ -28,6 +28,113 @@ pub struct Spectrum {
     pub reason: Option<String>,
 }
 
+/// WHY there is no spectrum, rather than a guess at it.
+///
+/// This said "cava exited -- is an audio daemon running?" for every cause, and
+/// the answer was usually no: the daemon was running fine and the session had
+/// no permission to reach the card, or the machine had no card at all. A
+/// message that names the wrong cause is worse than one that names none --
+/// somebody acts on it.
+///
+/// The causes, in the order they have to be ruled out:
+///
+///   no card          nothing to listen to. A virtual machine with no sound
+///                    device is the common case, and no amount of daemon is
+///                    going to help it.
+///   no permission    the card is there and this session cannot open it.
+///                    logind grants an ACL to the user on the active SEAT, so
+///                    a session started with su, ssh or a systemd unit gets
+///                    nothing -- which is exactly how this looked broken for
+///                    weeks while being correct.
+///   no daemon        no PipeWire or PulseAudio socket in the runtime dir.
+///   otherwise        the daemon is there and cava still stopped; say so
+///                    plainly rather than inventing a reason.
+fn why_no_audio() -> String {
+    let rt = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
+    diagnose_audio(std::path::Path::new("/dev/snd"), std::path::Path::new(&rt))
+}
+
+/// The paths are arguments so the reasoning can be TESTED. A diagnosis that
+/// only runs against the real /dev is a diagnosis nobody checks, and this
+/// replaced a message that had been confidently wrong for weeks.
+fn diagnose_audio(snd: &std::path::Path, runtime: &std::path::Path) -> String {
+    let cards: Vec<_> = std::fs::read_dir(snd)
+        .map(|d| d.flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("controlC"))
+            .collect())
+        .unwrap_or_default();
+
+    if cards.is_empty() {
+        return "no spectrum: this machine has no sound card".into();
+    }
+
+    let readable = cards.iter().any(|e| std::fs::File::open(e.path()).is_ok());
+    if !readable {
+        return "no spectrum: no permission to open the sound card -- this \
+session is not on a seat, so logind granted it no access".into();
+    }
+
+    let daemon = runtime.as_os_str().len() > 0
+        && (runtime.join("pipewire-0").exists() || runtime.join("pulse/native").exists());
+    if !daemon {
+        return "no spectrum: a sound card is here but no audio daemon is \
+running for this session".into();
+    }
+
+    "no spectrum: cava stopped, though the card and the audio daemon are both here".into()
+}
+
+#[cfg(test)]
+mod audio_diagnosis {
+    use super::diagnose_audio;
+    use std::fs;
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("null-audio-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&p);
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn no_card_is_named_as_such() {
+        let snd = tmp("nocard");
+        let rt = tmp("nocard-rt");
+        assert!(diagnose_audio(&snd, &rt).contains("no sound card"));
+    }
+
+    #[test]
+    fn a_card_with_no_daemon_does_not_blame_the_card() {
+        let snd = tmp("nodaemon");
+        fs::write(snd.join("controlC0"), b"").unwrap();
+        let rt = tmp("nodaemon-rt");
+        let msg = diagnose_audio(&snd, &rt);
+        assert!(msg.contains("no audio daemon"), "{msg}");
+        assert!(!msg.contains("no sound card"), "{msg}");
+    }
+
+    #[test]
+    fn a_card_and_a_daemon_blames_neither() {
+        let snd = tmp("ok");
+        fs::write(snd.join("controlC0"), b"").unwrap();
+        let rt = tmp("ok-rt");
+        fs::write(rt.join("pipewire-0"), b"").unwrap();
+        let msg = diagnose_audio(&snd, &rt);
+        assert!(msg.contains("cava stopped"), "{msg}");
+        assert!(!msg.contains("no sound card") && !msg.contains("no audio daemon"), "{msg}");
+    }
+
+    #[test]
+    fn pulse_counts_as_a_daemon_too() {
+        let snd = tmp("pulse");
+        fs::write(snd.join("controlC0"), b"").unwrap();
+        let rt = tmp("pulse-rt");
+        fs::create_dir_all(rt.join("pulse")).unwrap();
+        fs::write(rt.join("pulse/native"), b"").unwrap();
+        assert!(diagnose_audio(&snd, &rt).contains("cava stopped"));
+    }
+}
+
 impl Spectrum {
     /// Levels cava is asked for.
     ///
@@ -108,7 +215,7 @@ impl Spectrum {
         if let Some(c) = self.child.as_mut() {
             if matches!(c.try_wait(), Ok(Some(_))) {
                 self.child = None;
-                self.reason = Some("cava exited -- is an audio daemon running?".into());
+                self.reason = Some(why_no_audio());
                 self.bars.clear();
                 return true;
             }
