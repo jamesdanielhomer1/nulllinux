@@ -255,28 +255,82 @@ pub fn battery() -> Option<Battery> { battery_at(std::path::Path::new("/sys/clas
 /// the battery is full on the mains, so the discharging path never runs, and
 /// "it compiles and shows 100%" is not evidence that it works.
 pub fn battery_at(root: &std::path::Path) -> Option<Battery> {
+    // EVERY BATTERY, NOT THE FIRST ONE FOUND.
+    //
+    // This returned on the first BAT* directory readdir happened to yield, and
+    // directory order is arbitrary. On a ThinkPad with a power bridge -- an
+    // internal cell and a removable one -- that is a coin toss between two
+    // numbers, neither of which is the answer: this machine reported 5% or 83%
+    // depending on the order, while actually holding 63% of its capacity.
+    //
+    // Percentages cannot be added, so the aggregate is computed from ENERGY:
+    // the sum of what is in the cells over the sum of what they hold. With one
+    // battery that is identical to reading its capacity, so nothing changes on
+    // a machine that has one.
+    let mut sum_now = 0f64;
+    let mut sum_full = 0f64;
+    let mut sum_rate = 0f64;
+    let mut have_energy = false;
+    let mut caps: Vec<f64> = Vec::new();
+    let mut charging = false;
+    let mut found = false;
+
     for e in fs::read_dir(root).ok()?.flatten() {
         let p = e.path();
-        if !p.file_name()?.to_string_lossy().starts_with("BAT") { continue }
-        let cap = fs::read_to_string(p.join("capacity")).ok()?.trim().parse().ok()?;
+        let Some(name) = p.file_name() else { continue };
+        if !name.to_string_lossy().starts_with("BAT") { continue }
+        found = true;
+
         let status = fs::read_to_string(p.join("status")).unwrap_or_default();
-        let charging = status.trim() == "Charging";
+        // Any cell taking charge means the machine is charging. "Not charging"
+        // is what a full cell says while another is still filling, and reading
+        // it as "on battery" would count down a machine that is plugged in.
+        if status.trim() == "Charging" { charging = true }
+
+        if let Ok(c) = fs::read_to_string(p.join("capacity")) {
+            if let Ok(v) = c.trim().parse::<f64>() { caps.push(v) }
+        }
+
         // Two kernels, two vocabularies. Some batteries report CHARGE in uAh
         // with a current in uA; others report ENERGY in uWh with a power in
         // uW. Which one a machine uses is a property of the machine, so both
-        // are tried rather than one being assumed (§0.2) -- this laptop has
-        // only the charge set, and a machine with only the energy set would
-        // have silently shown no estimate at all.
+        // are tried rather than one being assumed (§0.2).
         let num = |f: &str| -> Option<f64> {
             fs::read_to_string(p.join(f)).ok()?.trim().parse::<f64>().ok()
         };
-        let triple = num("charge_now").zip(num("charge_full")).zip(num("current_now"))
-            .or_else(|| num("energy_now").zip(num("energy_full")).zip(num("power_now")));
-        let secs_left = triple
-            .and_then(|((now, full), rate)| battery_eta(now, full, rate, charging));
-        return Some(Battery { percent: cap, charging, secs_left });
+        let pair = num("charge_now").zip(num("charge_full"))
+            .or_else(|| num("energy_now").zip(num("energy_full")));
+        if let Some((now, full)) = pair {
+            if full > 0.0 {
+                sum_now += now;
+                sum_full += full;
+                have_energy = true;
+                // A rate is optional: a full cell on the mains reports none,
+                // and its absence must not discard the others.
+                if let Some(r) = num("current_now").or_else(|| num("power_now")) {
+                    sum_rate += r;
+                }
+            }
+        }
     }
-    None
+    if !found { return None }
+
+    let percent = if have_energy {
+        (100.0 * sum_now / sum_full).round().clamp(0.0, 100.0) as u8
+    } else if !caps.is_empty() {
+        // No energy figures anywhere. Averaging percentages is not right, but
+        // it is the only thing left, and with one battery it is exact.
+        (caps.iter().sum::<f64>() / caps.len() as f64).round().clamp(0.0, 100.0) as u8
+    } else {
+        return None;
+    };
+
+    let secs_left = if have_energy {
+        battery_eta(sum_now, sum_full, sum_rate, charging)
+    } else {
+        None
+    };
+    Some(Battery { percent, charging, secs_left })
 }
 
 /// Wireless link quality as a fraction.
@@ -629,10 +683,53 @@ mod battery_tests {
     fn this_machine_agrees_with_its_own_sysfs() {
         // Not a fixture: the real battery, checked against the files directly,
         // so the field names are known to match at least one real kernel.
+        //
+        // NOT BAT0's capacity. This asserted that, which is only the answer on
+        // a machine with one battery -- and on the two-battery ThinkPad it
+        // moved to, BAT0 read 5% while the machine held 63%. The test was
+        // asserting the same assumption the code made, so it could not catch
+        // it; it now recomputes the aggregate the same way a reader would.
         let Some(b) = super::battery() else { return };
-        let cap: u8 = std::fs::read_to_string("/sys/class/power_supply/BAT0/capacity")
-            .map(|s| s.trim().parse().unwrap_or(0)).unwrap_or(0);
-        if cap > 0 { assert_eq!(b.percent, cap) }
+        let (mut now, mut full) = (0f64, 0f64);
+        let Ok(dir) = std::fs::read_dir("/sys/class/power_supply") else { return };
+        for e in dir.flatten() {
+            let p = e.path();
+            if !p.file_name().map(|n| n.to_string_lossy().starts_with("BAT")).unwrap_or(false) { continue }
+            let num = |f: &str| -> Option<f64> {
+                std::fs::read_to_string(p.join(f)).ok()?.trim().parse().ok() };
+            if let Some((n, f)) = num("charge_now").zip(num("charge_full"))
+                .or_else(|| num("energy_now").zip(num("energy_full"))) {
+                now += n; full += f;
+            }
+        }
+        if full > 0.0 {
+            let want = (100.0 * now / full).round() as u8;
+            assert_eq!(b.percent, want, "aggregate over every cell, not the first one found");
+        }
+    }
+
+    #[test]
+    fn two_batteries_are_one_reading() {
+        // A ThinkPad power bridge: a nearly empty internal cell and a fuller
+        // removable one. Reading either alone is wrong; the machine holds the
+        // sum of both over the sum of their capacities.
+        let root = std::env::temp_dir().join(format!("null-bat2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for (name, now, full, status) in [("BAT0", "1080000", "23940000", "Not charging\n"),
+                                          ("BAT1", "58970000", "71040000", "Charging\n")] {
+            let d = root.join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("energy_now"), now).unwrap();
+            std::fs::write(d.join("energy_full"), full).unwrap();
+            std::fs::write(d.join("status"), status).unwrap();
+            // capacity is present and per-cell, exactly as the kernel reports:
+            // 5 and 83. Neither is the answer.
+            std::fs::write(d.join("capacity"), if name == "BAT0" { "5\n" } else { "83\n" }).unwrap();
+        }
+        let b = super::battery_at(&root).expect("a battery");
+        assert_eq!(b.percent, 63, "60.05 Wh of 94.98 Wh is 63%, not 5% and not 83%");
+        assert!(b.charging, "one cell charging means the machine is charging");
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
