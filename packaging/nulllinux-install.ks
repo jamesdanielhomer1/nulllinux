@@ -96,6 +96,19 @@ nulllinux
 # inside the installer's chroot, where enabling can be lost.
 systemctl enable nulllinux-machine-sync.service 2>/dev/null || true
 
+# THE FIRST BOOT HAS TO REACH THE DESKTOP, not the one after it.
+#
+# null-install enables sddm and sets graphical.target, but it runs from
+# nulllinux-machine-sync at multi-user -- by which point boot has already gone
+# past where a display manager would have started. So the first boot after an
+# install came up on a text console and only the SECOND showed the desktop,
+# which is not a thing anyone would forgive an installer for.
+#
+# Neither enabling a unit nor setting the default target needs a display, so
+# both belong here, in the installed system, before it has ever booted.
+systemctl enable sddm.service 2>/dev/null || true
+systemctl set-default graphical.target 2>/dev/null || true
+
 # A way in, for a test that has no console. Not a thing a real image would do.
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 cat > /root/.ssh/authorized_keys <<'KEYS'
