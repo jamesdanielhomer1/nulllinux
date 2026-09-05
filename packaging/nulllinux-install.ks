@@ -57,22 +57,13 @@ zerombr
 clearpart --all --initlabel --drives=vda
 autopart --type=plain --noswap
 
-# THE INSTALLED SYSTEM'S KERNEL ARGUMENTS ARE SET HERE, NOT INHERITED.
-#
 # anaconda copies the INSTALLER's console= arguments into the installed
 # system's boot entries. The harness boots the installer with
-# console=ttyS0,115200 so it can capture the install log -- and the installed
-# system then inherited a serial console it has no reason to have.
-#
-# That is not cosmetic. With plymouth's graphical plugin present, a serial
-# console hangs the boot at initrd-switch-root: no further output, no ssh, and
-# zero disk I/O -- verified by querying qemu's blockstats twice twenty seconds
-# apart. Removing exactly those two arguments from the boot entry and nothing
-# else took the same disk from hung to a login screen in 32 seconds.
-#
-# It went unnoticed because it only appears once plymouth has a graphical
-# plugin to load, which it did not until plymouth-plugin-two-step was added.
-bootloader --location=mbr --boot-drive=vda --append="rhgb quiet"
+# console=ttyS0,115200 so it can capture the install log, and the installed
+# system inherits a serial console it has no reason to have. --append does NOT
+# replace them -- it adds to them -- so they are removed in %post, where it can
+# be verified rather than assumed.
+bootloader --location=mbr --boot-drive=vda
 
 # A shell in the INSTALLER ENVIRONMENT, which is a different machine from the
 # one being installed. With inst.sshd on the command line this is the only way
@@ -123,6 +114,26 @@ systemctl enable nulllinux-machine-sync.service 2>/dev/null || true
 # both belong here, in the installed system, before it has ever booted.
 systemctl enable sddm.service 2>/dev/null || true
 systemctl set-default graphical.target 2>/dev/null || true
+
+# THE INSTALLER'S SERIAL CONSOLE IS NOT THE INSTALLED SYSTEM'S.
+#
+# anaconda copies its own console= arguments into the boot entries it writes.
+# `bootloader --append` adds to them rather than replacing them, so they are
+# taken out here and the result is checked.
+#
+# WHY IT MATTERS, STATED HONESTLY: one install hung at initrd-switch-root --
+# no output, no ssh, zero disk I/O over twenty seconds of qemu blockstats --
+# and removing exactly these two arguments from that disk, changing nothing
+# else, took it from hung to a login screen in 32 seconds. A later identical
+# install then booted fine WITH them. So this is a race that a serial console
+# makes reachable, not a deterministic failure, and removing the console the
+# installed system never asked for is worth doing on its own terms.
+if command -v grubby >/dev/null 2>&1; then
+  grubby --update-kernel=ALL --remove-args="console=ttyS0,115200 console=tty0" 2>/dev/null || true
+  if grubby --info=DEFAULT 2>/dev/null | grep -q "console=ttyS0"; then
+    echo "nullLinux: WARNING -- could not remove the installer's serial console" >&2
+  fi
+fi
 
 # A way in, for a test that has no console. Not a thing a real image would do.
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
