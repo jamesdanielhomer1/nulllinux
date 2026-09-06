@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.." || exit 1
 fail=0
 note() { printf '  %s\n' "$*"; }
 
-grep -qx 'dracut-config-generic' packages/fedora/base.list || {
+./bin/pkg list-packages base 2>/dev/null | tr ' ' '\\n' | grep -qx 'dracut-config-generic' || {
   note "packages/fedora/base.list: dracut-config-generic is gone -- anaconda will build a host-only initramfs"; fail=1; }
 
 grep -q 'hostonly="no"' packaging/nulllinux-install.ks || {

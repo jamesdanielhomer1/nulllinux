@@ -90,6 +90,49 @@ dracut-config-generic
 # by:
 #
 #   @core -> firewalld -> python3-firewall -> python3-nftables -> nftables
+
+# SOMETHING HAS TO ASK FOR THE PASSWORD.
+#
+# There was NO polkit authentication agent at all. polkit is what a desktop
+# uses to ask "are you allowed to do that" for anything privileged -- mounting
+# a USB stick through udisks2, changing a network setting through
+# NetworkManager, installing a package -- and with no agent running there is
+# nothing to put the question on screen. The call does not fail loudly; the
+# prompt simply never appears and the action does not happen.
+#
+# polkit itself is here for the same reason nftables is: it was present only
+# because something else dragged it in.
+polkit
+
+# xfce-polkit is the agent, chosen for two reasons and no others: it is 41 KiB
+# and one binary at /usr/libexec/xfce-polkit, and it is GTK3 -- so the dialog
+# resolves /usr/share/themes/nullLinux/gtk-3.0/gtk.css and arrives in this
+# system's palette rather than in a toolkit default. The Qt agents would not:
+# there is no Qt platform theme here, so lxqt-policykit and polkit-kde would
+# render in stock Fusion light.
+#
+# It is not the eventual answer. A prompt that is genuinely of this system is
+# text in Terminus hosted in the column, like every other component -- see
+# NULL.md 8.4. This is the one that makes privileged actions WORK in v1, styled
+# by inheritance rather than by construction.
+xfce-polkit
+
+# THE SOUND SERVER, DECLARED.
+#
+# Audio works on an installed machine -- verified: an ordinary user's session
+# reaches PipeWire on /run/user/1000/pulse/native. It works because @core and
+# the desktop stack drag pipewire and wireplumber in, not because anything here
+# asked for them. Same shape as nftables and polkit: the thing this system
+# depends on for a component NULL.md 8.4 lists by name is not in its own
+# package list.
+#
+# wireplumber is the session manager. Without it pipewire runs and routes
+# nothing, so every audio surface reports a failure that looks like missing
+# hardware -- which is exactly how "audio has never worked" stayed in the
+# status notes for weeks.
+pipewire
+wireplumber
+pipewire-pulseaudio
 #
 # Four hops, every one through firewalld -- the package we deliberately stopped
 # using. Remove firewalld as the obvious tidy-up after replacing it and `nft`

@@ -76,6 +76,17 @@ exec_always NULL_ROOT=$null $null/bin/null-column
 # sees what is copied while it is open, which is never (§8.4).
 exec_always NULL_ROOT=$null $null/bin/null-clipboard watch
 
+# THE POLKIT AGENT, started here because sway does not run XDG autostart.
+#
+# xfce-polkit ships /etc/xdg/autostart/xfce-polkit.desktop, which a desktop
+# environment would honour and which sway ignores entirely. Without this line
+# the package is installed and the agent never runs, which looks exactly like
+# not having it: every privileged action -- mounting a disk, changing a network
+# setting, installing a package -- fails with no prompt and no message.
+#
+# GTK3, so it resolves the nullLinux theme and arrives in the palette.
+exec_always pkill -x xfce-polkit; /usr/libexec/xfce-polkit
+
 # THE PER-USER HALF, and it needs a caller.
 #
 # null-install puts everything it can where the SYSTEM looks, so a new account

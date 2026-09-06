@@ -54,7 +54,7 @@ grep -q 'cmd_firewall' bin/null-system \
 #    arrives because firewalld drags it in through four levels of Requires --
 #    which is how it got here, and which breaks the moment anyone removes the
 #    firewalld we stopped using.
-grep -qx 'nftables' packages/fedora/base.list \
+./bin/pkg list-packages base 2>/dev/null | tr ' ' '\\n' | grep -qx 'nftables' \
   || { note "packages/fedora/base.list: nftables is not declared -- /usr/sbin/nft arrives only via firewalld"; fail=1; }
 
 # 6. The module preload is what made it fast. Without it the ruleset still
