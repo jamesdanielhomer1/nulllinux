@@ -9,7 +9,7 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 BIN="$ROOT/render/target/release/dwindle"
 [ -x "$BIN" ] || { echo "null-dwindle: $BIN not built" >&2; exit 1; }
 SELF=$(readlink -f "$BIN")
-for pid in $(pgrep -x dwindle 2>/dev/null || true); do
+for pid in $(pgrep -x -u "$(id -u)" dwindle 2>/dev/null || true); do
   exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || continue
   [ "$exe" = "$SELF" ] && kill "$pid" 2>/dev/null || true
 done

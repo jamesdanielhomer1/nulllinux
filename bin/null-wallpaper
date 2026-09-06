@@ -20,8 +20,13 @@ RENDER="$ROOT/render/target/release/render"
 TAG=null-wallpaper
 [ -x "$RENDER" ] || { echo "$TAG: $RENDER not built" >&2; exit 1; }
 
+# -u, BECAUSE MATCHING THE EXECUTABLE IS NOT MATCHING THE OWNER. The exe test
+# below stops a different program of the same name being killed; it does not
+# stop ANOTHER USER's copy of this one. From an ordinary session that fails on
+# permissions and is harmless; from a root session -- which this project's own
+# build host runs -- it takes down every logged-in person's wallpaper.
 SELF=$(readlink -f "$RENDER")
-for pid in $(pgrep -x render 2>/dev/null || true); do
+for pid in $(pgrep -x -u "$(id -u)" render 2>/dev/null || true); do
   # A rebuild replaces the inode, so the instance that most needs stopping is
   # exactly the one whose /proc/pid/exe no longer resolves -- strip the marker.
   exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || continue

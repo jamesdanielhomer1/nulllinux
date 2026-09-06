@@ -195,19 +195,19 @@ case "${1:-show}" in
     ;;
   set)   set_stage "${2:?stage}" "${3:?seconds}" ;;
   apply) load_stages; write_conf; echo "wrote $CONF"
-         pkill -x swayidle 2>/dev/null || true
+         pkill -x -u "$(id -u)" swayidle 2>/dev/null || true
          (swayidle -w -C "$CONF" >/dev/null 2>&1 &) ; echo "swayidle restarted" ;;
   state)
     # Read from the process, not from a flag. A remembered flag and a dead
     # daemon disagree the moment anything restarts.
-    if pgrep -x swayidle >/dev/null 2>&1; then echo on; else echo off; fi
+    if pgrep -x -u "$(id -u)" swayidle >/dev/null 2>&1; then echo on; else echo off; fi
     ;;
   toggle)
     # Stopping the daemon suspends the WHOLE ladder -- dim, screensaver, lock,
     # screen off and suspend -- which is what "stop locking me out" means. The
     # configuration is untouched, so turning it back on restores every stage.
-    if pgrep -x swayidle >/dev/null 2>&1; then
-      for p in $(pgrep -x swayidle); do kill "$p"; done 2>/dev/null || true
+    if pgrep -x -u "$(id -u)" swayidle >/dev/null 2>&1; then
+      for p in $(pgrep -x -u "$(id -u)" swayidle); do kill "$p"; done 2>/dev/null || true
       echo "idle ladder off (configuration untouched)"
     else
       setsid swayidle -w -C "$CONF" >/dev/null 2>&1 &

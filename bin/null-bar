@@ -20,7 +20,7 @@ TAG=null-bar
 [ -x "$BIN" ] || { echo "$TAG: $BIN not built" >&2; exit 1; }
 
 SELF=$(readlink -f "$BIN")
-for pid in $(pgrep -x bar 2>/dev/null || true); do
+for pid in $(pgrep -x -u "$(id -u)" bar 2>/dev/null || true); do
   exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || continue
   [ "$exe" = "$SELF" ] && kill "$pid" 2>/dev/null || true
 done

@@ -135,19 +135,34 @@ fi
 
 # 4. AND A NAME IS NOT AN OWNER.
 #
-#    `pkill -x NAME` matches by process name across the whole machine. From a
-#    session that is too wide: the session's business is its own processes, and
-#    an identically named one belonging to somebody else is not its to end.
-#    -u makes it the session's.
-while IFS= read -r line; do
-  t=${line#"${line%%[![:space:]]*}"}
-  case $t in \#*) continue ;; esac
-  case $line in *"pkill -x"*) ;; *) continue ;; esac
-  case $line in *"pkill -x -u"*|*"-u "*) continue ;; esac
-  note "config/sway/config: $t"
-  note "      pkill -x matches that name on the whole machine; add -u to keep it to this session"
-  fail=1
-done < config/sway/config
+#    `pkill -x NAME` and `pgrep -x NAME` match by process name across the WHOLE
+#    MACHINE. From a session that is too wide twice over: killing an
+#    identically named process belonging to somebody else, and -- quieter, and
+#    the one that actually misleads -- REPORTING somebody else's daemon as this
+#    session's own. `null-nightlight state` said "on" because a different user
+#    was running wlsunset.
+#
+#    -u "$(id -u)" makes both the session's.
+#
+#    The first version of this clause read only config/sway/config, and three
+#    of the four instances in the tree were in bin/.
+names=0
+for f in config/sway/config bin/* lib/*.sh; do
+  [ -f "$f" ] || continue
+  n=0
+  while IFS= read -r line; do
+    n=$((n+1))
+    t=${line#"${line%%[![:space:]]*}"}
+    case $t in \#*) continue ;; esac
+    case $line in *"pkill -x"*|*"pgrep -x"*) ;; *) continue ;; esac
+    case $line in *" -u "*) continue ;; esac
+    note "$f:$n  $t"
+    note "      matches that name on the whole machine; add -u \"\$(id -u)\""
+    names=$((names+1))
+    fail=1
+  done < "$f"
+done
+[ "$names" = 0 ] && note "ok    every name-matched signal and probe is scoped to this user"
 
 [ $fail = 0 ] && echo "PASS: no restart clause kills the shell that runs it"
 exit $fail

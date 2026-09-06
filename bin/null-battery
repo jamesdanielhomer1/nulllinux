@@ -116,16 +116,26 @@ check_once() {
 case ${1:-watch} in
   once)  check_once ;;
   watch)
+    # DECIDE WHETHER WE ARE STAYING BEFORE DISPLACING ANYBODY.
+    #
+    # A machine with no battery exits rather than looping for ever over a
+    # directory that will never have one -- and it must reach that decision
+    # FIRST. With the order the other way round, a watcher pointed at a
+    # batteryless directory killed the watcher that was working and then
+    # exited, leaving nothing running at all.
+    #
+    # That is not hypothetical: verify/check-battery.sh does exactly that. Its
+    # fourth step runs `watch` against an empty directory to prove the exit
+    # works, so running the suite in a session took the low-battery warning
+    # away for the rest of it -- and printed "ok" while doing so.
+    percent_of "$SUPPLY" >/dev/null 2>&1 || { echo "null-battery: no battery here"; exit 0; }
+
     # ONE WATCHER, DISPLACED FROM IN HERE. The compositor's exec_always used to
     # read `pkill -f 'null-battery watch'; ...null-battery watch`, and that
     # shell's own command line contains the pattern -- so pkill killed the
     # shell and the watcher after the semicolon never ran. See lib/once.sh.
     . "${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}/lib/once.sh"
     null_only_one 'null-battery watch'
-
-    # A machine with no battery exits rather than looping for ever over a
-    # directory that will never have one.
-    percent_of "$SUPPLY" >/dev/null 2>&1 || { echo "null-battery: no battery here"; exit 0; }
     while :; do check_once >/dev/null; sleep "$INTERVAL"; done ;;
   *) echo "null-battery: unknown verb '$1'" >&2; exit 2 ;;
 esac

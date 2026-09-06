@@ -66,6 +66,42 @@ else
 fi
 rm -rf "$t"
 
+# 4b. AND THAT PROBE MUST NOT TAKE THE REAL WATCHER WITH IT.
+#
+#     `watch` displaces any other instance of itself, which is right: one
+#     warner, and the newest wins. But it used to do that BEFORE deciding
+#     whether it was staying, so step 4 above -- which points it at a directory
+#     with no battery precisely so that it will exit -- killed the watcher the
+#     session was running and then exited itself, leaving nothing at all. The
+#     step printed "ok". Running the suite took the low-battery warning away
+#     for the rest of the session, on a machine that cannot hibernate.
+#
+#     Measured: a watcher started here, and required to still be there.
+probe=$(mktemp -d); mkdir -p "$probe/BAT0"
+echo 1 > "$probe/BAT0/present"
+echo 50000 > "$probe/BAT0/energy_now"; echo 100000 > "$probe/BAT0/energy_full"
+echo Discharging > "$probe/BAT0/status"
+NULL_POWER_SUPPLY="$probe" "./$B" watch >/dev/null 2>&1 &
+keeper=$!
+sleep 1
+if kill -0 "$keeper" 2>/dev/null; then
+  t=$(mktemp -d); mkdir -p "$t/AC"; echo 1 > "$t/AC/online"
+  NULL_POWER_SUPPLY="$t" timeout 5 "./$B" watch >/dev/null 2>&1
+  sleep 1
+  if kill -0 "$keeper" 2>/dev/null; then
+    note "ok    a watcher with no battery leaves the working one alone"
+  else
+    note "$B on a batteryless machine killed the watcher that was working"
+    fail=1
+  fi
+  rm -rf "$t"
+else
+  note "(the probe watcher would not stay up; step 4b not exercised)"
+fi
+kill "$keeper" 2>/dev/null
+wait "$keeper" 2>/dev/null
+rm -rf "$probe"
+
 # 4. A MACHINE WITH NO BATTERY IS NOT A BROKEN LAPTOP. The watcher must exit
 #    rather than loop for ever over a directory that will never have one.
 t=$(mktemp -d); mkdir -p "$t/AC"; echo 1 > "$t/AC/online"
