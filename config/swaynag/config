@@ -1,0 +1,67 @@
+# sway's own error bar, in the palette (NULL.md §4.6, §7.1).
+#
+# swaynag is what appears when the compositor has something to tell you: a
+# configuration error on reload, a binding that names a program which is not
+# installed. It was unconfigured, so it came up in its own defaults -- a
+# saturated red slab with a filled button -- at exactly the moment a person is
+# trying to read an error message.
+#
+# It is the one surface here whose whole job is to be noticed while being
+# read, so the rule is the same as everywhere else: the message is text on the
+# ground, and the SEVERITY is carried by a rule rather than by a field of
+# colour. A red rectangle is not more legible than a red line; it is only
+# louder.
+
+font=Terminus 12
+
+# The ground, and the text on it. Identical to every other surface: nothing
+# about an error changes what this system's background is.
+background=05060a
+text=ffefe6
+border=232c40
+
+# A RULE ALONG THE EDGE, NOT A BAND. 1px, the same weight as every other rule
+# in the system -- the separators in gtk.css, dunst's frame, the focused
+# window's border in sway.
+border-bottom=232c40
+border-bottom-size=1
+
+# Buttons are marks, not boxes (§7.1): transparent ground, text in accent, a
+# single-pixel border. The same idiom as the GTK stylesheet's buttons, which
+# are background-color transparent with a border that only lights on hover.
+button-background=05060a
+button-text=b9ccff
+button-border-size=1
+button-gap=8
+button-margin-right=8
+button-padding=4
+
+# The detail pane, for a message too long for one line. Lifted to `surface`
+# because it genuinely is a raised element -- the one legitimate use of that
+# role (§4.6) -- and bordered rather than shadowed.
+details-background=0c0f16
+details-border-size=1
+
+message-padding=8
+
+# --- severities ----------------------------------------------------------
+#
+# sway invokes swaynag with a type. Both are the palette's own emissive roles,
+# sampled off the Planckian locus rather than chosen: an error is red because
+# heat is, and a warning is the colour between.
+
+[error]
+background=05060a
+text=ffefe6
+border=ff8000
+border-bottom=ff8000
+border-bottom-size=1
+button-text=ff8000
+
+[warning]
+background=05060a
+text=ffefe6
+border=ffb161
+border-bottom=ffb161
+border-bottom-size=1
+button-text=ffb161

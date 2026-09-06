@@ -37,6 +37,7 @@ declare -A CARRIED=(
   [gtk-3.0]="null-install:/etc/xdg/gtk-3.0 and /usr/share/themes/nullLinux:gtk-\$v"
   [gtk-4.0]="null-install:/etc/xdg/gtk-4.0 and /usr/share/themes/nullLinux:gtk-\$v"
   [sway]="null-install:/etc/sway/config includes it from the checkout:/etc/sway/config"
+  [swaynag]="null-install:/etc/swaynag/config:swaynag/config|"
   [swaylock]="null-lock:passed with -C, so it needs no install:config/swaylock/config"
   [btop]="null-firstrun:seeded per user; btop has no system-wide path:btop|btop.conf"
   [firefox]="null-firefox:userChrome lives inside a profile, which is per-user:config/firefox"

@@ -16,11 +16,11 @@
 # system with `--color=16`, so the surface the hand is on took its colours from
 # fzf rather than from the palette.
 #
-# WHAT IT DOES NOT SEE, said here rather than left to be assumed: it matches
-# #RRGGBB. swaylock's config format takes bare RRGGBB with no hash, so
-# config/swaylock/config is checked by verify/check-lock-screen.sh instead,
-# against the same palette. Any future config in a bare-hex format needs the
-# same treatment or it passes here by being invisible.
+# TWO SPELLINGS, BOTH CHECKED. Most formats write #RRGGBB; swaylock, swaynag,
+# imv and foot write bare RRGGBB with no hash. The bare form was invisible here
+# at first, which meant four of the most visible surfaces in the system --
+# the lock screen, the error bar, the image viewer and the terminal -- were
+# exempt from the one rule that keeps the system looking like one thing.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -79,12 +79,21 @@ for p in targets:
             v = m.group(1).lower()
             if v not in allowed:
                 bad.setdefault(v, []).append(f"{p}:{i}")
+        # The bare form: a settings line whose whole value is six hex digits.
+        # Anchored on `key=` so it cannot match a hash, an id, or prose.
+        m = re.match(r'^\s*[A-Za-z0-9_.-]+\s*=\s*([0-9a-fA-F]{6})([0-9a-fA-F]{2})?\s*$', line)
+        if m:
+            v = m.group(1).lower()
+            if v not in allowed:
+                bad.setdefault(v, []).append(f"{p}:{i}")
 
 used = set()
 for p in targets:
     try: text = p.read_text(errors='replace')
     except Exception: continue
     used |= {m.lower() for m in re.findall(r'#([0-9a-fA-F]{6})\b', text)}
+    used |= {m[0].lower() for m in re.findall(
+        r'(?m)^\s*[A-Za-z0-9_.-]+\s*=\s*([0-9a-fA-F]{6})([0-9a-fA-F]{2})?\s*$', text)}
 print(f"  {len(used)} distinct colour(s) used across config/, lib/ and system/")
 
 if bad:

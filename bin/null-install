@@ -366,6 +366,7 @@ for entry in \
     "mpv|/etc/mpv/" \
     "imv/config|/etc/imv_config" \
     "zathura/zathurarc|/etc/zathurarc" \
+    "swaynag/config|/etc/swaynag/config" \
     "systemd/10-null-lid.conf|/etc/systemd/logind.conf.d/10-null-lid.conf" \
     "vconsole/vtrgb|/etc/vconsole/vtrgb" \
   ; do
