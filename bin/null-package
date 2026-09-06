@@ -102,9 +102,20 @@ if [ $st -eq 0 ]; then
   echo
   echo "publishing to packaging/repo"
   mkdir -p packaging/repo
+  # OUR OLD PACKAGES GO FIRST.
+  #
+  # cp only ADDS. A build whose version-release changed would leave the
+  # previous rpm sitting there, createrepo would index both, and the installer
+  # -- which resolves from this repo -- could pick either. bin/null-installer-iso
+  # copies packaging/repo/*.rpm onto the ISO wholesale, so a stale one ships.
+  # Only OUR names are removed; anything else here was put there deliberately.
+  find packaging/repo -maxdepth 1 -name "$NAME-*.rpm" -delete
   find "$TOP/RPMS" -name '*.rpm' -exec cp -f {} packaging/repo/ \;
   if command -v createrepo_c >/dev/null 2>&1; then
-    createrepo_c -q --update packaging/repo || { echo "createrepo_c failed" >&2; exit 1; }
+    # A full run, not --update: --update carries forward entries for files that
+    # are no longer there, which is the thing being prevented.
+    rm -rf packaging/repo/repodata
+    createrepo_c -q packaging/repo || { echo "createrepo_c failed" >&2; exit 1; }
   else
     echo "  createrepo_c is not installed -- the repo metadata is now STALE" >&2
     exit 1

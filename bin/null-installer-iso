@@ -99,8 +99,12 @@ else
     echo "  package changed, --embed-only reuses it and takes seconds."
     echo
     if [ "$ASSUME_YES" != 1 ]; then
-      if [ -t 0 ]; then
-        printf '  delete it and rebuild? [y/N] '
+      # The prompt goes to STDERR, and BOTH ends are tested. With stdout piped
+      # -- which is how anyone runs a build that takes hours -- a prompt on
+      # stdout sits in the pipe buffer, and the script looks hung while it
+      # waits for an answer to a question nobody was shown.
+      if [ -t 0 ] && [ -t 2 ]; then
+        printf '  delete it and rebuild? [y/N] ' >&2
         read -r reply
         case $reply in y|Y|yes) ;; *) echo "  nothing done."; exit 0 ;; esac
       else

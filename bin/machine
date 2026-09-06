@@ -19,17 +19,19 @@ die() { printf 'machine: %s\n' "$*" >&2; exit 1; }
 # one running `hostname`, `sed` and `awk` over the same twenty-line file. The
 # file does not change between the first read and the third.
 declare -A PROFILE=()
-PROFILE_PATH=""
 PROFILE_LOADED=0
 
+# NOT MEMOISED, AND THE COMMENT CLAIMING IT WAS HAS GONE.
+#
+# Every caller runs this as `$(profile_path)`, which is a subshell: assigning a
+# global inside it is discarded the moment it returns, so the cache could never
+# hit. What actually stops the file being read three times is PROFILE_LOADED in
+# load_profile, which IS set in the calling shell.
 profile_path() {
-  if [ -z "$PROFILE_PATH" ]; then
-    local n=${NULL_MACHINE:-$(hostname -s 2>/dev/null || hostname)}
-    local p="$ROOT/machines/$n.conf"
-    [ -r "$p" ] || die "no profile for '$n' (expected $p; set NULL_MACHINE to override)"
-    PROFILE_PATH=$p
-  fi
-  printf '%s\n' "$PROFILE_PATH"
+  local n=${NULL_MACHINE:-$(hostname -s 2>/dev/null || hostname)}
+  local p="$ROOT/machines/$n.conf"
+  [ -r "$p" ] || die "no profile for '$n' (expected $p; set NULL_MACHINE to override)"
+  printf '%s\n' "$p"
 }
 
 load_profile() {
