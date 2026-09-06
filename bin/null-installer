@@ -59,6 +59,26 @@ U
 done
 [ -n "$OUT" ] || { echo "null-installer: --generate <path> is required" >&2; exit 2; }
 
+# A HANG IS THE WORST OUTCOME, SO IT IS REFUSED INSTEAD.
+#
+# This program asks questions. Started somewhere with no terminal -- which is
+# exactly what anaconda's %pre gives it, because %pre's stdout goes to a log
+# and its stdin is not a console -- every read either returns EOF at once or
+# blocks for ever. Observed on a real boot: the install sat at "Running
+# pre-installation scripts" with nothing on screen and no way to tell why.
+#
+# An install that stops with a reason can be fixed. An install that hangs
+# cannot even be diagnosed without a second machine.
+#
+# --dry-run is exempt, because that is how the checks drive it from a pipe.
+if [ "$DRY" != 1 ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
+  echo "null-installer: no terminal on stdin/stdout -- refusing to hang." >&2
+  echo "  This program asks questions and must be given a console." >&2
+  echo "  From anaconda's %pre, bind it to one first:" >&2
+  echo "    exec </dev/tty6 >/dev/tty6 2>&1; chvt 6" >&2
+  exit 3
+fi
+
 # --- the surface -----------------------------------------------------------
 #
 # Colours by NAME, from config/sway/colours.conf, resolved once. Writing an
@@ -82,9 +102,17 @@ banner() {
   # are part of an install image. So the hero travels as what it will be shown
   # as -- one frame, already ANSI, 1.6 KB -- rendered at ISO build time by the
   # same renderer every other surface uses.
-  local still="$ROOT/hero.ansi"
-  [ -r "$still" ] || still="${NULL_INSTALLER_HERO:-}"
-  if [ -n "$still" ] && [ -r "$still" ]; then cat "$still"; return 0; fi
+  # BESIDE THE SCRIPT AS WELL AS UNDER $ROOT, for the same reason menu.sh is
+  # looked for twice: on the medium there is no tree, just three files in a
+  # directory, and NULL_ROOT is not always set by whoever runs it. Found only
+  # under $ROOT, the installer fell back to printing its own name.
+  local here still
+  here=$(dirname -- "$(readlink -f -- "$0")")
+  for still in "$ROOT/hero.ansi" "$here/hero.ansi" "${NULL_INSTALLER_HERO:-}"; do
+    [ -n "$still" ] && [ -r "$still" ] && break
+    still=""
+  done
+  if [ -n "$still" ]; then cat "$still"; return 0; fi
 
   # On a development checkout the renderer IS here, so draw it live rather than
   # showing a worse thing than the machine can manage.
