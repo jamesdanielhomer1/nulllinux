@@ -152,6 +152,18 @@ rm -rf %{buildroot}%{_prefix}/%{name}/render/target/debug
 
 install -D -m 0644 packaging/nulllinux-machine-sync.service \
   %{buildroot}%{_unitdir}/nulllinux-machine-sync.service
+%{_prefix}/%{name}/packaging/nulllinux-session.desktop
+
+# THE SESSION ENTRY HAS TO BE IN THE PACKAGE.
+#
+# It was not, and null-install found it missing and said so -- into /dev/null,
+# because null-machine-sync discards its output. So a fresh install had the
+# greeter offering Fedora's Sway, exactly as before the entry was written, and
+# nothing anywhere reported it. It is installed under %{_prefix}/%{name} rather
+# than straight into /usr/share/wayland-sessions because null-install rewrites
+# its Exec path from $ROOT before placing it.
+install -D -m 0644 packaging/nulllinux-session.desktop \
+  %{buildroot}%{_prefix}/%{name}/packaging/nulllinux-session.desktop
 
 %post
 %systemd_post nulllinux-machine-sync.service

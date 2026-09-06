@@ -165,6 +165,64 @@ done
 # leaves the machine unable to install its next kernel, which is a slow failure.
 info "/boot: $(g 'df -h /boot | tail -1')"
 
+# --- the session the greeter offers ----------------------------------------
+#
+# THIS SECTION EXISTS BECAUSE THE CHECK DID NOT HAVE IT.
+#
+# packaging/nulllinux-session.desktop was written, null-install was taught to
+# place it, and the spec never shipped it -- so a fresh install had a greeter
+# offering Fedora's "Sway" exactly as before, with no session environment set
+# at all. null-install said "no ... -- skipping" and null-machine-sync sent
+# that to /dev/null. Everything above still passed.
+head_ "the session"
+if [ "$(g 'test -r /usr/share/wayland-sessions/nulllinux.desktop && echo yes || echo no')" = yes ]; then
+  ok "the greeter offers a nullLinux session"
+  info "$(g 'grep -h "^Exec=" /usr/share/wayland-sessions/nulllinux.desktop')"
+  # And it must run OUR wrapper. An entry that execs sway is Fedora's entry
+  # with our name on it, and sets none of the environment.
+  if g 'grep -q "^Exec=.*/bin/null-session" /usr/share/wayland-sessions/nulllinux.desktop'; then
+    ok "it runs bin/null-session, so the session environment is set"
+  else
+    bad "the session entry does not run bin/null-session -- no GTK_THEME, no Qt theme, no portal"
+  fi
+else
+  bad "no /usr/share/wayland-sessions/nulllinux.desktop -- the greeter offers Fedora's Sway"
+fi
+
+# --- what a person opens ---------------------------------------------------
+#
+# A desktop that cannot open a screenshot it just took is not finished. Each of
+# these is a role bin/null-open offers; a role with nothing behind it fails at
+# the moment somebody uses it, which is the worst moment to find out.
+head_ "opening things"
+for pair in "image:imv" "pdf:zathura" "video:mpv" "archive:xarchiver" "editor:nano"; do
+  role=${pair%%:*}; prog=${pair##*:}
+  if [ "$(g "command -v $prog >/dev/null && echo yes || echo no")" = yes ]; then
+    ok "$role: $prog is installed"
+  else
+    bad "$role: $prog is NOT installed -- null-open would find nothing"
+  fi
+done
+# And their configuration has to be where each program looks, which is a
+# different path for nearly every one of them.
+for f in /etc/zathurarc /etc/imv_config /etc/mpv/mpv.conf /etc/xdg/foot/foot.ini /etc/xdg/dunst/dunstrc; do
+  if [ "$(g "test -r $f && echo yes || echo no")" = yes ]; then ok "config in place: $f"
+  else bad "MISSING: $f -- that program runs in its own colours"; fi
+done
+
+# --- privileged actions ----------------------------------------------------
+head_ "asking for a password"
+if [ "$(g 'command -v /usr/libexec/xfce-polkit >/dev/null && echo yes || echo no')" = yes ]; then
+  ok "a polkit agent is installed"
+else
+  bad "no polkit agent -- every privileged action fails with no prompt at all"
+fi
+if [ "$(g 'command -v swaylock >/dev/null && echo yes || echo no')" = yes ]; then
+  ok "swaylock is installed, so the screen can be locked"
+else
+  bad "swaylock is NOT installed -- the screen cannot be locked"
+fi
+
 # --- the surfaces ----------------------------------------------------------
 head_ "surfaces"
 sync_line=$(g 'journalctl -b -u nulllinux-machine-sync --no-pager -o cat | tail -2 | tr "\n" " "')

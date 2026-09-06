@@ -166,8 +166,19 @@ else
 fi
 
 # 6. The system-wide install, which is what makes a new account need no setup.
-bin/null-install --apply >/dev/null 2>&1 && echo "  installed system-wide" \
-  || echo "  warning: the system-wide install did not complete"
+# NOT >/dev/null. This discarded every line null-install prints, including
+# "no <file> -- skipping", which is how a missing session entry produced a
+# greeter offering Fedora's Sway on a fresh install with nothing said anywhere:
+# the tool reported the problem and the caller threw the report away.
+#
+# Run ONCE, output kept, then filtered to the lines that report a problem -- so
+# an ordinary boot stays quiet and an unusual one does not.
+install_log=$(bin/null-install --apply 2>&1); install_rc=$?
+printf '%s\n' "$install_log" \
+  | grep -iE '^[[:space:]]*(no |could not|refus|warn|fail)' \
+  | sed 's/^/    /' || true
+[ "$install_rc" -eq 0 ] && echo "  installed system-wide" \
+  || echo "  warning: the system-wide install did not complete (exit $install_rc)"
 
 mkdir -p "$(dirname "$STAMP")" && date -Iseconds > "$STAMP"
 echo "  done ($took prebuilt files placed)"
