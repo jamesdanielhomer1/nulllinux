@@ -560,3 +560,67 @@ same size share one derive through the flock; hot-unplug removes the surfaces
 and re-plug brings them back on the new output name. A new output shows a
 prebuilt rung immediately and swaps to its own exact grid when the derive
 lands, so a freshly plugged screen is never blank.
+
+---
+
+## The install test now checks what it installed (2026-09-06)
+
+`verify/vm-iso-install.sh` ended at "the install is unattended and reboots when
+it finishes". What happened after that was inspected by hand, differently each
+time — which is how an initramfs that could not boot on other hardware
+survived every install test the project ever ran. Nobody asked it.
+
+`verify/vm-post-install.sh`, reachable as `vm-iso-install.sh check`, asserts
+over ssh what the ISO claims. It found a real failure on its first run.
+
+### What it caught immediately
+
+`%post` could not install the firewall:
+
+    src/mnl.c:66: Unable to initialize Netlink socket: Protocol not supported
+    REFUSING: nulllinux.nft does not parse
+    WARNING -- nftables did not take; restoring firewalld
+
+`nft -c` is not a syntax check. It opens a netlink socket to the kernel's
+nf_tables and validates against it, and anaconda's `%post` chroot has none. A
+good ruleset was refused. The fallback behaving correctly is the only reason
+that install was *slow* — 26.6s, with the firewall this work replaced — rather
+than unprotected.
+
+A parse error still refuses. An environment that cannot answer says so and
+continues, because the ruleset is checked for real at build time on a machine
+that has a kernel. `check-firewall` drives `cmd_firewall` with a stub `nft`
+that fails each way and asserts the two stay distinguishable.
+
+### The run that passed
+
+Fresh install from media, then a reboot for the steady-state number:
+
+    Startup finished in 2.300s (kernel) + 7.152s (initrd) + 7.634s (userspace)
+      = 17.087s
+
+Every assertion green: nftables active with input *and* forward at policy drop
+and all five policy-carrying rules present; firewalld not enabled; the
+`hostonly=no` drop-in installed and the running initramfs carrying `sdhci_pci`,
+`mmc_block`, `megaraid_sas`, `i915`, `amdgpu`, `nouveau`, `ast`; the package
+byte-identical to `packaging/repo`; `/etc/os-release` a real file; no failed
+units; machine-sync taking its fast path.
+
+So the headline claim is now tested rather than argued: **a disk installed in
+one machine carries the drivers to boot in another**, and it boots in 17s.
+
+### Still true, and said plainly
+
+A VM cannot test real firmware, secure boot, a discrete GPU, a wifi chipset,
+suspend and resume, or a panel whose EDID is not qemu's. The post-install
+check says so in its own header rather than implying otherwise.
+
+### Owed
+
+The lorax boot media was destroyed by `null-installer-iso --help`, which the
+script ignored as an unknown argument and turned into a destructive rebuild.
+The install tests above ran against the surviving ISO from the previous build,
+which is valid — the harness boots that ISO's kernel directly and serves
+today's kickstart and package over HTTP — but a full media rebuild, an
+`--embed-only` pass, and a `NULL_TEST_EMBEDDED=1` run to prove the offline
+path are all still owed.
