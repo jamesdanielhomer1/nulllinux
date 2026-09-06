@@ -146,8 +146,8 @@ Description=One baked asset, rendered as text
 ModuleName=two-step
 
 [two-step]
-Font=Cantarell 12
-TitleFont=Cantarell Light 30
+Font=Terminus 12
+TitleFont=Terminus 24
 ImageDir=/usr/share/plymouth/themes/nullLinux
 HorizontalAlignment=.5
 VerticalAlignment=.5
