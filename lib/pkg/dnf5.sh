@@ -15,6 +15,20 @@ backend_search() { dnf -q search -- "$@"; }
 
 backend_is_installed() { rpm -q -- "$1" >/dev/null 2>&1; }
 
+# What is installed, named the way a person would quote it.
+backend_installed_version() { rpm -q --qf '%{NEVRA}\n' -- "$1"; }
+
+# A CONTENT IDENTITY, so "the machine has the package we just built" can be
+# ASKED rather than assumed.
+#
+# Version-release does not move between development rebuilds -- every package
+# in this project has been 0.1.0-1 all night -- so comparing versions cannot
+# tell a fresh build from a stale one. The header signature digest does: it is
+# over the payload, so two rpms with the same name and different contents have
+# different ones.
+backend_installed_id() { rpm -q --qf '%{SIGMD5}\n' -- "$1"; }
+backend_file_id()      { rpm -q --qf '%{SIGMD5}\n' -p "$1"; }
+
 # rpm -qf answers from the local database; no network, no metadata needed.
 backend_what_owns_this_file() { rpm -qf -- "$1"; }
 

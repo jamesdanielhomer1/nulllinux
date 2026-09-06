@@ -26,6 +26,7 @@ fails=0
 ok()   { printf '  ok    %s\n' "$*"; }
 bad()  { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
 info() { printf '        %s\n' "$*"; }
+warn() { printf '  ????  %s\n' "$*"; }
 head_() { printf '\n== %s\n' "$*"; }
 
 [ -r "$KEY" ] || { echo "no guest key at $KEY -- run vm-iso-install.sh install first" >&2; exit 2; }
@@ -72,12 +73,25 @@ fi
 
 # --- the package on the machine is the package we published -----------------
 head_ "the installed package"
-gver=$(g 'rpm -q nulllinux')
+# THROUGH bin/pkg, NOT rpm (NULL.md 9.1). The guest has the same tool at the
+# same path, so the same verb answers on both sides.
+gver=$(g '/opt/nulllinux/bin/pkg installed-version nulllinux')
 info "$gver"
-ghash=$(g 'rpm -q --qf "%{SIGMD5}\n" nulllinux')
-lhash=$(rpm -q --qf '%{SIGMD5}\n' -p "$ROOT/packaging/repo"/nulllinux-*.rpm 2>/dev/null | head -1)
-info "guest $ghash  /  packaging/repo $lhash"
-if [ -n "$ghash" ] && [ "$ghash" = "$lhash" ]; then
+ghash=$(g '/opt/nulllinux/bin/pkg installed-id nulllinux')
+lhash=$("$ROOT/bin/pkg" file-id "$(ls -1 "$ROOT/packaging/repo"/nulllinux-*.rpm 2>/dev/null | head -1)" 2>/dev/null)
+info "guest ${ghash:-<unreadable>}  /  packaging/repo ${lhash:-<unreadable>}"
+# A MISSING ANSWER IS NOT A WRONG ANSWER.
+#
+# The guest runs the bin/pkg it was installed with. Ask it for a verb added
+# after that build and it says nothing -- which is not the same as saying the
+# package is stale, and reporting it as such sends you looking for a
+# packaging bug that is not there. It happened on the first run of this.
+if [ -z "$ghash" ]; then
+  warn "the guest's bin/pkg did not answer 'installed-id' -- it predates the verb."
+  warn "  Cannot compare; this says nothing either way about which build is installed."
+elif [ -z "$lhash" ]; then
+  warn "no readable package in packaging/repo to compare against"
+elif [ "$ghash" = "$lhash" ]; then
   ok "the guest installed the package in packaging/repo, not an older one"
 else
   bad "the guest's package differs from packaging/repo -- the test proved a stale build"

@@ -36,6 +36,9 @@ usage: pkg <verb> [argument ...]
 read verbs (no changes, no privileges beyond reading):
   search <term ...>            search available packages
   is-installed <package>       exit 0 if installed, 1 if not
+  installed-version <pkg>       what version is installed
+  installed-id <pkg>            content identity of the installed package
+  file-id <file.rpm>            content identity of a package FILE
   what-owns-this-file <path>   which package owns a path
   what-is-orphaned             installed as a dependency, now needed by nothing
   list-explicitly-installed    the user-installed set, not everything installed
@@ -111,6 +114,9 @@ case $verb in
   backend)                    backend_name ;;
   search)                     [ $# -ge 1 ] || die "search needs a term"; backend_search "$@" ;;
   is-installed)               [ $# -eq 1 ] || die "is-installed needs one package"; backend_is_installed "$1" ;;
+  installed-version)          [ $# -eq 1 ] || die "installed-version needs one package"; backend_installed_version "$1" ;;
+  installed-id)               [ $# -eq 1 ] || die "installed-id needs one package"; backend_installed_id "$1" ;;
+  file-id)                    [ $# -eq 1 ] || die "file-id needs one package FILE"; backend_file_id "$1" ;;
   what-owns-this-file)        [ $# -eq 1 ] || die "what-owns-this-file needs one path"; backend_what_owns_this_file "$1" ;;
   what-is-orphaned)           backend_what_is_orphaned ;;
   list-explicitly-installed)  backend_list_explicitly_installed ;;
