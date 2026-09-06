@@ -1,0 +1,357 @@
+#!/usr/bin/env bash
+# Where the monitors are (NULL.md §8.4).
+#
+# sway is given no `output` line anywhere in this configuration, so every
+# machine with more than one screen gets wlroots' default: outputs laid out
+# left to right in the order the compositor enumerated them. That order comes
+# from the DRM connector list, which is the order the CARD reports its ports --
+# it has nothing to do with where the screens are on the desk. A laptop with an
+# external monitor to its left will, more often than not, come up with the
+# pointer leaving the right-hand edge of the laptop to arrive on a screen that
+# is physically on the other side.
+#
+# There is no way to fix that from inside this system today, and "any panel,
+# any number of monitors" is the hardware promise the whole project rests on.
+#
+# WHAT THIS OWNS AND WHAT IT DOES NOT.
+#
+# It owns ARRANGEMENT: which screen is beside which, and whether one is off.
+# It does NOT own mode or scale. Those belong to the machine profile, because
+# the cell grid is derived from them and `machine check-grid` asserts both
+# strikes divide the output exactly -- changing a mode from a settings panel
+# would break the system's geometry rather than resize a desktop. null-settings
+# says so already, and this does not contradict it. Arrangement is different in
+# kind: moving a screen leaves every grid on every screen untouched.
+#
+# RELATIONS ARE STORED, POSITIONS ARE DERIVED. The file says "the external one
+# is left of the laptop", never "x=-1920". A stored coordinate is wrong the
+# moment anything changes resolution, and it is wrong silently: the screens
+# overlap or leave a gap the pointer falls into. Positions are recomputed from
+# the sizes the compositor reports, every time this runs.
+#
+# IDENTITY, NOT CONNECTOR NAME, where identity is available. DP-1 and DP-2 swap
+# depending on which port you happened to use; "Dell Inc. U2412M H1AB" does not.
+# The connector name is the fallback for a screen that reports no identity, and
+# for two screens that report the SAME identity -- two of the same model, which
+# is exactly the case where a person cares which is which.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+. "$ROOT/lib/once.sh"
+
+CONF_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/nullLinux
+CONF=$CONF_DIR/outputs.conf
+
+have() { command -v "$1" >/dev/null 2>&1; }
+# NOT AT THE TOP. The solver is pure -- screens in, positions out -- and the
+# verifier drives it with fabricated screens on a machine that has no
+# compositor at all. Requiring swaymsg to load the file would make the one part
+# worth testing exactly the part that cannot be.
+need_sway() { have swaymsg || { echo "null-outputs: swaymsg is not installed" >&2; exit 1; }; }
+
+say()   { printf '  %s\n' "$1"; }
+hint()  { printf '  \033[33m%s\033[0m\n' "$1"; }
+oops()  { printf '  \033[31m%s\033[0m\n' "$1" >&2; }
+title() { printf '\n\033[34m%s\033[0m\n' "$1"; printf '\033[90m%s\033[0m\n' \
+          "$(printf '.%.0s' $(seq 64) | tr . -)"; }
+
+# --- what the compositor says ----------------------------------------------
+#
+# JSON, parsed by python rather than by cutting up `swaymsg -p` output. The
+# pretty form is for people and changes between releases; the JSON is the
+# documented interface. jq would be the obvious tool and is not a declared
+# package, and adding a dependency to read one array is the wrong trade.
+outputs_tsv() {
+  swaymsg -t get_outputs -r 2>/dev/null | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+rows = []
+for d in data:
+    ident = " ".join(str(d.get(k) or "") for k in ("make", "model", "serial")).strip()
+    rect  = d.get("rect") or {}
+    mode  = d.get("current_mode") or {}
+    scale = d.get("scale") or 1
+    # A DISABLED OUTPUT HAS NO RECTANGLE. Its size still has to be known, or
+    # the screens either side of it are placed on top of each other the moment
+    # it is switched back on. Taken from the mode it would use, divided by the
+    # scale it would use, which is what the rectangle would have been.
+    w = rect.get("width")  or int((mode.get("width")  or 0) / scale)
+    h = rect.get("height") or int((mode.get("height") or 0) / scale)
+    rows.append([d.get("name", ""), ident, "1" if d.get("active") else "0",
+                 str(rect.get("x", 0)), str(rect.get("y", 0)), str(w), str(h),
+                 "%dx%d" % (mode.get("width", 0), mode.get("height", 0)),
+                 str(scale)])
+# THE KEY IS THE IDENTITY UNLESS THE IDENTITY CANNOT TELL THEM APART. Two of
+# the same model report the same make/model/serial triple on plenty of panels,
+# and that is precisely when somebody needs to say which is which.
+seen = {}
+for r in rows:
+    seen[r[1]] = seen.get(r[1], 0) + 1
+for r in rows:
+    key = r[1] if (r[1] and seen[r[1]] == 1) else r[0]
+    print("\t".join([key] + r))
+' 2>/dev/null
+}
+
+# --- the file --------------------------------------------------------------
+#
+# Tab separated, because a key is "Dell Inc. U2412M H1AB" and contains spaces.
+#   place <TAB> key <TAB> relation <TAB> reference-key
+#   power <TAB> key <TAB> off
+read_conf() { [ -r "$CONF" ] && grep -v '^#' "$CONF" | grep -v '^[[:space:]]*$' || true; }
+
+RELATIONS="right-of left-of above below mirror-of"
+
+# --- solving ---------------------------------------------------------------
+solve() {  # stdin: outputs tsv ; $1: conf ; stdout: swaymsg commands
+  python3 -c '
+import sys
+
+conf_path = sys.argv[1]
+outs = {}
+order = []
+for line in sys.stdin.read().splitlines():
+    if not line.strip():
+        continue
+    f = line.split("\t")
+    key, name, ident, active, x, y, w, h, mode, scale = f[:10]
+    outs[key] = {"name": name, "w": int(w), "h": int(h), "active": active == "1"}
+    order.append(key)
+
+rules, powered_off = {}, set()
+try:
+    with open(conf_path) as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            f = line.split("\t")
+            if f[0] == "place" and len(f) == 4:
+                rules[f[1]] = (f[2], f[3])
+            elif f[0] == "power" and len(f) == 3 and f[2] == "off":
+                powered_off.add(f[1])
+except FileNotFoundError:
+    pass
+
+# A RULE ABOUT A SCREEN THAT IS NOT HERE IS NOT AN ERROR. Somebody unplugged
+# the monitor. Keeping the rule means it applies again when they plug it back
+# in, which is the whole point of writing it down.
+rules = {k: v for k, v in rules.items()
+         if k in outs and v[1] in outs}
+powered_off = {k for k in powered_off if k in outs}
+
+# NEVER THE LAST ONE. Turning off every screen leaves a running session nobody
+# can see or recover, and the only way back is a power button.
+if powered_off and len(powered_off) >= len(outs):
+    sys.stderr.write("refusing: that would switch off every screen\n")
+    sys.exit(3)
+
+live = [k for k in order if k not in powered_off]
+
+# CYCLES. "A right of B, B right of A" has no solution, and placing it
+# anyway means silently ignoring one of the two rules a person wrote.
+for start in list(rules):
+    seen, cur = set(), start
+    while cur in rules:
+        if cur in seen:
+            sys.stderr.write("refusing: the arrangement refers back to itself\n")
+            sys.exit(3)
+        seen.add(cur)
+        cur = rules[cur][1]
+
+pos = {}
+def place(k):
+    if k in pos:
+        return pos[k]
+    if k not in rules:
+        pos[k] = None          # a root; positioned below
+        return None
+    rel, ref = rules[k]
+    rp = place(ref)
+    if rp is None:
+        rp = pos.get(ref) or (0, 0)
+    rw, rh = outs[ref]["w"], outs[ref]["h"]
+    w, h = outs[k]["w"], outs[k]["h"]
+    if   rel == "right-of":  p = (rp[0] + rw, rp[1])
+    elif rel == "left-of":   p = (rp[0] - w,  rp[1])
+    elif rel == "above":     p = (rp[0], rp[1] - h)
+    elif rel == "below":     p = (rp[0], rp[1] + rh)
+    else:                    p = (rp[0], rp[1])     # mirror-of: the same corner
+    pos[k] = p
+    return p
+
+# Roots first, left to right in the compositor is own order, so a machine with
+# no rules at all comes out exactly as it does today.
+cursor = 0
+for k in live:
+    if k not in rules:
+        pos[k] = (cursor, 0)
+        cursor += outs[k]["w"]
+for k in live:
+    place(k)
+
+# NORMALISED TO THE ORIGIN. Negative coordinates are legal in sway and make
+# every later relation harder to reason about when read back.
+placed = {k: v for k, v in pos.items() if v is not None and k in live}
+if placed:
+    dx = min(v[0] for v in placed.values())
+    dy = min(v[1] for v in placed.values())
+    for k in placed:
+        placed[k] = (placed[k][0] - dx, placed[k][1] - dy)
+
+for k in order:
+    sel = k.replace("\"", "")
+    if k in powered_off:
+        print("output \"%s\" disable" % sel)
+        continue
+    if not outs[k]["active"]:
+        print("output \"%s\" enable" % sel)
+    if k in placed:
+        print("output \"%s\" position %d %d" % (sel, placed[k][0], placed[k][1]))
+' "$1"
+}
+
+# --- verbs -----------------------------------------------------------------
+cmd_list() {
+  need_sway
+  local tsv; tsv=$(outputs_tsv)
+  title "Screens"
+  if [ -z "$tsv" ]; then
+    hint "no compositor is answering -- run this from inside a session"
+    return 0
+  fi
+  local key name ident active x y w h mode scale
+  while IFS=$'\t' read -r key name ident active x y w h mode scale; do
+    if [ "$active" = 1 ]; then
+      null_row "$name" "${w}x${h} at ${x},${y}"
+    else
+      null_row "$name" "off (${mode})"
+    fi
+    [ "$key" != "$name" ] && hint "    $key"
+  done <<<"$tsv"
+
+  title "Arrangement"
+  local conf; conf=$(read_conf)
+  if [ -z "$conf" ]; then
+    hint "nothing saved -- the compositor's own order is in use"
+    hint "run: null-outputs arrange"
+  else
+    local verb k rel ref
+    while IFS=$'\t' read -r verb k rel ref; do
+      case $verb in
+        place) null_row "$k" "$rel $ref" ;;
+        power) null_row "$k" "off" ;;
+      esac
+    done <<<"$conf"
+  fi
+}
+
+cmd_apply() {
+  need_sway
+  local tsv; tsv=$(outputs_tsv)
+  [ -n "$tsv" ] || { oops "no compositor is answering"; return 1; }
+  local cmds; cmds=$(solve "$CONF" <<<"$tsv") || return 3
+  [ -n "$cmds" ] || return 0
+  local c
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    swaymsg -- "$c" >/dev/null 2>&1 || oops "the compositor refused: $c"
+  done <<<"$cmds"
+}
+
+cmd_arrange() {
+  need_sway
+  null_fzf_flags
+  local tsv; tsv=$(outputs_tsv)
+  [ -n "$tsv" ] || { oops "no compositor is answering"; return 1; }
+  mapfile -t KEYS < <(cut -f1 <<<"$tsv")
+  if [ "${#KEYS[@]}" -lt 2 ]; then
+    say "there is one screen, so there is nothing to arrange"
+    return 0
+  fi
+
+  local subject; subject=$(printf '%s\n' "${KEYS[@]}" \
+    | fzf "${NULL_FZF[@]}" --prompt='move > ' --header='which screen is moving' \
+          --height=12 --reverse) || return 0
+  [ -n "$subject" ] || return 0
+
+  local rel; rel=$(printf '%s\noff\n' $RELATIONS \
+    | fzf "${NULL_FZF[@]}" --prompt='where > ' --header="$subject goes" \
+          --height=12 --reverse) || return 0
+  [ -n "$rel" ] || return 0
+
+  mkdir -p "$CONF_DIR"
+  # REWRITTEN, NOT APPENDED. One rule per screen: a second rule for the same
+  # screen is a contradiction, and the last one written silently winning is
+  # how a file starts disagreeing with what it shows.
+  local kept; kept=$(read_conf | grep -v -P "^(place|power)\t\Q$subject\E\t" 2>/dev/null || true)
+
+  if [ "$rel" = off ]; then
+    printf '%s\n' "$kept" | grep -v '^$' > "$CONF.new" 2>/dev/null || true
+    printf 'power\t%s\toff\n' "$subject" >> "$CONF.new"
+  else
+    local ref; ref=$(printf '%s\n' "${KEYS[@]}" | grep -vxF "$subject" \
+      | fzf "${NULL_FZF[@]}" --prompt='of > ' --header="$subject is $rel which screen" \
+            --height=12 --reverse) || return 0
+    [ -n "$ref" ] || return 0
+    printf '%s\n' "$kept" | grep -v '^$' > "$CONF.new" 2>/dev/null || true
+    printf 'place\t%s\t%s\t%s\n' "$subject" "$rel" "$ref" >> "$CONF.new"
+  fi
+
+  # PROVED BEFORE IT IS KEPT. The solver refuses a cycle and refuses to switch
+  # off the last screen; if it refuses, the file that caused it is not the file
+  # somebody is left with.
+  local err
+  if ! err=$(solve "$CONF.new" <<<"$tsv" 2>&1 >/dev/null); then
+    oops "${err:-the arrangement does not resolve}"
+    rm -f "$CONF.new"
+    return 3
+  fi
+  mv -f "$CONF.new" "$CONF"
+  cmd_apply
+  cmd_list
+}
+
+cmd_forget() {
+  [ -r "$CONF" ] || { say "nothing is saved"; return 0; }
+  say "removing $CONF"
+  read_conf | sed 's/^/    /'
+  hint "the compositor's own order takes over at the next session"
+  rm -f "$CONF"
+}
+
+# WATCHING, so a screen plugged in during a session lands where it was told to
+# rather than wherever the compositor put it. swaymsg -t subscribe blocks on a
+# socket read, so this costs nothing between events.
+cmd_watch() {
+  need_sway
+  null_only_one 'null-outputs watch'
+  cmd_apply
+  swaymsg -t subscribe -m '["output"]' 2>/dev/null | while IFS= read -r _; do
+    cmd_apply
+  done
+}
+
+case "${1:-list}" in
+  list)    cmd_list ;;
+  # SCREENS IN, POSITIONS OUT, AND NOTHING TOUCHED. The verifier's way in, and
+  # the way to see what an arrangement resolves to before trusting it.
+  solve)   [ -n "${2:-}" ] || { echo "usage: null-outputs solve <conf>  (screens on stdin)" >&2; exit 2; }
+           solve "$2" ;;
+  arrange) cmd_arrange ;;
+  apply)   cmd_apply ;;
+  watch)   cmd_watch ;;
+  forget)  cmd_forget ;;
+  -h|--help|help)
+    echo "usage: null-outputs [list|arrange|apply|watch|forget]"
+    echo "  list     what is connected and what was asked for (changes nothing)"
+    echo "  arrange  say where a screen is, then apply it"
+    echo "  apply    put the screens where the saved arrangement says"
+    echo "  watch    apply, and re-apply whenever a screen is plugged or unplugged"
+    echo "  forget   drop the saved arrangement"
+    echo "  solve    read screens on stdin, print what would be applied" ;;
+  *) echo "null-outputs: unknown verb '$1'" >&2; exit 2 ;;
+esac

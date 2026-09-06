@@ -123,6 +123,17 @@ rows_DISPLAY() {
   # -- so changing the mode from here would break the nullLinux's own geometry
   # rather than merely resize a desktop. It belongs in the machine profile.
   null_row "MODE" "$(read_output)"
+  # ARRANGEMENT is not mode. Mode belongs to the machine profile because the
+  # cell grid derives from it; where a screen SITS relative to another leaves
+  # every grid untouched, so it is a setting a person may have.
+  local n; n=$(swaymsg -t get_outputs -r 2>/dev/null | grep -c '"name"' 2>/dev/null) || n=0
+  if [ "${n:-0}" -gt 1 ]; then
+    if [ -r "${XDG_CONFIG_HOME:-$HOME/.config}/nullLinux/outputs.conf" ]; then
+      null_row "ARRANGEMENT" "$n screens, saved"
+    else
+      null_row "ARRANGEMENT" "$n screens, connector order"
+    fi
+  fi
 }
 act_DISPLAY() {
   case $1 in
@@ -135,6 +146,7 @@ act_DISPLAY() {
     NIGHTLIGHT) local c; c=$(pick_value nightlight "warmer colour after dark" on off) || return 0
                 [ -n "$c" ] && { "$B/null-nightlight" "$c" >/dev/null 2>&1 \
                                  || "$B/null-nightlight" toggle >/dev/null 2>&1; } ;;
+    ARRANGEMENT) "$B/null-outputs" arrange ;;
     MODE)       say "the display mode comes from the machine profile" "" \
                     "The cell grid is derived from it, and machine check-grid" \
                     "asserts both strikes divide the output exactly. Change it" \

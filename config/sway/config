@@ -76,6 +76,18 @@ exec_always NULL_ROOT=$null $null/bin/null-column
 # sees what is copied while it is open, which is never (§8.4).
 exec_always NULL_ROOT=$null $null/bin/null-clipboard watch
 
+# WHERE THE SCREENS ARE, applied at start and again on every plug and unplug.
+#
+# sway has no `output` line anywhere in this configuration, so a machine with
+# two screens gets the DRM connector order -- the order the card lists its
+# ports, which has nothing to do with which side of the desk anything is on.
+# A projector connected mid-session lands wherever that order puts it, and
+# nothing in the session was able to say otherwise.
+#
+# `watch` blocks on the compositor's event socket, so it costs nothing between
+# plug events, and it displaces its own predecessor from inside (lib/once.sh).
+exec_always NULL_ROOT=$null $null/bin/null-outputs watch
+
 # THE POLKIT AGENT, started here because sway does not run XDG autostart.
 #
 # xfce-polkit ships /etc/xdg/autostart/xfce-polkit.desktop, which a desktop
