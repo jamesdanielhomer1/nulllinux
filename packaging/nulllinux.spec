@@ -164,13 +164,6 @@ install -D -m 0644 packaging/nulllinux-machine-sync.service \
 install -D -m 0644 packaging/nulllinux-session.desktop \
   %{buildroot}%{_prefix}/%{name}/packaging/nulllinux-session.desktop
 
-# The console-palette unit. Installed under the checkout rather than into
-# %{_unitdir}, because null-install decides whether to enable it and copies it
-# across -- a unit shipped into /usr/lib/systemd/system is enabled by preset
-# whether or not the palette file exists.
-install -D -m 0644 packaging/nulllinux-vtrgb.service \
-  %{buildroot}%{_prefix}/%{name}/packaging/nulllinux-vtrgb.service
-
 # The netfilter preload unit, placed and enabled by null-system firewall for
 # the same reason: it belongs to the firewall, not to the package.
 install -D -m 0644 packaging/nulllinux-netfilter-modules.service \

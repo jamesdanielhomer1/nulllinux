@@ -395,31 +395,43 @@ for entry in \
 done
 
 head_ "the virtual console's sixteen colours"
-say "before the greeter appears, and on every tty, the console used the"
-say "kernel's own colours -- the bright primaries every Linux machine has had"
-say "since 1992, in a system whose whole palette is blackbody"
+say "before the greeter appears, on every tty, and any time the desktop fails"
+say "to start, the console used the kernel's own palette -- the bright"
+say "primaries every Linux machine has had since 1992"
 say ""
-say "THE FONT IS NOT TOUCHED HERE. A console font with more than 256 glyphs"
-say "loses bright backgrounds (§9.5), so it stays where it is: an opt-in"
-say "`null-system tty`. Colours cannot break a console, so they are a default."
-if command -v setvtrgb >/dev/null 2>&1 && [ -r "$ROOT/config/vconsole/vtrgb" ]; then
-  if [ "$APPLY" -eq 1 ]; then
-    install -D -m 0644 "$ROOT/packaging/nulllinux-vtrgb.service" \
-      /usr/lib/systemd/system/nulllinux-vtrgb.service 2>/dev/null \
-      && say "installed nulllinux-vtrgb.service" \
-      || say "could not install nulllinux-vtrgb.service"
-    systemctl enable nulllinux-vtrgb.service >/dev/null 2>&1 \
-      && say "enabled it" || say "could not enable nulllinux-vtrgb.service"
-    # Applied now as well as at the next boot, so the change is visible without
-    # rebooting to see whether it worked.
-    setvtrgb "$ROOT/config/vconsole/vtrgb" 2>/dev/null \
-      && say "applied to the consoles that exist now" \
-      || say "could not apply now (no console here?); it is set for next boot"
+say "THE KERNEL COMMAND LINE, NOT setvtrgb."
+say "  setvtrgb changes the console it is given, and each virtual console gets"
+say "  its palette from the kernel's DEFAULTS when it is allocated -- so a tty"
+say "  a person switches to later is created with the old colours. A unit"
+say "  running setvtrgb at boot reported success and changed nothing that"
+say "  anyone would go on to look at. vt.default_red/grn/blu set the defaults"
+say "  themselves, so every console has them from the moment it exists."
+say ""
+say "THE FONT IS NOT TOUCHED HERE. A console font over 256 glyphs loses bright"
+say "backgrounds (§9.5), so it stays an opt-in \`null-system tty\`. Colours"
+say "cannot break a console; a font can."
+VTRGB="$ROOT/config/vconsole/vtrgb"
+if [ -r "$VTRGB" ] && command -v grubby >/dev/null 2>&1; then
+  vt_r=$(sed -n 1p "$VTRGB"); vt_g=$(sed -n 2p "$VTRGB"); vt_b=$(sed -n 3p "$VTRGB")
+  if [ -z "$vt_r" ] || [ -z "$vt_g" ] || [ -z "$vt_b" ]; then
+    say "$VTRGB is not three lines -- leaving the console alone"
+  elif [ "$APPLY" -eq 1 ]; then
+    if grubby --update-kernel=ALL \
+         --args="vt.default_red=$vt_r vt.default_grn=$vt_g vt.default_blu=$vt_b" >/dev/null 2>&1; then
+      # AND CHECK IT. grubby exits 0 on a good deal more than it should.
+      if grubby --info=DEFAULT 2>/dev/null | grep -q "vt.default_red=$vt_r"; then
+        say "set vt.default_red/grn/blu on every boot entry"
+      else
+        say "grubby reported success but the argument is not on the default entry"
+      fi
+    else
+      say "could not set the console palette on the kernel command line"
+    fi
   else
-    say "would install and enable nulllinux-vtrgb.service, and apply it now"
+    say "would set vt.default_red/grn/blu on every boot entry"
   fi
 else
-  say "setvtrgb or config/vconsole/vtrgb is missing -- the console keeps the kernel's colours"
+  say "no $VTRGB or no grubby -- the console keeps the kernel's colours"
 fi
 
 head_ "the session the greeter offers"

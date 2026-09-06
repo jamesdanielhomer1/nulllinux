@@ -71,15 +71,29 @@ PY
 grep -q 'config/vconsole/vtrgb' bake/export_theme.py \
   || { note "bake/export_theme.py does not write $VT -- it would be lost on the next bake"; fail=1; }
 
-# 4. SOMETHING HAS TO APPLY IT. A palette file nobody feeds to setvtrgb is a
-#    console with the kernel's colours and a file explaining what it should
-#    have looked like.
-grep -q 'setvtrgb' bin/null-install \
-  || { note "bin/null-install never runs setvtrgb"; fail=1; }
-[ -r packaging/nulllinux-vtrgb.service ] \
-  || { note "packaging/nulllinux-vtrgb.service is gone -- the palette would not survive a reboot"; fail=1; }
-grep -q 'nulllinux-vtrgb.service' packaging/nulllinux.spec \
-  || { note "the vtrgb unit is not in the spec -- it would not be on an installed machine"; fail=1; }
+# 4. IT HAS TO BE SET WHERE EVERY CONSOLE WILL SEE IT.
+#
+#    setvtrgb changes the console it is handed, and each virtual console takes
+#    its palette from the KERNEL DEFAULTS when it is allocated -- so a tty
+#    somebody switches to later is created with the old colours. A unit running
+#    setvtrgb at boot reported success and changed nothing anyone would go on
+#    to look at; the screenshot proved it. vt.default_red/grn/blu set the
+#    defaults themselves, from the first console the kernel makes.
+grep -q 'vt.default_red' bin/null-install \
+  || { note "bin/null-install does not set vt.default_red -- consoles allocated later keep the kernel's colours"; fail=1; }
+grep -q 'grubby --info=DEFAULT' bin/null-install \
+  || { note "bin/null-install sets the argument without checking it landed -- grubby exits 0 on a good deal more than it should"; fail=1; }
+# A REAL INVOCATION, NOT PROSE. The first version of this grep matched the
+# `say` line in null-install that EXPLAINS why setvtrgb is not used -- the
+# fourth time tonight a check has been fooled by a comment. Comment lines and
+# say/echo strings are stripped before looking.
+if sed -e 's/[[:space:]]*#.*//' -e 's/^[[:space:]]*\(say\|echo\)[[:space:]].*//' bin/null-install \
+   | grep -qE '(^|[;&|(]|[[:space:]])setvtrgb[[:space:]]'; then
+  note "bin/null-install runs setvtrgb, which only affects consoles that already exist"
+  fail=1
+else
+  note "ok    the palette is set on the kernel command line, where every console sees it"
+fi
 
 # 5. THE FONT STAYS OPT-IN. A console font over 256 glyphs loses bright
 #    backgrounds (§9.5), so it is a deliberate `null-system tty` and must not
