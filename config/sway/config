@@ -93,7 +93,7 @@ exec_always pkill -x xfce-polkit; /usr/libexec/xfce-polkit
 # UPower's CriticalPowerAction=Auto powers the machine off at 2% -- it cannot
 # hibernate, because the kickstart partitions with --noswap. Powering off at 2%
 # is the right last resort; doing it without having said anything first is not.
-exec_always pkill -f 'null-battery watch'; NULL_ROOT=$null $null/bin/null-battery watch
+exec_always NULL_ROOT=$null $null/bin/null-battery watch
 
 # THE PER-USER HALF, and it needs a caller.
 #

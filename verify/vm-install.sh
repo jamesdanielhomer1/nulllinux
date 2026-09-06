@@ -24,14 +24,36 @@ MEM=${NULL_VM_MEM:-4096}
 CPUS=${NULL_VM_CPUS:-4}
 
 die() { echo "vm-install: $*" >&2; exit 1; }
+
+# STOPPING THE GUEST WITHOUT STOPPING OURSELVES.
+#
+# This was `pkill -f "qemu.*$DISK"`, and on an evening when $DISK was
+# interactive.qcow2 it killed the shell that ran it -- four commands in a row
+# came back 144, which is 128 plus SIGTERM. The pattern matched the invoking
+# command line, exactly as NULL.md 8.6 says it will.
+#
+# Anchored on the BINARY instead: a process is qemu because /proc/PID/exe says
+# so, and the disk is confirmed from its argument vector. Neither can be true
+# of a shell.
+stop_guest() {
+  local p exe pid
+  for p in /proc/[0-9]*; do
+    exe=$(readlink -f "$p/exe" 2>/dev/null) || continue
+    case $exe in *qemu-system-*) ;; *) continue ;; esac
+    grep -qa -- "$DISK" "$p/cmdline" 2>/dev/null || continue
+    pid=${p#/proc/}
+    kill "$pid" 2>/dev/null || true
+  done
+}
 [ -r "$BASE" ] || die "no base image at $BASE"
 
 case "${1:-run}" in
   up|run) ;;
   ssh)    exec ssh -i "$KEY" -p "$PORT" -o StrictHostKeyChecking=no \
               -o UserKnownHostsFile=/dev/null root@127.0.0.1 "${@:2}" ;;
-  down)   pkill -f "qemu.*$DISK" 2>/dev/null; echo "guest stopped"; exit 0 ;;
-  clean)  pkill -f "qemu.*$DISK" 2>/dev/null; rm -f "$DISK" "$SEED"; echo "guest and seed removed"; exit 0 ;;
+
+  down)   stop_guest; echo "guest stopped"; exit 0 ;;
+  clean)  stop_guest; rm -f "$DISK" "$SEED"; echo "guest and seed removed"; exit 0 ;;
   *)      die "usage: vm-install.sh [run|ssh [cmd]|down|clean]" ;;
 esac
 
@@ -73,7 +95,7 @@ rm -f "$DISK"
 qemu-img create -q -f qcow2 -F qcow2 -b "$BASE" "$DISK" 20G || die "could not create the overlay"
 
 echo "booting a clean Fedora 44 (${MEM}M, ${CPUS} cpu, ssh on :$PORT)"
-pkill -f "qemu.*$DISK" 2>/dev/null
+stop_guest
 setsid qemu-system-x86_64 \
   -enable-kvm -m "$MEM" -smp "$CPUS" \
   -drive file="$DISK",if=virtio,format=qcow2 \

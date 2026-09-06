@@ -22,7 +22,12 @@ case "${1:-list}" in
     # Started by the compositor. Two watchers, because text and images are
     # separate selections and a single watcher silently covers only one.
     have wl-paste || exit 1
-    pkill -f 'wl-paste .*--watch cliphist' 2>/dev/null || true
+    # Displaced from in here for the same reason null-battery is: a restart
+    # clause that names what it is about to start kills the shell holding
+    # it (lib/once.sh). This one happened not to match its own invoker,
+    # which is luck rather than design.
+    . "${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}/lib/once.sh"
+    null_only_one '--watch cliphist'
     setsid wl-paste --type text  --watch cliphist store >/dev/null 2>&1 &
     setsid wl-paste --type image --watch cliphist store >/dev/null 2>&1 &
     ;;

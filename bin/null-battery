@@ -116,6 +116,13 @@ check_once() {
 case ${1:-watch} in
   once)  check_once ;;
   watch)
+    # ONE WATCHER, DISPLACED FROM IN HERE. The compositor's exec_always used to
+    # read `pkill -f 'null-battery watch'; ...null-battery watch`, and that
+    # shell's own command line contains the pattern -- so pkill killed the
+    # shell and the watcher after the semicolon never ran. See lib/once.sh.
+    . "${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}/lib/once.sh"
+    null_only_one 'null-battery watch'
+
     # A machine with no battery exits rather than looping for ever over a
     # directory that will never have one.
     percent_of "$SUPPLY" >/dev/null 2>&1 || { echo "null-battery: no battery here"; exit 0; }

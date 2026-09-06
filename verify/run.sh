@@ -34,6 +34,7 @@ run "the console is ours"            ./verify/check-console-palette.sh
 run "the ladder is the user's"       ./verify/check-idle-ladder-writable.sh
 run "the boot menu is quiet"         ./verify/check-boot-menu.sh
 run "the installer is ours"          ./verify/check-installer.sh
+run "no restart kills its shell"     ./verify/check-no-self-kill.sh
 run "every tool has a caller (§10.1)"     ./verify/check-callers.sh
 run "themes have one name (§8.10)"       ./verify/check-theme-names.sh
 run "the splash is complete (§9.6)"      ./verify/check-splash-complete.sh
