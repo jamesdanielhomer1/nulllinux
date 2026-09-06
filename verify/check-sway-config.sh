@@ -20,13 +20,18 @@ ROOT=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd); cd "$ROOT"
 #
 # Forced to the headless backend, which needs no display, no seat and no
 # hardware, so this asks the same question on every machine.
+# AND NO GPU EITHER. The headless backend still asks for a renderer, and the
+# default one wants a DRM render node -- which a guest reached over ssh does
+# not have, so validation died with "Failed to find any DRM render node" and
+# this check called it a rejected configuration. pixman renders in software and
+# needs no hardware at all, which is right for a question about a text file.
 out=$(env -u WAYLAND_DISPLAY -u DISPLAY -u SWAYSOCK \
-      WLR_BACKENDS=headless \
+      WLR_BACKENDS=headless WLR_RENDERER=pixman \
       sway --validate --config "$ROOT/config/sway/config" 2>&1)
 # AND A VALIDATOR THAT COULD NOT START IS NOT A VERDICT. "Unable to create
 # backend" says nothing about the configuration, and reporting it as a
 # rejection is the same error as reading a crash as a test failure.
-if grep -q 'Unable to create backend' <<<"$out"; then
+if grep -qE 'Unable to create backend|Failed to find any DRM render node|Failed to initialize' <<<"$out"; then
   echo "SKIP: sway could not start any backend here, so the config was never read"
   grep ERROR <<<"$out" | head -4
   exit 0

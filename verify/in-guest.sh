@@ -85,7 +85,22 @@ tar -C "$ROOT" -cf - \
     . 2>/dev/null | guest "$unpack" || {
   echo "in-guest: copying the tree failed" >&2; exit 1; }
 
-# 4. RUN IT THERE.
+# 4. THE GUEST'S OWN MACHINE PROFILE.
+#
+#    A profile is DERIVED from the hardware, and lives at machines/<hostname>.conf
+#    -- so a tree copied from the build host has nox's profile and not the
+#    guest's, and two checks fail with "no profile for 'nulltest'". That is not
+#    a defect in either machine; it is a tree that has never met this hardware.
+#
+#    Generated rather than copied from the installed package, because generating
+#    is what an installed machine does on first boot and doing the same thing
+#    here tests that path as a side effect.
+if ! guest "[ -r $DEST/machines/\$(hostname).conf ]" >/dev/null 2>&1; then
+  say "deriving the guest's machine profile"
+  guest "cd $DEST && ./bin/machine generate" 2>&1 | sed 's/^/    /'
+fi
+
+# 5. RUN IT THERE.
 if [ "${1:-}" = "--" ]; then
   shift
   guest "cd $DEST && $*"

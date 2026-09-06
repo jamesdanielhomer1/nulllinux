@@ -15,6 +15,27 @@ run() {
   if ! "$@"; then fail=1; printf '   ^^ FAILED\n'; fi
 }
 
+# A CHECK THAT CANNOT RUN IS NOT A CHECK THAT FAILED.
+#
+# bake/ladder.py and verify/check-kerr.sh import numpy. numpy is declared for
+# the BAKE, which happens on a build machine; an installed nullLinux ships the
+# prebuilt assets and has no reason to carry it. So running this suite in the
+# guest -- which is where it now belongs, verify/in-guest.sh -- reported two red
+# checks about a machine that had never been asked to bake anything, and the
+# evidence was a ModuleNotFoundError read as a verdict.
+#
+# §10.1 rule 1: the output is the evidence and the status is not. A crash is
+# neither.
+run_needing() {  # <python module> <label> <command...>
+  local mod=$1 label=$2; shift 2
+  if python3 -c "import $mod" >/dev/null 2>&1; then
+    run "$label" "$@"
+  else
+    printf '\n== %s\n   SKIPPED: this machine has no python3 %s, so the bake cannot be checked from it\n' \
+      "$label" "$mod"
+  fi
+}
+
 run "package abstraction (§9.1)"      ./verify/check-package-abstraction.sh
 run "branding is safe"               ./verify/check-branding.sh
 run "no silent takeover"              ./verify/check-no-takeover.sh
@@ -40,6 +61,7 @@ run "removable media, and only that" ./verify/check-drive.sh
 run "unknown is not zero"            ./verify/check-unknown-is-not-zero.sh
 run "tests stay off the host"        ./verify/check-tests-stay-off-the-host.sh
 run "accounts, and their refusals"   ./verify/check-users.sh
+run "archives actually open"         ./verify/check-archives.sh
 run "every tool has a caller (§10.1)"     ./verify/check-callers.sh
 run "themes have one name (§8.10)"       ./verify/check-theme-names.sh
 run "the splash is complete (§9.6)"      ./verify/check-splash-complete.sh
@@ -53,8 +75,8 @@ run "machine profile grid (§2.1)"     ./bin/machine check-grid
 run "machine profile is readable"     ./bin/machine get hero
 run "ramps: monotonic + font hash (§2.4)"  ./verify/check-ramps.sh
 run "a ramp belongs to one strike (§2.3)"  ./verify/check-cross-strike-ramp.sh
-run "mode ladder within Nyquist (§3.4)"    python3 bake/ladder.py
-run "Kerr physics + shader (§10.2)"        ./verify/check-kerr.sh
+run_needing numpy "mode ladder within Nyquist (§3.4)" python3 bake/ladder.py
+run_needing numpy "Kerr physics + shader (§10.2)"       ./verify/check-kerr.sh
 run "compositor accepts the config (§8.2)" ./verify/check-sway-config.sh
 run "no key bound twice (§8.3, §10.4)"     ./verify/check-binds.sh
 run "... and that audit can fail (§10.1)"  ./verify/selftest-binds.sh

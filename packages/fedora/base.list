@@ -157,13 +157,22 @@ xarchiver                       # archives. GTK3, so it resolves
 thunar-archive-plugin           # ... and the file manager can call it
 tar                             # xarchiver is a FRONT END. It shells out, and
 zip                             # its binary names `tar` 45 times and `zip` 40.
-                                # Neither was installed, so "Extract here" on a
-                                # .tar.gz -- the commonest archive on Linux --
-                                # and "Compress to .zip" both did nothing at
-                                # all. unzip arrived through a dependency and
-                                # zip did not, so the system could open a zip
-                                # and not make one. Found by asking a guest what
-                                # it actually had, not by reading this file.
+unzip                           # NONE of these six is in Fedora's @core -- I
+gzip                            # checked rather than assumed, because "surely
+xz                              # gzip is in the base system" is exactly the
+bzip2                           # assumption that leaves a hole.
+                                #
+                                # tar and zip were absent outright, so "Extract
+                                # here" on a .tar.gz -- the commonest archive on
+                                # Linux -- and "Compress to .zip" both did
+                                # nothing at all. The other four were present
+                                # only because something else had dragged them
+                                # in, which §9.1 calls what it is: a package a
+                                # dependency change nobody made deliberately can
+                                # remove.
+                                #
+                                # Found by asking a running guest what it had.
+                                # An absence is invisible in this file.
 file                            # null-open dispatches on MIME type, read from
                                 # the bytes, not on a name a download can lose
 

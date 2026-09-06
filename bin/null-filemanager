@@ -22,6 +22,27 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ ! -S "${XDG_RUNTIME_DIR:-/nonexis
   exit 0
 fi
 
+# AND A BUS IS NOT A DESKTOP. These settings belong to the person using the file
+# manager, and xfconf is per user: an ssh login gets a session bus of its own,
+# reads ITS OWN empty thunar channel, and reports every key unset.
+#
+# That is what happened the first time this suite ran on the guest --
+#
+#     last-location-bar   <unset>   WANTED ThunarLocationButtons
+#
+# -- about a machine whose desktop user has them set perfectly well. The check
+# was measuring root over ssh and calling it the desktop.
+case ${XDG_SESSION_TYPE:-} in
+  wayland|x11) ;;
+  *)
+    echo "null-filemanager: this login has a session bus but no desktop"
+    echo "  (XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-unset}). xfconf is per user, so"
+    echo "  this would read $(id -un)'s own empty channel rather than the settings"
+    echo "  of whoever uses the file manager."
+    echo "  SKIPPED -- run this from the session it is about."
+    exit 0 ;;
+esac
+
 set_one() { $Q -c thunar -p "$1" -n -t "$2" -s "$3" 2>/dev/null || $Q -c thunar -p "$1" -t "$2" -s "$3"; }
 
 case "${1:-open}" in
