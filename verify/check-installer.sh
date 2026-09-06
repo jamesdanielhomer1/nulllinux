@@ -51,7 +51,7 @@ disk=$(lsblk -dnpo NAME,SIZE,MODEL,TYPE 2>/dev/null \
        | grep -vE ' 0B( |$)' | awk '{print $1; exit}')
 if [ -n "$disk" ]; then
   out=$(mktemp)
-  printf '1\ntesthost\ntester\nTest Person\npw\npw\n1\ngb\n%s\n' "$disk" \
+  printf '1\ntesthost\ntester\nTest Person\npw\npw\nEurope/London\ngb\n%s\n' "$disk" \
     | "./$I" --generate "$out" --dry-run >/dev/null 2>&1
   for want in '^clearpart ' '^autopart ' '^bootloader ' '^user --name=tester' '^rootpw --lock' '^network .*--hostname=testhost'; do
     grep -qE "$want" "$out" 2>/dev/null || { note "the fragment has no line matching $want"; fail=1; }
@@ -71,6 +71,27 @@ if [ -n "$disk" ]; then
     rm -f "$whole"
   fi
   rm -f "$out"
+
+  # 2b. AND IT MUST NOT PRINT A WALL.
+  #
+  #     The first install this ISO ever ran reached the timezone question and
+  #     printed all 598 of them, one per numbered line, onto a console with no
+  #     scrollback -- taking the hero, every answer already given and the line
+  #     promising nothing had been written yet off the screen with it.
+  #
+  #     Measured, not asserted about the source: run the thing and count what
+  #     it put on the screen.
+  out=$(mktemp); screen=$(mktemp)
+  printf '1\ntesthost\ntester\nTest Person\npw\npw\nEurope/London\ngb\n%s\n' "$disk" \
+    | "./$I" --generate "$out" --dry-run >"$screen" 2>&1
+  lines=$(wc -l <"$screen")
+  if [ "$lines" -gt 120 ]; then
+    note "the installer printed $lines lines to ask nine questions -- a console has no scrollback"
+    fail=1
+  else
+    note "ok    nine questions cost $lines lines, not a screenful per list"
+  fi
+  rm -f "$out" "$screen"
 else
   note "(no disk visible here; the confirmed path is not exercised)"
 fi
@@ -105,6 +126,14 @@ grep -q 'OPENVT=$INST/openvt' "$B" \
   || { note "$B does not prefer the shipped openvt"; fail=1; }
 grep -q 'ps -o pid= -t tty6' "$B" \
   || { note "$B's fallback does not clear tty6 first, so a getty would eat the answers"; fail=1; }
+
+# 5c. %pre DECIDES ON THE ANSWERS, NOT ON THE WRAPPER.
+#
+#     openvt returned 8 from a run that installed correctly. The installer has
+#     no exit path that returns 8, so that status belonged to the wrapper --
+#     and %pre was passing it on as its own.
+grep -q 'if \[ -s /tmp/nulllinux-answers.ks \]' "$B" \
+  || { note "$B's %pre reports the wrapper's exit status rather than whether the answers exist"; fail=1; }
 
 # 5. THE HERO TRAVELS AS WHAT IT WILL BE SHOWN AS. The installer environment
 #    has no renderer, no atlas and no cells file.
