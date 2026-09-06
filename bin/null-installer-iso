@@ -62,7 +62,41 @@ WORK=${NULL_ISO_WORK:-/var/lib/nulllinux-iso}
 # resolved before that cd.
 case $WORK in /*) ;; *) WORK=$PWD/$WORK ;; esac
 OUT="$WORK/installer"
-MIRROR=${NULL_MIRROR:-https://download.fedoraproject.org/pub/fedora/linux}
+# ONE MIRROR, CHOSEN AND CHECKED BEFORE THE BUILD STARTS.
+#
+# This used download.fedoraproject.org, which is a REDIRECTOR: it sends each
+# request to a different mirror. Over the nine hundred packages a lorax run
+# fetches, one incomplete mirror is enough to end it -- and it did, twice,
+# both times on libev-4.33-15, which every other mirror has and which fetches
+# in a third of a second by hand. Forty minutes of build, lost to a redirect.
+#
+# So: resolve ONE mirror from the metalink, prove it answers for both the
+# metadata and an actual package, and hand lorax that. A mirror that fails the
+# check is skipped before anything is downloaded rather than an hour into it.
+MIRROR=${NULL_MIRROR:-}
+if [ -z "$MIRROR" ]; then
+  echo "choosing a mirror"
+  ml="https://mirrors.fedoraproject.org/metalink?repo=fedora-$RELEASEVER&arch=x86_64"
+  # A package that is small, ancient and universally present -- so a mirror
+  # failing on it is missing content rather than merely lagging.
+  probe="Packages/l/libev-4.33-15.fc$RELEASEVER.x86_64.rpm"
+  for u in $(curl -s --max-time 30 "$ml" \
+             | grep -oE 'https://[^<]+/Everything/x86_64/os/repodata/repomd\.xml' \
+             | sed 's|/repodata/repomd\.xml$||' | head -8); do
+    base=${u%/releases/*}; base=${base%/}
+    root=${u%/repodata*}
+    code_md=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$root/repodata/repomd.xml")
+    code_pk=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -r 0-0 "$root/$probe")
+    if [ "$code_md" = 200 ] && { [ "$code_pk" = 200 ] || [ "$code_pk" = 206 ]; }; then
+      MIRROR=${u%/releases/*}
+      echo "  $MIRROR"
+      echo "  metadata $code_md, sample package $code_pk"
+      break
+    fi
+    echo "  skipped $(printf '%s' "$u" | cut -d/ -f3): metadata $code_md, package $code_pk"
+  done
+fi
+[ -n "$MIRROR" ] || { echo "null-installer-iso: no mirror answered for both metadata and packages" >&2; exit 1; }
 
 command -v lorax >/dev/null 2>&1 || { echo "null-installer-iso: lorax is not installed" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || { echo "null-installer-iso: must be root" >&2; exit 1; }
