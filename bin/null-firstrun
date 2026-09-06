@@ -14,6 +14,48 @@
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 
+# WHERE THIS REPORTS TO.
+#
+# It is started by `exec` from the compositor configuration, so everything it
+# printed went to sway's own output -- the session journal, if anything was
+# capturing it. It says useful things: which joins it made, which it skipped,
+# whether the audio daemon answered. All of it went somewhere no person would
+# think to look, on the one run of the one tool that sets a new account up.
+#
+# So: a transcript at a findable path, and a NOTIFICATION only when something
+# went wrong. Silent when it worked, because a notification on every login for
+# a thing that succeeded is a notification people learn to dismiss unread.
+#
+# The previous run is kept as .1. Two runs is enough to compare "it worked
+# yesterday" against today, and an unbounded log in a home directory is litter.
+LOG="${XDG_STATE_HOME:-$HOME/.local/state}/nulllinux/firstrun.log"
+if mkdir -p "$(dirname "$LOG")" 2>/dev/null; then
+  [ -f "$LOG" ] && mv -f "$LOG" "$LOG.1" 2>/dev/null
+  exec > >(tee "$LOG") 2>&1
+fi
+
+# Anything matching this is worth interrupting somebody for. Deliberately
+# narrow: "skipped" is a normal outcome here and must not fire it.
+TROUBLE='could not|cannot|failed|refus|no such|permission denied|does not answer'
+
+report_trouble() {
+  [ -r "$LOG" ] || return 0
+  # DISTINCT problems, not lines. One missing D-Bus session produces the same
+  # "Failed to init libxfconf" seven times, and "7 things to look at" for one
+  # thing is how a notification becomes something people dismiss unread.
+  local n first
+  n=$(grep -iE "$TROUBLE" "$LOG" 2>/dev/null | sed 's/^ *//' | sort -u | grep -c . || echo 0)
+  [ "${n:-0}" -gt 0 ] || return 0
+  first=$(grep -iE "$TROUBLE" "$LOG" 2>/dev/null | sed 's/^ *//' | sort -u | head -1)
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send -u normal -a nullLinux "First-run setup: $n thing(s) to look at" \
+      "$first
+Full transcript: $LOG"
+  fi
+  printf '\n%s\n' "  $n thing(s) worth reading in $LOG"
+}
+trap report_trouble EXIT
+
 # THE SHELL AND GIT JOINS, which nothing called until a clean machine showed
 # that nothing called them. §9.8 describes joining nullLinux's shell prompt and
 # git colours into files that belong to the user -- and like the browser
