@@ -66,13 +66,28 @@ zerombr
 clearpart --all --initlabel --drives=vda
 autopart --type=plain --noswap
 
+# TWO THINGS ABOUT THE BOOTLOADER.
+#
 # anaconda copies the INSTALLER's console= arguments into the installed
 # system's boot entries. The harness boots the installer with
 # console=ttyS0,115200 so it can capture the install log, and the installed
 # system inherits a serial console it has no reason to have. --append does NOT
 # replace them -- it adds to them -- so they are removed in %post, where it can
 # be verified rather than assumed.
-bootloader --location=mbr --boot-drive=vda
+#
+# FIVE SECONDS OF EVERY BOOT WERE SPENT IN A MENU NOBODY ASKED FOR.
+#
+# Fedora's default is GRUB_TIMEOUT=5 with no timeout style, so the menu is
+# displayed and counted down on every single boot. It is invisible to every
+# measurement this project has made: systemd-analyze starts at the kernel, and
+# this happens before it. Measured properly -- power-on to ssh answering --
+# 48.2s became 41.6s by changing this one number.
+#
+# --timeout=1, with GRUB_TIMEOUT_STYLE=hidden added in %post. Holding Esc or
+# Shift during that second still brings the menu up, which matters here more
+# than usual: this system has ONE ordinary kernel, so the rescue entry is the
+# only fallback (NULL.md 9.6). The menu is not gone, it is quiet.
+bootloader --location=mbr --boot-drive=vda --timeout=1
 
 # A shell in the INSTALLER ENVIRONMENT, which is a different machine from the
 # one being installed. With inst.sshd on the command line this is the only way
@@ -142,6 +157,31 @@ if command -v grubby >/dev/null 2>&1; then
   if grubby --info=DEFAULT 2>/dev/null | grep -q "console=ttyS0"; then
     echo "nullLinux: WARNING -- could not remove the installer's serial console" >&2
   fi
+fi
+
+# THE MENU IS QUIET, NOT GONE.
+#
+# `bootloader --timeout=1` above sets GRUB_TIMEOUT. The STYLE has no kickstart
+# directive, so it is set here: hidden means GRUB waits the timeout for a key
+# instead of drawing the menu and counting down at it.
+#
+# Holding Esc or Shift during that second still shows the menu, and that is
+# the documented way to reach the rescue entry -- which on this system is the
+# only fallback there is.
+if [ -w /etc/default/grub ]; then
+  grep -q '^GRUB_TIMEOUT_STYLE=' /etc/default/grub \
+    && sed -i 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=hidden/' /etc/default/grub \
+    || echo 'GRUB_TIMEOUT_STYLE=hidden' >> /etc/default/grub
+  if command -v grub2-mkconfig >/dev/null 2>&1; then
+    for cfg in /boot/grub2/grub.cfg /boot/efi/EFI/fedora/grub.cfg; do
+      [ -f "$cfg" ] && grub2-mkconfig -o "$cfg" >/dev/null 2>&1
+    done
+  fi
+  # AND CHECK IT, because a menu that still counts to five is the whole point.
+  t=$(sed -n 's/^GRUB_TIMEOUT=//p' /etc/default/grub | tail -1)
+  s=$(sed -n 's/^GRUB_TIMEOUT_STYLE=//p' /etc/default/grub | tail -1)
+  echo "nullLinux: GRUB timeout ${t:-unset}, style ${s:-unset}"
+  case "${t:-5}" in 0|1|2) ;; *) echo "nullLinux: WARNING -- GRUB still waits ${t}s at every boot" >&2 ;; esac
 fi
 
 # THE FIREWALL, AS RULES RATHER THAN AS A DAEMON THAT GENERATES THEM.
