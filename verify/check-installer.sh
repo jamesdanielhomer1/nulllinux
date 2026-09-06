@@ -92,6 +92,20 @@ grep -q "the interactive kickstart has no %include" "$B" \
 grep -q 'menu.sh"; do' "$I" \
   || { note "$I looks for menu.sh in only one place -- on the ISO there is no lib/"; fail=1; }
 
+# 5b. A CONSOLE NOBODY ELSE IS ON.
+#
+#     The installer drew perfectly on /dev/tty6 and then could not be answered:
+#     anaconda runs a getty there, and a getty wins every keystroke. openvt
+#     finds the first FREE virtual terminal -- but the runtime does not have
+#     it, even though it has chvt, because lorax prunes what it installs. So it
+#     is SHIPPED: 24 KB, needs only libc, same Fedora release.
+grep -q 'install -m 0755 /usr/bin/openvt' "$B" \
+  || { note "$B does not ship openvt -- the installer would land on a VT with a getty on it and be unanswerable"; fail=1; }
+grep -q 'OPENVT=$INST/openvt' "$B" \
+  || { note "$B does not prefer the shipped openvt"; fail=1; }
+grep -q 'ps -o pid= -t tty6' "$B" \
+  || { note "$B's fallback does not clear tty6 first, so a getty would eat the answers"; fail=1; }
+
 # 5. THE HERO TRAVELS AS WHAT IT WILL BE SHOWN AS. The installer environment
 #    has no renderer, no atlas and no cells file.
 grep -q 'hero.ansi' "$I" \

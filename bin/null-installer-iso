@@ -229,6 +229,23 @@ if [ $st -eq 0 ] && iso=$(find "$OUT" -name 'boot.iso' | head -1) && [ -n "$iso"
     mkdir -p "$stage/nulllinux-installer"
     install -m 0755 "$ROOT/bin/null-installer" "$stage/nulllinux-installer/null-installer"
     install -m 0644 "$ROOT/lib/menu.sh"        "$stage/nulllinux-installer/menu.sh" 2>/dev/null || true
+
+    # openvt, SHIPPED, because the installer environment does not have it.
+    #
+    # It finds the first FREE virtual terminal and runs a program on it. The
+    # runtime has chvt -- proven by a boot -- and not openvt, because lorax
+    # prunes what it installs. Without it the only console available is one
+    # anaconda already runs a getty on, and a getty wins every keystroke: the
+    # installer drew perfectly and then could not be answered.
+    #
+    # 24 KB, needs only libc, and the runtime is the same Fedora release this
+    # is built on. Copied rather than depended on.
+    if [ -x /usr/bin/openvt ]; then
+      install -m 0755 /usr/bin/openvt "$stage/nulllinux-installer/openvt"
+      echo "  shipping openvt ($(stat -c%s /usr/bin/openvt) bytes) -- the runtime has none"
+    else
+      echo "  no /usr/bin/openvt here to ship; the installer will fall back to tty6"
+    fi
     hero_cells="$ROOT/assets/prebuilt/ter-118n/logo.cells"
     hero_atlas="$ROOT/assets/prebuilt/strikes/atlas-ter-118n.bin"
     if [ -r "$hero_cells" ] && [ -r "$hero_atlas" ] && [ -x "$ROOT/render/target/release/render" ] \
@@ -310,27 +327,43 @@ pre = (
  "log \"tty6=$(ls -l /dev/tty6 2>&1)\"\n"
  "log \"disks=$(lsblk -dnpo NAME,SIZE,TYPE 2>&1 | tr '\\n' ' ')\"\n"
 
- "TTY=/dev/tty6\n"
- "if [ -w \"$TTY\" ] && command -v chvt >/dev/null 2>&1; then\n"
- "  chvt 6; log \"chvt rc=$?\"\n"
- "  { [ -t 0 ] && log 'probe: stdin on tty6 IS a tty' || log 'probe: stdin on tty6 is NOT a tty'; } <\"$TTY\"\n"
- "  { [ -t 1 ] && log 'probe: stdout on tty6 IS a tty' || log 'probe: stdout on tty6 is NOT a tty'; } >\"$TTY\"\n"
- "  log \"probe: $(stat -c '%F %a' \"$TTY\" 2>&1)\"\n"
-
- "  NULL_ROOT=/run/install/repo/nulllinux-installer \\\n"
- "    /run/install/repo/nulllinux-installer/null-installer \\\n"
- "    --console \"$TTY\" --generate /tmp/nulllinux-answers.ks\n"
+ "# A VT NOBODY ELSE IS ON.\n"
+ "#\n"
+ "# The first attempt bound the installer to /dev/tty6 and switched to it.\n"
+ "# It DREW -- the hero, the questions, the one disk -- and then every\n"
+ "# keystroke went to the login shell anaconda also runs there. tty6 has a\n"
+ "# getty on it, and a getty wins.\n"
+ "#\n"
+ "# openvt finds the first FREE virtual terminal, runs the program with its\n"
+ "# stdin, stdout and stderr on it, switches to it (-s) and waits (-w). It is\n"
+ "# from kbd, the same package as the chvt already proven present here.\n"
+ "INST=/run/install/repo/nulllinux-installer\n"
+ "OPENVT=$INST/openvt\n"
+ "[ -x \"$OPENVT\" ] || OPENVT=$(command -v openvt 2>/dev/null)\n"
+ "if [ -n \"$OPENVT\" ] && [ -x \"$OPENVT\" ]; then\n"
+ "  \"$OPENVT\" -s -w -- /usr/bin/env NULL_ROOT=$INST \\\n"
+ "    $INST/null-installer --generate /tmp/nulllinux-answers.ks\n"
  "  rc=$?\n"
- "  log \"installer rc=$rc\"\n"
- "  log \"answers=$(ls -l /tmp/nulllinux-answers.ks 2>&1)\"\n"
- "  chvt 1 || true\n"
- "  exit $rc\n"
+ "  log \"installer rc=$rc (openvt)\"\n"
+ "elif [ -c /dev/tty6 ] && command -v chvt >/dev/null 2>&1; then\n"
+ "  # No openvt: take tty6 and hope nothing else is on it. Kept because a\n"
+ "  # cut-down runtime might have chvt and not openvt, and a worse console is\n"
+ "  # better than none.\n"
+ "  # Whatever holds tty6 has to go first, or it eats the answers.\n"
+ "  for pid in $(ps -o pid= -t tty6 2>/dev/null); do kill \"$pid\" 2>/dev/null; done\n"
+ "  sleep 1\n"
+ "  chvt 6\n"
+ "  NULL_ROOT=$INST $INST/null-installer --console /dev/tty6 \\\n"
+ "    --generate /tmp/nulllinux-answers.ks\n"
+ "  rc=$?\n"
+ "  chvt 1\n"
+ "  log \"installer rc=$rc (tty6)\"\n"
+ "else\n"
+ "  log 'no console for the installer; not proceeding'\n"
+ "  rc=1\n"
  "fi\n"
- "# NO CONSOLE AT ALL. Better to stop with a reason than to hang: with no\n"
- "# answers file the %include below fails and anaconda ends without having\n"
- "# touched a disk.\n"
- "log 'no console for the installer; not proceeding'\n"
- "exit 1\n"
+ "log \"answers=$(ls -l /tmp/nulllinux-answers.ks 2>&1)\"\n"
+ "exit $rc\n"
  "%end\n"
  "\n"
  "%include /tmp/nulllinux-answers.ks\n"
