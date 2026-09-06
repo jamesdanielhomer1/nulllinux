@@ -133,6 +133,43 @@ xfce-polkit
 pipewire
 wireplumber
 pipewire-pulseaudio
+
+# --- opening things ------------------------------------------------------
+#
+# WHAT WAS MISSING. bin/null-open knew three roles -- dir, reveal, editor --
+# so a screenshot, a PDF, a video or a zip had no answer at all. grim is
+# installed and bound to Print, which means this system could take a picture it
+# had no way of showing you.
+#
+# Each of these is here for the design system as much as for the capability.
+# The first three are keyboard-driven and take every colour from a config file,
+# so config/ puts them in the palette instead of leaving them at a toolkit
+# default. A GTK4/libadwaita viewer would ignore both the theme and the config.
+
+imv                             # images. Wayland-native; -b and -t are palette
+                                # roles, set in config/imv/config
+zathura                         # PDF. Every colour it draws is a zathurarc
+zathura-pdf-mupdf               # setting, which is what lets it be OF this
+                                # system rather than merely dark
+mpv                             # video and audio, one player for one verb
+xarchiver                       # archives. GTK3, so it resolves
+                                # /usr/share/themes/nullLinux/gtk-3.0/gtk.css
+thunar-archive-plugin           # ... and the file manager can call it
+file                            # null-open dispatches on MIME type, read from
+                                # the bytes, not on a name a download can lose
+
+# --- the desktop's own plumbing ------------------------------------------
+#
+# THE FILE CHOOSER IS A WINDOW TOO. Without a portal backend, any application
+# asking for "open a file" gets whatever the dependency graph happened to
+# drag in -- or nothing, and the dialog never appears. The GTK backend is
+# chosen because it is GTK3 and therefore inherits the theme; the wlr backend
+# is what makes screen sharing work at all on a wlroots compositor.
+xdg-desktop-portal-gtk
+xdg-desktop-portal-wlr
+gvfs-mtp                        # a phone plugged in over USB appears at all
+bc                              # the calculator component (NULL.md 8.4) is a
+                                # column topic over bc, not a fifth GUI
 #
 # Four hops, every one through firewalld -- the package we deliberately stopped
 # using. Remove firewalld as the obvious tidy-up after replacing it and `nft`

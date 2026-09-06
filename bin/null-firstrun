@@ -83,6 +83,34 @@ if [ ! -r /etc/sway/config ] || ! grep -q "$ROOT" /etc/sway/config 2>/dev/null; 
   echo
 fi
 
+# CONFIGURATION FOR PROGRAMS THAT HAVE NO SYSTEM-WIDE PATH.
+#
+# btop reads $XDG_CONFIG_HOME/btop and nothing else -- there is no /etc for it.
+# null-install wrote /etc/xdg/btop/btop.conf anyway, for as long as the file
+# has existed, and btop never read a line of it: outside the column it came up
+# in its own colours with the braille glyphs this system bans.
+#
+# So it is seeded here, once, and then it belongs to the user. Never
+# overwritten: a config a person has edited is theirs, and silently replacing
+# it at every login is the behaviour that makes people delete the tool that
+# does it.
+echo
+echo "== configuration for programs with no system-wide path"
+for pair in "btop|btop.conf"; do
+  app=${pair%%|*}; f=${pair##*|}
+  src="$ROOT/config/$app/$f"
+  dst="${XDG_CONFIG_HOME:-$HOME/.config}/$app/$f"
+  if [ ! -r "$src" ]; then
+    echo "  $app: no $src -- nothing to seed"
+  elif [ -e "$dst" ]; then
+    echo "  $app: $dst exists already -- left alone"
+  else
+    mkdir -p "$(dirname "$dst")"
+    if cp -a "$src" "$dst"; then echo "  $app: seeded $dst"
+    else echo "  $app: could not write $dst" >&2; fi
+  fi
+done
+
 echo
 echo "== browser chrome (the one per-user piece)"
 "$ROOT/bin/null-firefox" --apply || echo "  skipped"

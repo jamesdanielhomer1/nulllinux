@@ -342,18 +342,54 @@ for v in 3.0 4.0; do
   fi
 done
 
-for app in btop dunst foot; do
-  src="$ROOT/config/$app"
-  [ -d "$src" ] || { say "no $src -- skipping $app"; continue; }
-  if [ "$APPLY" -eq 1 ]; then
-    backup "/etc/xdg/$app"
-    mkdir -p "/etc/xdg/$app"
-    cp -a "$src"/. "/etc/xdg/$app"/
-    restore_selinux "/etc/xdg/$app"
-    say "installed /etc/xdg/$app/ ($(ls "$src" | tr '\n' ' '))"
-  else
-    say "would install /etc/xdg/$app/"
-  fi
+# EACH APPLICATION IS ASKED WHERE IT LOOKS, rather than all of them being
+# assumed to read /etc/xdg.
+#
+# This was `for app in btop dunst foot` writing /etc/xdg/$app for all three,
+# and only two of the three were right. btop reads $XDG_CONFIG_HOME/btop and
+# nothing else -- no system-wide path at all -- so /etc/xdg/btop/btop.conf was
+# written on every install and read by nothing, for as long as the file has
+# existed. Verified against each program's own manual page, not from memory:
+#
+#   dunst    /etc/xdg/dunst/dunstrc     (man 5 dunst names XDG_CONFIG_DIRS)
+#   foot     /etc/xdg/foot/foot.ini     (man 5 foot names it)
+#   mpv      /etc/mpv/mpv.conf          (man 1 mpv; NOT /etc/xdg)
+#   imv      /etc/imv_config            (a FILE, and not even under a directory)
+#   zathura  /etc/zathurarc             (a FILE)
+#   btop     -- none. Seeded per user by bin/null-firstrun.
+#
+# Format: <config subdirectory>|<destination>. A destination ending in / is a
+# directory to fill; anything else is a single file to write.
+for entry in \
+    "dunst|/etc/xdg/dunst/" \
+    "foot|/etc/xdg/foot/" \
+    "mpv|/etc/mpv/" \
+    "imv/config|/etc/imv_config" \
+    "zathura/zathurarc|/etc/zathurarc" \
+  ; do
+  from=${entry%%|*}; to=${entry##*|}
+  src="$ROOT/config/$from"
+  [ -e "$src" ] || { say "no $src -- skipping"; continue; }
+  case $to in
+    */)
+      if [ "$APPLY" -eq 1 ]; then
+        backup "${to%/}"; mkdir -p "$to"
+        cp -a "$src"/. "$to"
+        restore_selinux "${to%/}"
+        say "installed $to ($(ls "$src" | tr '\n' ' '))"
+      else
+        say "would install $to"
+      fi ;;
+    *)
+      if [ "$APPLY" -eq 1 ]; then
+        backup "$to"; mkdir -p "$(dirname "$to")"
+        cp -a "$src" "$to"
+        restore_selinux "$to"
+        say "installed $to"
+      else
+        say "would install $to"
+      fi ;;
+  esac
 done
 
 head_ "file manager defaults"

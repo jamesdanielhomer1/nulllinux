@@ -4,14 +4,58 @@
 #
 # A binding that silently does nothing is worse than one that opens a lesser
 # tool, so each role degrades through what is actually installed.
+#
+# WHAT THIS USED TO KNOW: dir, reveal, editor. Three roles. Opening a
+# screenshot, a PDF, a video or a zip had no answer at all -- and grim is
+# installed and bound to Print, so the system could take a picture it had no
+# way to show you. The roles below are the ones a person actually opens.
+#
+# THE TOOLS ARE CHOSEN FOR THE DESIGN SYSTEM, not only for capability. imv,
+# zathura and mpv are keyboard-driven and take every colour from a config file,
+# so config/ puts them in the palette rather than leaving them at a toolkit
+# default; xarchiver is GTK3, so it resolves
+# /usr/share/themes/nullLinux/gtk-3.0/gtk.css and arrives styled by
+# inheritance. A GTK4/libadwaita tool would do neither, which is why none of
+# them is listed first.
 set -euo pipefail
 role=${1:?usage: null-open ROLE TARGET}
 target=${2:-}
 
 first() { for c in "$@"; do if command -v "${c%% *}" >/dev/null 2>&1; then echo "$c"; return 0; fi; done; return 1; }
 
+# `file` DISPATCHES ON WHAT THE FILE IS, not on what it is called.
+#
+# An extension is a hint a user can get wrong and a download can lose; the MIME
+# type is read from the bytes. This is the role a file manager and a picker
+# both want, and its absence is why neither could open anything.
+if [ "$role" = file ]; then
+  [ -n "$target" ] || { echo "null-open: file needs a path" >&2; exit 2; }
+  [ -e "$target" ] || { echo "null-open: no such file: $target" >&2; exit 1; }
+  if [ -d "$target" ]; then role=dir
+  else
+    mime=$(file -b --mime-type -- "$target" 2>/dev/null || echo '')
+    case $mime in
+      image/*)                           role=image ;;
+      video/*)                           role=video ;;
+      audio/*)                           role=audio ;;
+      application/pdf|application/x-pdf) role=pdf ;;
+      application/zip|application/x-tar|application/gzip|application/x-bzip*|\
+      application/x-xz|application/zstd|application/x-7z-compressed|\
+      application/vnd.rar|application/x-rar*)
+                                         role=archive ;;
+      text/*|application/json|application/xml|inode/x-empty)
+                                         role=editor ;;
+      *)
+        # An unknown type opens its FOLDER. That is more use than an error and
+        # cannot run something the system did not recognise.
+        echo "null-open: no role for '${mime:-unknown}' -- opening the folder instead" >&2
+        role=dir; target=$(dirname -- "$target") ;;
+    esac
+  fi
+fi
+
 case $role in
-  dir)    cmd=$(first "nemo" "dolphin" "thunar" "nautilus" "yazi" "foot -e ls -la") ;;
+  dir)    cmd=$(first "thunar" "nemo" "dolphin" "nautilus" "yazi" "foot -e ls -la") ;;
   reveal) # Selecting a file is a DIFFERENT verb from opening it, and the tools
           # that can do it say so with a flag.
           if command -v nemo   >/dev/null; then exec nemo   --no-desktop "$target"; fi
@@ -19,7 +63,26 @@ case $role in
           if command -v dolphin >/dev/null; then exec dolphin --select "$target"; fi
           cmd=$(first "foot -e ls -la") ; target=$(dirname "$target") ;;
   editor) cmd=$(first "nvim" "vim" "nano") ;;
+  image)  cmd=$(first "imv" "imv-wayland" "swayimg" "nsxiv" "feh") ;;
+  pdf)    cmd=$(first "zathura" "mupdf" "evince" "okular") ;;
+  video)  cmd=$(first "mpv" "vlc" "ffplay") ;;
+  # Audio opens in the same player. A video player with nothing to show is a
+  # player, and a second program for the same verb is a second thing to style.
+  audio)  cmd=$(first "mpv" "vlc" "ffplay") ;;
+  archive) cmd=$(first "xarchiver" "file-roller" "ark") ;;
   *) echo "null-open: unknown role $role" >&2; exit 2 ;;
 esac
 [ -n "${cmd:-}" ] || { echo "null-open: nothing installed for role $role" >&2; exit 1; }
+
+# A TERMINAL PROGRAM NEEDS A TERMINAL.
+#
+# nvim, vim and nano are terminal programs. Exec'ing one from a keybinding,
+# where there is no terminal attached, is a process that exits without drawing
+# anything -- indistinguishable from the binding not working at all.
+case $cmd in
+  nvim|vim|nano)
+    [ -t 1 ] && exec $cmd "$target"
+    exec foot -e $cmd "$target" ;;
+esac
+
 exec $cmd "$target"

@@ -1,0 +1,77 @@
+# The PDF reader, in the palette (NULL.md §4.6, §4.8).
+#
+# zathura was chosen over every other reader for one reason: every colour it
+# draws is a setting in this file. A reader that is merely dark is a different
+# program that happens not to be white; this one can be OF the system.
+#
+# Every value below is a role from assets/palette.json, spelled as
+# config/sway/colours.conf spells it. verify/check-palette-only.sh fails on any
+# hex here that is not in the palette.
+
+# --- the ground and its chrome -------------------------------------------
+set default-bg                  "#05060a"
+set statusbar-bg                "#05060a"
+set inputbar-bg                 "#05060a"
+set notification-bg             "#05060a"
+set completion-bg               "#05060a"
+
+set statusbar-fg                "#ffefe6"
+set inputbar-fg                 "#ffefe6"
+set notification-fg             "#ffefe6"
+set completion-fg               "#ffefe6"
+
+# Errors and warnings are the palette's own, which are sampled off the
+# Planckian locus rather than chosen: a failure is red because heat is.
+set notification-error-bg       "#05060a"
+set notification-error-fg       "#ff8000"
+set notification-warning-bg     "#05060a"
+set notification-warning-fg     "#ffb161"
+
+# Selection in the completion list is accent on the ground, the same idiom
+# GTK's theme_selected_bg_color and the fzf pickers already use. One selection
+# idiom in the system, not three.
+set completion-highlight-bg     "#b9ccff"
+set completion-highlight-fg     "#05060a"
+set completion-group-bg         "#05060a"
+set completion-group-fg         "#ff7800"
+
+# --- the page ------------------------------------------------------------
+#
+# THE PAGE IS NOT RECOLOURED BY DEFAULT. A document is somebody else's
+# artefact and the system does not own its colours; inverting every page by
+# default would make photographs and diagrams wrong. `recolor` is bound below
+# so it is one keystroke away when a wall of white is not wanted.
+#
+# When it IS on, it recolours to the palette rather than to zathura's defaults.
+set recolor                     false
+set recolor-lightcolor          "#05060a"
+set recolor-darkcolor           "#ffefe6"
+set recolor-keephue             true
+set recolor-reverse-video       true
+
+# The gap between pages and the frame around the current one are rules, at the
+# same weight as every other rule in the system.
+set page-padding                1
+set window-title-basename       true
+set statusbar-basename          true
+
+# Search hits: accent, like every other mark.
+set highlight-color             "#b9ccff"
+set highlight-active-color      "#ff7800"
+set highlight-transparency      0.35
+
+# --- no decoration -------------------------------------------------------
+set guioptions                  ""
+set window-icon                 ""
+set adjust-open                 "best-fit"
+set scroll-step                 80
+set smooth-scroll               false
+set render-loading              false
+set database                    "plain"
+
+# ONE TYPEFACE. zathura draws its statusbar and prompt with Pango, so it takes
+# the same string every other Pango surface in this system takes.
+set font                        "Terminus 12"
+
+map r recolor
+map <C-r> reload

@@ -1,0 +1,40 @@
+# The image viewer, in the palette (NULL.md §4.6).
+#
+# imv was chosen because it is Wayland-native and its background, text and
+# overlay are all settings. An image viewer that shows a photograph on a light
+# grey field is showing you the toolkit, not the photograph.
+#
+# Colours here are RRGGBB with no leading hash, which is imv's format --
+# verify/check-palette-only.sh matches #RRGGBB, so this file is one of the two
+# it cannot see. The values are the same roles as everywhere else and are
+# checked by verify/check-viewer-style.sh instead.
+
+[options]
+# The ground the image sits on: the same near-black every other surface clears
+# to, so a picture is framed by the system rather than by a default.
+background = 05060a
+overlay_text_color = ffefe6
+overlay_background_color = 05060a
+# The overlay is a line of text on the ground, not a translucent slab over the
+# picture. A filled panel would be a box (§7.1).
+overlay_background_alpha = ff
+overlay_font = Terminus:18
+
+# ONE PICTURE AT A TIME, NO CHROME. The overlay is off until asked for, and
+# scaling never upsamples past the image's own pixels -- a bitmap enlarged with
+# a smooth filter is a different image, and this whole system is built on the
+# principle that you do not resample a grid.
+overlay = false
+scaling_mode = shrink
+upscaling_method = nearest
+background_type = solid
+suppress_default_binds = false
+initial_pan = 50,50
+
+[aliases]
+
+[binds]
+# `o` shows the overlay, which is where the filename and dimensions live.
+o = overlay
+# Matching the rest of the system: q closes, and the arrows are already bound.
+q = quit
