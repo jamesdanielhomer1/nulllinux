@@ -133,5 +133,21 @@ else
   note "ok    the compositor starts things; the components displace their own"
 fi
 
+# 4. AND A NAME IS NOT AN OWNER.
+#
+#    `pkill -x NAME` matches by process name across the whole machine. From a
+#    session that is too wide: the session's business is its own processes, and
+#    an identically named one belonging to somebody else is not its to end.
+#    -u makes it the session's.
+while IFS= read -r line; do
+  t=${line#"${line%%[![:space:]]*}"}
+  case $t in \#*) continue ;; esac
+  case $line in *"pkill -x"*) ;; *) continue ;; esac
+  case $line in *"pkill -x -u"*|*"-u "*) continue ;; esac
+  note "config/sway/config: $t"
+  note "      pkill -x matches that name on the whole machine; add -u to keep it to this session"
+  fail=1
+done < config/sway/config
+
 [ $fail = 0 ] && echo "PASS: no restart clause kills the shell that runs it"
 exit $fail

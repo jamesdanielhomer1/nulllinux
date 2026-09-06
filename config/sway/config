@@ -97,7 +97,15 @@ exec_always NULL_ROOT=$null $null/bin/null-outputs watch
 # setting, installing a package -- fails with no prompt and no message.
 #
 # GTK3, so it resolves the nullLinux theme and arrives in the palette.
-exec_always pkill -x xfce-polkit; /usr/libexec/xfce-polkit
+# -u, BECAUSE A NAME IS NOT AN OWNER. `pkill -x xfce-polkit` matches every
+# process called that on the whole machine, not the one this session started.
+# On a single seat the difference is nothing; on a machine with two people
+# logged in it is somebody else's authentication agent.
+#
+# The same mistake, made by hand rather than in a file, ended a running session
+# on this build host tonight: `pkill -x sway` to clear up a headless instance
+# matched the compositor the machine was actually running.
+exec_always pkill -x -u "$(id -u)" xfce-polkit; /usr/libexec/xfce-polkit
 
 # SAY SOMETHING BEFORE THE BATTERY RUNS OUT.
 #
