@@ -29,6 +29,18 @@ backend_installed_version() { rpm -q --qf '%{NEVRA}\n' -- "$1"; }
 backend_installed_id() { rpm -q --qf '%{SIGMD5}\n' -- "$1"; }
 backend_file_id()      { rpm -q --qf '%{SIGMD5}\n' -p "$1"; }
 
+# WHICH PACKAGE OWNS A PATH, as a bare NAME.
+#
+# backend_what_owns_this_file returns the full NEVRA, which is what a person
+# reading output wants and not what a comparison wants. A separate verb rather
+# than changing that one, because its callers ask a different question.
+backend_owner_name() { rpm -qf --qf '%{NAME}\n' -- "$1" 2>/dev/null | head -1; }
+
+# THE PACKAGES IN A GROUP. Used to answer "is this part of the base system, or
+# something we depend on and never declared" -- @core being the set every
+# Fedora has whether anybody asked for it or not.
+backend_list_group() { dnf -q group info "$1" 2>/dev/null | sed -n 's/^ *: *//p' | tr -d ' ' | sort -u; }
+
 # rpm -qf answers from the local database; no network, no metadata needed.
 backend_what_owns_this_file() { rpm -qf -- "$1"; }
 

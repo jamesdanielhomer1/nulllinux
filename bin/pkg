@@ -117,6 +117,8 @@ case $verb in
   installed-version)          [ $# -eq 1 ] || die "installed-version needs one package"; backend_installed_version "$1" ;;
   installed-id)               [ $# -eq 1 ] || die "installed-id needs one package"; backend_installed_id "$1" ;;
   file-id)                    [ $# -eq 1 ] || die "file-id needs one package FILE"; backend_file_id "$1" ;;
+  owner-name)                 [ $# -eq 1 ] || die "owner-name needs one path"; backend_owner_name "$1" ;;
+  list-group)                 [ $# -eq 1 ] || die "list-group needs a group name"; backend_list_group "$1" ;;
   what-owns-this-file)        [ $# -eq 1 ] || die "what-owns-this-file needs one path"; backend_what_owns_this_file "$1" ;;
   what-is-orphaned)           backend_what_is_orphaned ;;
   list-explicitly-installed)  backend_list_explicitly_installed ;;

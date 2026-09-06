@@ -34,14 +34,18 @@ cd "$(dirname "$0")/.." || exit 1
 fail=0
 note() { printf '  %s\n' "$*"; }
 
-command -v rpm >/dev/null 2>&1 || { note "(no rpm here; skipped)"; exit 0; }
+# THROUGH bin/pkg, NOT rpm and dnf (NULL.md 9.1). The first version of this
+# file named both directly and check-package-abstraction caught it -- the
+# second time tonight, and exactly the mistake this check exists to make
+# impossible to ship.
+[ -x ./bin/pkg ] || { note "(no bin/pkg here; skipped)"; exit 0; }
 
 DECLARED=$(./bin/pkg list-packages base 2>/dev/null | tr ' ' '\n' | sort -u)
 
 # @core is the base every Fedora has. A command from it is not an undeclared
 # dependency, it is the operating system. Fetched once; if the metadata is not
 # reachable the check says so rather than inventing a verdict.
-CORE=$(dnf -q group info core 2>/dev/null | sed -n 's/^ *: *//p' | tr -d ' ' | sort -u)
+CORE=$(./bin/pkg list-group core 2>/dev/null)
 [ -n "$CORE" ] || note "(could not read @core; a command from the base system may be reported)"
 
 # --- the intended tool for each role bin/null-open offers -------------------
@@ -55,7 +59,7 @@ checked=0 unresolved=0 missing=""
 for c in $(printf '%s\n' $wanted | sort -u); do
   [ -n "$c" ] || continue
   path=$(command -v "$c" 2>/dev/null) || { unresolved=$((unresolved+1)); missing="$missing $c"; continue; }
-  pkg=$(rpm -qf --qf '%{NAME}\n' "$path" 2>/dev/null | head -1)
+  pkg=$(./bin/pkg owner-name "$path" 2>/dev/null)
   case $pkg in ''|*'not owned'*) unresolved=$((unresolved+1)); continue ;; esac
   checked=$((checked+1))
   # CASE-INSENSITIVELY, and only here. dnf resolves package names without

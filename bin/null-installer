@@ -1,0 +1,275 @@
+#!/usr/bin/env bash
+# The installer this system shows a person (NULL.md §0.5, §7.4).
+#
+# WHAT THIS IS, SAID PLAINLY, BECAUSE THE ALTERNATIVE WOULD BE A LIE.
+#
+# This is the FACE. Anaconda is the machinery. Everything a person sees during
+# an install is drawn here, in Terminus, on the palette, beside the same hero
+# every other surface is a projection of -- and then the answers are written as
+# a kickstart and handed to anaconda, which partitions the disk, runs the
+# package transaction and installs the bootloader.
+#
+# That split is deliberate and is not laziness. Partitioning is where an
+# installer destroys somebody's data, and bootloader installation is where it
+# leaves a machine that will not start. Those are solved problems with one
+# careful implementation per distribution, and writing a second one to own the
+# whole stack would trade a real risk for an aesthetic.
+#
+# HOW IT IS REACHED. anaconda's own kickstart %pre runs on a console before
+# anything is written to disk, and can produce a file the kickstart then
+# %includes. So the boot entry hands anaconda a kickstart whose %pre is this
+# program: the person answers here, and anaconda never shows a screen.
+#
+# NOTHING IS DESTROYED BEFORE THE CONFIRMATION. This program writes exactly one
+# file, to a path it is given. Every question can be gone back on until the
+# last one, which names the disk and what is on it.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+# TWO LAYOUTS, BECAUSE THIS RUNS IN TWO PLACES.
+#
+# In the checkout it is bin/null-installer beside lib/menu.sh. On the ISO it is
+# three files in one directory -- there is no tree to have a lib/ in -- so the
+# shared menu chrome sits next to it. Looking only in lib/ meant the installer
+# on the medium silently lost the picker styling and fell back to a numbered
+# list even where fzf existed.
+# shellcheck source=/dev/null
+for _m in "$ROOT/lib/menu.sh" "$(dirname -- "$(readlink -f -- "$0")")/menu.sh"; do
+  [ -r "$_m" ] && { . "$_m"; break; }
+done
+
+OUT=""
+DRY=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --generate) OUT=${2:?--generate needs a path}; shift ;;
+    --dry-run)  DRY=1 ;;
+    -h|--help)
+      cat <<'U'
+usage: null-installer --generate <path> [--dry-run]
+
+  Asks what an install needs and writes those answers as a kickstart
+  fragment, for anaconda to %include. Writes nothing else, anywhere.
+
+  --dry-run   do not require a real disk; useful for looking at it
+U
+      exit 0 ;;
+    *) echo "null-installer: unknown argument '$1'" >&2; exit 2 ;;
+  esac
+  shift
+done
+[ -n "$OUT" ] || { echo "null-installer: --generate <path> is required" >&2; exit 2; }
+
+# --- the surface -----------------------------------------------------------
+#
+# Colours by NAME, from config/sway/colours.conf, resolved once. Writing an
+# escape with a hex value in it would be the one thing this project does not
+# do -- and on a virtual console the sixteen slots ARE the palette, because
+# vt.default_red/grn/blu put them there.
+C_RESET=$'\033[0m'; C_DIM=$'\033[33m'; C_TEXT=$'\033[37m'
+C_ACCENT=$'\033[34m'; C_ERROR=$'\033[31m'; C_LINE=$'\033[90m'
+
+rule()  { printf '%s%s%s\n' "$C_LINE" "$(printf '%.0s-' $(seq "${1:-64}"))" "$C_RESET"; }
+title() { printf '\n%s%s%s\n' "$C_ACCENT" "$1" "$C_RESET"; rule 64; }
+say()   { printf '  %s%s%s\n' "$C_TEXT" "$1" "$C_RESET"; }
+hint()  { printf '  %s%s%s\n' "$C_DIM" "$1" "$C_RESET"; }
+oops()  { printf '  %s%s%s\n' "$C_ERROR" "$1" "$C_RESET"; }
+
+# THE HERO, if it can be drawn. An installer that refuses to run because it
+# could not find a picture is an installer that does not run.
+banner() {
+  # A SHIPPED STILL FIRST. The installer environment is anaconda's runtime: it
+  # has no render binary, no atlas, and no cells file, because none of those
+  # are part of an install image. So the hero travels as what it will be shown
+  # as -- one frame, already ANSI, 1.6 KB -- rendered at ISO build time by the
+  # same renderer every other surface uses.
+  local still="$ROOT/hero.ansi"
+  [ -r "$still" ] || still="${NULL_INSTALLER_HERO:-}"
+  if [ -n "$still" ] && [ -r "$still" ]; then cat "$still"; return 0; fi
+
+  # On a development checkout the renderer IS here, so draw it live rather than
+  # showing a worse thing than the machine can manage.
+  local cells atlas
+  cells=$(ls "$ROOT"/assets/prebuilt/ter-118n/logo.cells 2>/dev/null | head -1)
+  atlas="$ROOT/assets/prebuilt/strikes/atlas-ter-118n.bin"
+  if [ -n "$cells" ] && [ -r "$atlas" ] && [ -x "$ROOT/render/target/release/render" ]; then
+    local t; t=$(mktemp)
+    if "$ROOT/render/target/release/render" --file "$cells" --atlas "$atlas" \
+         still --frame 0 --out "$t" >/dev/null 2>&1; then
+      cat "$t"; rm -f "$t"; return 0
+    fi
+    rm -f "$t"
+  fi
+  printf '\n%s      nullLinux%s\n' "$C_ACCENT" "$C_RESET"
+}
+
+# --- asking ----------------------------------------------------------------
+#
+# One picker for choices, one prompt for text. Both are the ones every other
+# surface in this system uses, so the installer does not introduce a second
+# idiom for the same job.
+pick() {  # <prompt> <context> <option>...   -- options as ARGUMENTS
+  # A TERMINAL, OR THE NUMBERED FALLBACK.
+  #
+  # fzf needs a tty and fails with "inappropriate ioctl for device" when it does
+  # not have one -- and it fails to STDERR while returning nothing, so the
+  # caller sees an empty answer and reports "no disk chosen". The installer
+  # would look like it had rejected a perfectly good disk. Tested for, rather
+  # than assumed, because the %pre console has a tty and a test harness does
+  # not.
+  local prompt=$1 header=$2; shift 2
+  local -a opts=("$@")
+  [ "${#opts[@]}" -gt 0 ] || return 1
+
+  if [ -t 0 ] && [ -t 2 ] && command -v fzf >/dev/null 2>&1 && [ "$(type -t null_fzf_flags)" = function ]; then
+    null_fzf_flags
+    printf '%s\n' "${opts[@]}" | fzf "${NULL_FZF[@]}" --prompt="$prompt > " --header="$header" --height=14 --reverse
+  else
+    # OPTIONS AS ARGUMENTS, NOT ON STDIN.
+    #
+    # The first version read the option list from stdin with mapfile, which
+    # consumed the whole pipe -- so the `read` for the answer got EOF, returned
+    # nothing, and the installer reported "no disk chosen" about a disk it had
+    # just listed. On a machine with fzf the bug is invisible, because fzf
+    # takes the list on stdin and the answer from the terminal itself.
+    local i=1 o
+    for o in "${opts[@]}"; do printf '  %2d) %s\n' "$i" "$o" >&2; i=$((i+1)); done
+    printf '  %s [1-%d] ' "$prompt" "${#opts[@]}" >&2
+    local n; read -r n
+    case $n in ''|*[!0-9]*) return 1 ;; esac
+    [ "$n" -ge 1 ] && [ "$n" -le "${#opts[@]}" ] || return 1
+    printf '%s\n' "${opts[$((n-1))]}"
+  fi
+}
+
+ask() {  # <prompt> <default> -> stdout
+  local p=$1 d=${2:-} a
+  if [ -n "$d" ]; then printf '  %s%s%s [%s]: ' "$C_TEXT" "$p" "$C_RESET" "$d" >&2
+  else printf '  %s%s%s: ' "$C_TEXT" "$p" "$C_RESET" >&2; fi
+  read -r a
+  printf '%s\n' "${a:-$d}"
+}
+
+ask_secret() {  # <prompt> -> stdout, twice, matching
+  local p=$1 a b
+  while :; do
+    printf '  %s%s%s: ' "$C_TEXT" "$p" "$C_RESET" >&2; read -rs a; echo >&2
+    [ -n "$a" ] || { oops "empty" >&2; continue; }
+    printf '  %sand again%s: ' "$C_TEXT" "$C_RESET" >&2; read -rs b; echo >&2
+    [ "$a" = "$b" ] && { printf '%s\n' "$a"; return 0; }
+    oops "they do not match" >&2
+  done
+}
+
+# --- what is here ----------------------------------------------------------
+#
+# DERIVED FROM THE MACHINE, never declared. The same rule as the rest of this
+# project: ask the hardware, print what it said, refuse on anything unexpected.
+# WHAT COUNTS AS A DISK SOMEBODY MIGHT INSTALL ON.
+#
+# `lsblk TYPE==disk` alone listed sixteen /dev/nbd* at 0B, a zram swap device
+# and a loop device before the one real drive -- a list to scroll past to reach
+# the answer, at the one question where scrolling past things is dangerous.
+#
+# So: zero-size devices are gone (an nbd with nothing attached), and the
+# virtual classes are named and excluded rather than guessed at. A real disk
+# that this filter hides would be worse than the noise, so the exclusions are
+# specific: zram is compressed RAM, nbd is a network block device, loop is a
+# file, ram is a ramdisk, sr is optical, fd is a floppy.
+disks() {
+  lsblk -dnpo NAME,SIZE,MODEL,TYPE 2>/dev/null \
+    | awk '$NF=="disk" { $NF=""; sub(/[ \t]+$/,""); print }' \
+    | grep -vE '^/dev/(zram|nbd|loop|ram|sr|fd)[0-9]' \
+    | grep -vE ' 0B( |$)'
+}
+
+# ===========================================================================
+banner
+title "nullLinux"
+say "This installs nullLinux onto a disk in this machine."
+hint "Nothing is written until the last question, which names the disk."
+
+# --- 1. the disk -----------------------------------------------------------
+title "Which disk"
+mapfile -t DISKS < <(disks)
+if [ "${#DISKS[@]}" -eq 0 ]; then
+  if [ "$DRY" = 1 ]; then DISKS=("/dev/sda 20G (dry run)")
+  else oops "no disks found -- there is nothing here to install onto"; exit 1; fi
+fi
+printf '%s\n' "${DISKS[@]}" | sed 's/^/  /' | while read -r l; do hint "$l"; done
+DISK=$(pick "disk" "everything on the disk you choose will be erased" "${DISKS[@]}" | awk '{print $1}')
+[ -n "$DISK" ] || { oops "no disk chosen"; exit 1; }
+DISK_DESC=$(printf '%s\n' "${DISKS[@]}" | grep -F "$DISK" | head -1)
+
+# --- 2. who this machine is ------------------------------------------------
+title "This machine"
+HOSTNAME=$(ask "hostname" "nulllinux")
+case $HOSTNAME in ''|*[!a-zA-Z0-9.-]*) oops "a hostname is letters, digits, dots and dashes"; exit 1 ;; esac
+
+title "You"
+USERNAME=$(ask "username" "${SUDO_USER:-null}")
+case $USERNAME in ''|*[!a-z0-9_-]*) oops "a username is lowercase letters, digits, _ and -"; exit 1 ;; esac
+FULLNAME=$(ask "full name" "$USERNAME")
+PASSWORD=$(ask_secret "password")
+
+# --- 3. where it is --------------------------------------------------------
+title "Where you are"
+TZ_DEFAULT=$(cat /etc/timezone 2>/dev/null || timedatectl show -p Timezone --value 2>/dev/null || echo Europe/London)
+if command -v timedatectl >/dev/null 2>&1; then
+  mapfile -t ZONES < <(timedatectl list-timezones 2>/dev/null)
+  TIMEZONE=$(pick "timezone" "$TZ_DEFAULT is the current guess" "${ZONES[@]}")
+else
+  TIMEZONE=$(ask "timezone" "$TZ_DEFAULT")
+fi
+TIMEZONE=${TIMEZONE:-$TZ_DEFAULT}
+KEYMAP=$(ask "keyboard layout" "gb")
+
+# --- 4. the one that cannot be undone --------------------------------------
+title "This erases the disk"
+say "disk      $DISK_DESC"
+say "hostname  $HOSTNAME"
+say "user      $USERNAME ($FULLNAME)"
+say "timezone  $TIMEZONE"
+say "keyboard  $KEYMAP"
+echo
+oops "Everything currently on $DISK will be destroyed."
+hint "Type the disk's name to confirm, or anything else to stop."
+CONFIRM=$(ask "confirm by typing $DISK" "")
+if [ "$CONFIRM" != "$DISK" ]; then
+  echo; say "Nothing has been changed."
+  exit 1
+fi
+
+# --- 5. write the answers --------------------------------------------------
+#
+# A FRAGMENT, not a whole kickstart. It carries only what a person answered;
+# everything else -- the package set, the firewall, the initramfs, the boot
+# menu -- lives in packaging/nulllinux-install.ks, which is the same file the
+# unattended install uses. One description of what nullLinux is, answered two
+# ways.
+umask 077
+{
+  echo "# GENERATED by bin/null-installer. Do not edit."
+  echo "# The answers a person gave; everything else is in the kickstart that"
+  echo "# %includes this."
+  echo
+  echo "ignoredisk --only-use=${DISK#/dev/}"
+  echo "zerombr"
+  echo "clearpart --all --initlabel --drives=${DISK#/dev/}"
+  echo "autopart --type=plain --noswap"
+  echo "bootloader --location=mbr --boot-drive=${DISK#/dev/} --timeout=1"
+  echo
+  echo "network --bootproto=dhcp --device=link --activate --hostname=$HOSTNAME"
+  echo "timezone $TIMEZONE --utc"
+  echo "keyboard --vckeymap=$KEYMAP --xlayouts='$KEYMAP'"
+  echo
+  # ROOT IS LOCKED, not given a password nobody will remember. The user is in
+  # wheel, so `sudo` is the way in, and there is one fewer credential on the
+  # machine that exists only because installers have always asked for it.
+  echo "rootpw --lock"
+  echo "user --name=$USERNAME --gecos=\"$FULLNAME\" --groups=wheel --password=\"$PASSWORD\" --plaintext"
+} > "$OUT"
+chmod 0600 "$OUT" 2>/dev/null || true
+
+echo
+say "Written to $OUT"
+hint "anaconda takes it from here: partitioning, packages, bootloader."
