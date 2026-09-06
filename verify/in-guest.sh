@@ -66,11 +66,23 @@ say "guest: $(guest '. /etc/os-release; echo "$PRETTY_NAME"' 2>/dev/null)"
 #    guest has no use for it.
 say "copying the working tree to $DEST"
 guest "rm -rf $DEST && mkdir -p $DEST" >/dev/null 2>&1
+# UNPACKED BY WHATEVER THE GUEST HAS. The first version piped tar to tar and
+# died with "tar: command not found" -- nullLinux did not ship tar. That is
+# fixed (it is declared now, and xarchiver needed it more than this does), but
+# a test runner that only works against a guest new enough to have the fix is a
+# test runner that cannot test the fix. python3 is in the package list for the
+# bake and is on every one of these images.
+if guest 'command -v tar' >/dev/null 2>&1; then
+  unpack="tar -C $DEST -xf -"
+else
+  unpack="python3 -c \"import tarfile,sys; tarfile.open(fileobj=sys.stdin.buffer, mode='r|').extractall('$DEST')\""
+  say "the guest has no tar; unpacking with python3"
+fi
 tar -C "$ROOT" -cf - \
     --exclude=.git \
     --exclude='render/target/debug' \
     --exclude='packaging/rpmbuild/BUILD*' \
-    . 2>/dev/null | guest "tar -C $DEST -xf -" || {
+    . 2>/dev/null | guest "$unpack" || {
   echo "in-guest: copying the tree failed" >&2; exit 1; }
 
 # 4. RUN IT THERE.

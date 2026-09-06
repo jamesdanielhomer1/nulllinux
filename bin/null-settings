@@ -106,7 +106,7 @@ pick_from() {  # prompt header  < lines on stdin
 
 # --------------------------------------------------------------- categories
 
-CATEGORIES="DISPLAY SOUND NETWORK BLUETOOTH DRIVES POWER KEYBOARD NOTIFICATIONS CLOCK SYSTEM"
+CATEGORIES="DISPLAY SOUND NETWORK BLUETOOTH DRIVES PEOPLE POWER KEYBOARD NOTIFICATIONS CLOCK SYSTEM"
 
 rows_DISPLAY() {
   if "$MACHINE" probe backlight 2>/dev/null; then
@@ -185,6 +185,21 @@ rows_DRIVES() {
 # `|| true` went with it: it made a refusal, a "not a removable drive" bail and
 # a failed mkfs indistinguishable from a completed format.
 act_DRIVES() { "$B/null-drive" format; }
+
+rows_PEOPLE() {
+  # WHO CAN LOG IN. Read from the account database through null-users, which
+  # reads it through getent -- so a machine joined to a directory shows the
+  # accounts it actually has rather than the contents of /etc/passwd.
+  local name uid gecos home shell n=0
+  while IFS=$'\t' read -r name uid gecos home shell; do
+    [ -n "$name" ] || continue
+    null_row "$name" "$gecos"
+    n=$((n+1))
+  done < <("$B/null-users" records 2>/dev/null)
+  [ "$n" = 0 ] && null_row "PEOPLE" "none"
+  return 0
+}
+act_PEOPLE() { "$B/null-users" list; }
 
 rows_SOUND() {
   local v m; v=$(read_volume) || v="$NULL_UNMEASURED"; m=$(read_mic) || m="$NULL_UNMEASURED"

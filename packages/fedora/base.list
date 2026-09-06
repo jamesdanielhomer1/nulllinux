@@ -155,6 +155,15 @@ mpv                             # video and audio, one player for one verb
 xarchiver                       # archives. GTK3, so it resolves
                                 # /usr/share/themes/nullLinux/gtk-3.0/gtk.css
 thunar-archive-plugin           # ... and the file manager can call it
+tar                             # xarchiver is a FRONT END. It shells out, and
+zip                             # its binary names `tar` 45 times and `zip` 40.
+                                # Neither was installed, so "Extract here" on a
+                                # .tar.gz -- the commonest archive on Linux --
+                                # and "Compress to .zip" both did nothing at
+                                # all. unzip arrived through a dependency and
+                                # zip did not, so the system could open a zip
+                                # and not make one. Found by asking a guest what
+                                # it actually had, not by reading this file.
 file                            # null-open dispatches on MIME type, read from
                                 # the bytes, not on a name a download can lose
 

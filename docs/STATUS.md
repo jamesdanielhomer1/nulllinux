@@ -806,6 +806,31 @@ comes from that program's own manual page, and
 
 ---
 
+## Tests run on nullLinux, not on the machine that builds it (2026-09-06)
+
+nox runs the system this one replaces, and the tree is a checkout on it — so
+every check ran, by default, against somebody's desktop. Two things were broken
+on the build host in one evening by tests aimed at it, and neither was the
+shipped code misbehaving:
+
+- `pkill -x sway`, to clear up a headless instance started for a test, matched
+  the compositor nox was running and ended the session.
+- `null-users remove-confirmed james delete`, run expecting a refusal, deleted
+  a real account and `/home/james`. `/home` is its own btrfs subvolume and none
+  of the snapshots cover it, so the files are gone; the account was
+  reconstructible from the journal (uid 1000, `wheel`, `rice`).
+
+`lib/host.sh` answers one question — is this machine's state expendable? True
+on an installed nullLinux, or with `NULL_TEST_MACHINE=1`. False here.
+
+`verify/check-tests-stay-off-the-host.sh` enforces it: a check that modprobes,
+formats, useradds, pkills or systemctls must guard with
+`null_only_on_a_test_machine` or restore with an `EXIT` trap.
+
+`verify/in-guest.sh` is where they go instead — it copies the **working tree**,
+not the installed package, into the ISO-installed guest and runs the suite
+there.
+
 ## What this is honestly not, yet (2026-09-06)
 
 Written down rather than left to be discovered.
@@ -836,7 +861,19 @@ and what is on it, and requires the device's own name typed in full — the same
 confirmation the installer asks for, for the same reason. It refuses any disk
 that is not removable, and refuses the one the system booted from.
 
-**Adding or removing a user** is `useradd` in a terminal. There is no panel.
+~~**Adding or removing a user** is `useradd` in a terminal.~~ **RETIRED
+2026-09-06.** `bin/null-users` lists who can log in and who can administer,
+adds an account with a password, sets a password, grants or withdraws
+administrator, and removes an account — asking separately about their files,
+defaulting to keeping them. It refuses to remove a system account, the account
+you are logged in as, and the last member of `wheel`: the installer locks root,
+so `wheel` is the only way to `sudo` and `sudo` is the only way up.
+
+It has one code path per verb. The first version split each in two — `remove`
+asked, `remove-confirmed` acted under `pkexec` — and the second half was
+reachable from a command line, guarded only by `[ "$(id -u)" = 0 ] || refuse`,
+which permits exactly the dangerous case. It deleted a real account and its
+home directory on the build host during a test of its refusals.
 
 ~~**The installer is Fedora's.**~~ **RETIRED 2026-09-06.** The questions are
 this system's, asked on a console in its own palette beside its hero, and

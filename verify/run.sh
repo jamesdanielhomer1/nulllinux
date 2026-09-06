@@ -39,6 +39,7 @@ run "the screens go where told"      ./verify/check-outputs.sh
 run "removable media, and only that" ./verify/check-drive.sh
 run "unknown is not zero"            ./verify/check-unknown-is-not-zero.sh
 run "tests stay off the host"        ./verify/check-tests-stay-off-the-host.sh
+run "accounts, and their refusals"   ./verify/check-users.sh
 run "every tool has a caller (§10.1)"     ./verify/check-callers.sh
 run "themes have one name (§8.10)"       ./verify/check-theme-names.sh
 run "the splash is complete (§9.6)"      ./verify/check-splash-complete.sh
