@@ -334,8 +334,16 @@ pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
     // vendored to be worth 3x.
     let mut l_frames: Vec<Vec<f32>> = vec![Vec::new(); master.frames];
     let mut t_frames: Vec<Vec<f32>> = vec![Vec::new(); master.frames];
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(master.frames.max(1));
-    let per = master.frames.div_ceil(threads.max(1));
+    // chunks_mut PANICS ON A CHUNK SIZE OF ZERO, and a master with no frames
+    // produces exactly that: threads clamps to 1, and 0.div_ceil(1) is 0. A
+    // truncated master whose header honestly says "0 frames" passes every
+    // check Master::load makes, so it reached this line and aborted with
+    // "chunk size must be non-zero" -- where the single-threaded version this
+    // replaced fell through to the real error below.
+    //
+    // Both .max(1)s are load-bearing; neither is defensive noise.
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(master.frames).max(1);
+    let per = master.frames.div_ceil(threads).max(1);
     log(&format!("  resampling {} frames across {threads} thread(s)", master.frames));
     std::thread::scope(|scope| {
         for (ci, (lch, tch)) in l_frames.chunks_mut(per).zip(t_frames.chunks_mut(per)).enumerate() {
@@ -588,5 +596,53 @@ mod speed_is_not_a_licence_to_change_the_picture {
     fn the_cache_is_not_compressed_for_shipping() {
         assert!(CACHE_ZSTD_LEVEL <= 12,
                 "zstd {CACHE_ZSTD_LEVEL} on a local cache costs more time than the bytes are worth");
+    }
+}
+
+#[cfg(test)]
+mod a_bad_master_is_an_error_not_a_crash {
+    use super::*;
+
+    fn ramp() -> Ramp {
+        Ramp {
+            chars: " .:@".to_string(),
+            coverage: vec![0.0, 0.3, 0.6, 1.0],
+            peak: 1.0,
+            bounds: vec![0.15, 0.45, 0.8],
+            steps: vec![0.3, 0.3, 0.4],
+            n_glyphs: 4,
+        }
+    }
+
+    fn master(frames: usize, rows: usize, cols: usize) -> Master {
+        Master { cols, rows, frames, fps: 24, tone: (0.0, 99.0, 1.0),
+                 data: vec![0.0; frames * rows * cols * 2] }
+    }
+
+    /// A header that says "no frames" used to abort the process with
+    /// "chunk size must be non-zero" from inside chunks_mut. It has to come
+    /// back as a Result, because the caller's job is to say which file was bad.
+    #[test]
+    fn zero_frames_returns_an_error() {
+        let mut log = |_: &str| {};
+        let r = derive(&master(0, 36, 64), 16, 6, &ramp(), &[3000.0, 6000.0], 1.5, 0.25, &mut log);
+        assert!(r.is_err(), "a zero-frame master must be an error, not a panic or a result");
+    }
+
+    /// Fewer frames than cores is the ordinary case on a small master, and it
+    /// is the arithmetic most likely to produce a zero or a short chunk.
+    #[test]
+    fn fewer_frames_than_threads_still_covers_every_frame() {
+        let mut log = |_: &str| {};
+        for frames in 1..=5 {
+            let mut m = master(frames, 8, 8);
+            // Something for the exposure step to find, or it errs for a
+            // different and less interesting reason.
+            for v in m.data.iter_mut() { *v = 0.5 }
+            let d = derive(&m, 8, 8, &ramp(), &[3000.0, 6000.0], 1.5, 0.25, &mut log)
+                .unwrap_or_else(|e| panic!("{frames} frame(s): {e}"));
+            assert_eq!(d.glyphs.len(), frames, "{frames} frame(s): lost a frame in the split");
+            assert_eq!(d.colours.len(), frames, "{frames} frame(s): lost a colour plane");
+        }
     }
 }
