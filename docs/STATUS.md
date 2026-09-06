@@ -137,7 +137,7 @@ a clean VM rather than on nox.**
 | `null-bootstrap` exists, idempotent, report-first | **done** |
 | a clean Fedora 44 reaches a built, installed desktop from the git tree alone | **done** |
 | the hero bake run end-to-end and its cost measured | not started |
-| the check suite passes inside the guest | not started — runs on the build host |
+| the check suite passes inside the guest | **done** — 56 checks, `verify/in-guest.sh` |
 | deviations written down rather than skipped | ongoing |
 
 Reached on the fourth attempt. The first three failed, and every reason was a
@@ -831,6 +831,22 @@ formats, useradds, pkills or systemctls must guard with
 not the installed package, into the ISO-installed guest and runs the suite
 there.
 
+## The suite passes on nullLinux, not just about it (2026-09-07)
+
+`verify/in-guest.sh` — **ALL CHECKS PASS**, 56 of them, inside the
+ISO-installed guest. This gate had read "not started" since the plan was
+written.
+
+The first run turned six red, and **not one was a defect in nullLinux**. All
+six were checks that had only ever run on the machine they were written on: a
+machine profile derived for the wrong host, two bake checks reporting a missing
+numpy as a verdict, `sway --validate` asking for a GPU the guest has no render
+node for, and the file-manager check reading root's own empty xfconf channel
+over ssh and calling it the desktop.
+
+It also answered a question the build host structurally cannot: nullLinux
+shipped no `tar`. See "Every key window is this system's".
+
 ## What this is honestly not, yet (2026-09-06)
 
 Written down rather than left to be discovered.
@@ -884,6 +900,9 @@ a long operation, and replacing it would mean reimplementing progress
 reporting for a transaction this project does not own. See "nullLinux installs
 itself".
 
-**A VM is not metal.** Real firmware, secure boot, a discrete GPU's driver, a
-wifi chipset, suspend and resume, and a panel whose EDID is not qemu's are all
-untested by anything in this repository.
+**A VM is not metal.** Real firmware, secure boot, a wifi chipset, suspend and
+resume, and a panel whose EDID is not qemu's are all untested by anything in
+this repository. This matters more than it did: nox is the machine nullLinux is
+going onto once it is finished — a ThinkPad T480, 1366x768, Intel graphics, two
+batteries — so "any hardware" has one specific piece of hardware to be right
+about first.
