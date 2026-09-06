@@ -19,6 +19,7 @@ run "package abstraction (§9.1)"      ./verify/check-package-abstraction.sh
 run "branding is safe"               ./verify/check-branding.sh
 run "no silent takeover"              ./verify/check-no-takeover.sh
 run "no accidental rebuild"          ./verify/check-no-accidental-build.sh
+run "screen measured one way"        ./verify/check-output-geometry.sh
 run "initramfs boots elsewhere"      ./verify/check-portable-initramfs.sh
 run "firewall is default-deny"       ./verify/check-firewall.sh
 run "every tool has a caller (§10.1)"     ./verify/check-callers.sh

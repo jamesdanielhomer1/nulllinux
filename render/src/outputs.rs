@@ -60,8 +60,24 @@ pub fn list_outputs(conn: &Connection) -> Result<Vec<(String, i32, i32, i32)>, S
     let mut v = Vec::new();
     for o in p.output_state.outputs() {
         if let Some(i) = p.output_state.info(&o) {
-            let (w, h) = i.logical_size
-                .or_else(|| i.modes.iter().find(|m| m.current).map(|m| m.dimensions))
+            // THE CURRENT MODE, NOT THE LOGICAL SIZE.
+            //
+            // These differ by the scale factor, and on a HiDPI screen at scale
+            // 2 they differ by half: mode 3840x2160, logical 1920x1080.
+            //
+            // bin/machine's detect_output has two branches -- ask the
+            // compositor, or read /sys/class/drm -- and the DRM one can only
+            // ever report a mode. Reporting logical size here made the two
+            // disagree on exactly the machines the project claims to support,
+            // so `machine check-profile` would find a MISMATCH at every boot
+            // on hardware that had not changed, and re-derive everything.
+            //
+            // The swaymsg-and-python this replaced read `current_mode`. That
+            // was a speed change; it was not licence to change what the number
+            // means. Scale is reported alongside, so a caller that wants
+            // logical size can work it out.
+            let (w, h) = i.modes.iter().find(|m| m.current).map(|m| m.dimensions)
+                .or(i.logical_size)
                 .unwrap_or((0, 0));
             v.push((i.name.clone().unwrap_or_default(), w, h, i.scale_factor));
         }
