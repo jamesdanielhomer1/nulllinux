@@ -152,7 +152,6 @@ rm -rf %{buildroot}%{_prefix}/%{name}/render/target/debug
 
 install -D -m 0644 packaging/nulllinux-machine-sync.service \
   %{buildroot}%{_unitdir}/nulllinux-machine-sync.service
-%{_prefix}/%{name}/packaging/nulllinux-session.desktop
 
 # THE SESSION ENTRY HAS TO BE IN THE PACKAGE.
 #
