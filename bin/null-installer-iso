@@ -23,10 +23,39 @@ cd "$ROOT"
 NAME=nulllinux
 VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head -1)
 RELEASEVER=$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)
-# Rebuilding the boot media takes hours; embedding takes seconds. When the
-# only thing that changed is what goes ON the ISO, reuse the media.
+usage() { cat <<'U'
+usage: null-installer-iso [--embed-only] [--yes]
+
+  --embed-only   reuse the boot media already built, and only re-embed the
+                 kickstart and the package repository. Seconds rather than
+                 hours. Refuses if there is no media to reuse.
+  --yes          do not ask before deleting existing boot media.
+
+With no arguments this REBUILDS the boot media from scratch, which takes
+hours and DELETES whatever is in the work directory first.
+U
+}
+
+# AN UNRECOGNISED ARGUMENT MUST NOT START A MULTI-HOUR DESTRUCTIVE BUILD.
+#
+# This read only `$1 == --embed-only` and ignored everything else, so
+# `null-installer-iso --help` printed no help: it fell through to the rebuild
+# path, ran `rm -rf` over the boot media, and started lorax. Which is exactly
+# what it did, and how the media it was about to reuse came to be deleted.
+#
+# Anything not understood is now an error, and -h prints the help it was asked
+# for.
 EMBED_ONLY=0
-[ "${1:-}" = "--embed-only" ] && { EMBED_ONLY=1; shift; }
+ASSUME_YES=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --embed-only) EMBED_ONLY=1 ;;
+    --yes|-y)     ASSUME_YES=1 ;;
+    -h|--help)    usage; exit 0 ;;
+    *) echo "null-installer-iso: unknown argument '$1'" >&2; echo >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
 
 WORK=${NULL_ISO_WORK:-/var/lib/nulllinux-iso}
 # Absolute, because lorax is run from inside it and every other path here is
@@ -58,6 +87,29 @@ if [ "$EMBED_ONLY" = 1 ]; then
     exit 1
   }
 else
+  # SAY WHAT IS ABOUT TO BE DESTROYED, AND WHAT IT COST.
+  #
+  # Boot media is hours of build time and about a gigabyte of downloads. It is
+  # not the kind of thing to delete on the way past.
+  if [ -f "$OUT/images/boot.iso" ]; then
+    echo "null-installer-iso: there is already boot media at"
+    echo "  $OUT/images/boot.iso  ($(du -h "$OUT/images/boot.iso" | cut -f1), built $(date -r "$OUT/images/boot.iso" '+%Y-%m-%d %H:%M'))"
+    echo
+    echo "  A rebuild DELETES it and takes hours. If only the kickstart or the"
+    echo "  package changed, --embed-only reuses it and takes seconds."
+    echo
+    if [ "$ASSUME_YES" != 1 ]; then
+      if [ -t 0 ]; then
+        printf '  delete it and rebuild? [y/N] '
+        read -r reply
+        case $reply in y|Y|yes) ;; *) echo "  nothing done."; exit 0 ;; esac
+      else
+        echo "  Not a terminal, so not guessing. Pass --yes to rebuild anyway," >&2
+        echo "  or --embed-only to reuse what is there." >&2
+        exit 3
+      fi
+    fi
+  fi
   rm -rf "$OUT"
 fi
 mkdir -p "$WORK"
