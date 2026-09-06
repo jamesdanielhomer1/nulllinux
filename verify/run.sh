@@ -24,6 +24,7 @@ run "initramfs boots elsewhere"      ./verify/check-portable-initramfs.sh
 run "firewall is default-deny"       ./verify/check-firewall.sh
 run "the lock screen is ours"        ./verify/check-lock-screen.sh
 run "session services declared"      ./verify/check-session-services.sh
+run "nothing rests on luck"          ./verify/check-declared-providers.sh
 run "every colour is the palette"    ./verify/check-palette-only.sh
 run "config reaches its app"         ./verify/check-config-reaches-apps.sh
 run "the greeter offers ours"        ./verify/check-session-entry.sh
