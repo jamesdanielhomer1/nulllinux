@@ -27,13 +27,39 @@ null_fzf_flags() {
     --info=hidden
     --no-scrollbar
     --no-mouse
-    --color=16
+
+    # THE PALETTE, NOT fzf's SIXTEEN.
+    #
+    # This was --color=16, which hands the picker fzf's own scheme -- and the
+    # picker IS every menu in this system. Fifteen surfaces generated from
+    # assets/palette.json, and the one the hand is on took its colours from
+    # somewhere else.
+    #
+    # Roles, spelled as config/sway/colours.conf spells them:
+    #   neutral #ffefe6 text, background #05060a ground, line #232c40 rule,
+    #   accent #b9ccff selection and marks, dim #ff7800 labels.
+    #
+    # The current line is accent-on-background, which is what
+    # theme_selected_bg_color already does in GTK -- one selection idiom, not
+    # two. A match on that line is UNDERLINED rather than recoloured: a mark,
+    # not a second fill (§7.1).
+    --color=fg:#ffefe6,bg:#05060a,hl:#b9ccff
+    --color=fg+:#05060a,bg+:#b9ccff,hl+:#05060a:underline
+    --color=prompt:#ff7800,header:#ff7800,info:#ff7800
+    --color=pointer:#b9ccff,marker:#b9ccff
+    --color=border:#232c40,gutter:#05060a,query:#ffefe6
   )
   # Inside the column the surface has already drawn a frame with the topic set
   # into its top rule, and the picker's own border would land one cell inside
   # it. Everywhere else there is no chrome, so it draws one.
+  #
+  # SHARP, NOT ROUNDED. Two reasons and either would do. The design system has
+  # no rounded corners anywhere -- border-radius is 0 in gtk.css, corner_radius
+  # 0 in dunst, rounded_corners False in btop. And a rounded border is drawn
+  # with U+256D..U+2570, which the console font does not carry: the same reason
+  # btop's config gives for its own setting.
   if [ -n "${NULL_COLUMN:-}" ]; then NULL_FZF+=(--border=none)
-  else NULL_FZF+=(--border=rounded); fi
+  else NULL_FZF+=(--border=sharp); fi
 }
 
 # A row: name, dot leaders, value -- so it reads as ONE thing rather than two
