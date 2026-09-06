@@ -98,7 +98,35 @@ backend_upgrade() { dnf upgrade -y; }
 # and the honest answer to "is this verdict current" is to REPORT THE
 # CATALOGUE'S AGE rather than to pay for a refresh nobody asked for -- which is
 # the rule §8.4 already states for firmware, applied to packages as well.
-backend_upgrade_count() { dnf -q check-upgrade 2>/dev/null | grep -cE '^[a-zA-Z0-9]' || true; }
+# "NO ANSWER" AND "NO UPGRADES" ARE DIFFERENT ANSWERS -- which is the rule the
+# function directly below this one states in its own comment, and this one broke.
+#
+# It was:
+#
+#     dnf -q check-upgrade 2>/dev/null | grep -cE '^[a-zA-Z0-9]' || true
+#
+# dnf's errors go to /dev/null, an empty stdout makes `grep -c` print 0, and
+# `|| true` clears the failing status. So a broken repository, a machine with
+# no network and a machine that is genuinely up to date all produce the same
+# string: "0". The panel said "PACKAGES: up to date" and the settings row said
+# "0 waiting" about a question nobody had managed to ask.
+#
+# Both callers already have an unknown branch -- bin/null-update tests for an
+# empty string, bin/null-settings falls back to NULL_UNMEASURED -- and neither
+# could ever be reached.
+#
+# dnf5 says which it is in its exit status: 0 for none pending, 100 for some,
+# anything else a failure.
+backend_upgrade_count() {
+  local out rc=0
+  out=$(dnf -q check-upgrade 2>/dev/null) || rc=$?
+  case $rc in
+    0|100) ;;
+    *) return 1 ;;
+  esac
+  [ -n "$out" ] || { echo 0; return 0; }
+  printf '%s\n' "$out" | grep -cE '^[a-zA-Z0-9]' || true
+}
 
 # Age of the newest repository metadata, in seconds, or nothing if there is
 # none. "No metadata" and "metadata saying no updates" are different answers.

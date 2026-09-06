@@ -14,7 +14,22 @@ cd "$(dirname "$0")/.." || exit 1
 fail=0
 note() { printf '  %s\n' "$*"; }
 
-for tool in bin/null-installer-iso; do
+# THE CLASS, DERIVED. This loop said "bin/null-installer-iso" while the comment
+# above it said it checked the class rather than the one script -- and
+# bin/null-iso, the other tool here that deletes a built ISO and then runs a
+# builder for hours, was never in it. It had no argument parsing at all:
+# `null-iso --help` deleted $WORK/results and started livemedia-creator.
+#
+# A fix that does not travel is a fix that will be needed again, so the list is
+# now found rather than typed: anything that drives an image builder.
+mapfile -t TOOLS < <(grep -lE 'livemedia-creator|lorax|mkksiso' bin/* 2>/dev/null | sort)
+if [ "${#TOOLS[@]}" -lt 2 ]; then
+  note "only ${#TOOLS[@]} image-building tool(s) found; expected at least null-iso and null-installer-iso"
+  fail=1
+fi
+note "checking ${#TOOLS[@]}: ${TOOLS[*]##*/}"
+
+for tool in "${TOOLS[@]}"; do
   [ -x "$tool" ] || { note "$tool: missing or not executable"; fail=1; continue; }
 
   # -h must print usage and do nothing. Timeout, because "does nothing" is the

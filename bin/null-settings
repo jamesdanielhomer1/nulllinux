@@ -164,11 +164,27 @@ rows_DRIVES() {
     [ -n "$name" ] || continue
     null_row "${name##*/}" "$size  $model"
     n=$((n+1))
-  done < <("$B/null-drive" list 2>/dev/null | grep -oE '^/dev/[a-z0-9]+ .*' | sed 's/ \.* / /' | tr ' ' '\t')
+  done < <("$B/null-drive" records 2>/dev/null)
   [ "$n" = 0 ] && null_row "DRIVES" "nothing plugged in"
   return 0
 }
-act_DRIVES() { "$B/null-drive" format >/dev/null 2>&1 || true; }
+# NOT REDIRECTED, because this one TALKS.
+#
+# It was `>/dev/null 2>&1 || true`, copied from the rows above it -- and the
+# rows above it redirect non-interactive setters like `brightnessctl set`,
+# which have nothing to say. This is the one destructive tool in the panel, and
+# everything it prints is the safety: the drive's size and model, what is on it
+# now, "Everything on /dev/sdb will be destroyed", and "confirm by typing
+# /dev/sdb". All of that went to /dev/null while every `read` still took the
+# keystrokes, so the shell sat waiting at an invisible prompt.
+#
+# The picker did not draw either: lib/menu.sh requires [ -t 2 ] for fzf, and
+# stderr was not a terminal, so it fell through to the numbered fallback whose
+# prompts also go to stderr.
+#
+# `|| true` went with it: it made a refusal, a "not a removable drive" bail and
+# a failed mkfs indistinguishable from a completed format.
+act_DRIVES() { "$B/null-drive" format; }
 
 rows_SOUND() {
   local v m; v=$(read_volume) || v="$NULL_UNMEASURED"; m=$(read_mic) || m="$NULL_UNMEASURED"

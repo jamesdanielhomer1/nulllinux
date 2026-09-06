@@ -18,6 +18,35 @@ VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head
 WORK=${NULL_ISO_WORK:-/var/lib/nulllinux-iso}
 KS="$WORK/$NAME-live.ks"
 
+# AN UNRECOGNISED ARGUMENT MUST NOT START A MULTI-HOUR DESTRUCTIVE BUILD.
+#
+# This file parsed no arguments at all. `null-iso --help` therefore printed no
+# help: it fell straight through to `rm -rf "$WORK/results"` below, deleting
+# the ISO already built there, and then started livemedia-creator for several
+# hours.
+#
+# bin/null-installer-iso has carried the identical guard since the evening it
+# deleted its own boot media the same way. The lesson was written down in one
+# file and never carried across to its sibling, which is its own kind of
+# defect: a fix that does not travel is a fix that will be needed again.
+ASSUME_YES=0
+usage() {
+  echo "usage: null-iso [--yes]"
+  echo
+  echo "  --yes, -y   do not ask before deleting the previously built ISO"
+  echo
+  echo "  Builds the live ISO. This DELETES $WORK/results and then runs"
+  echo "  livemedia-creator, which takes hours. Run bin/null-package first."
+}
+while [ $# -gt 0 ]; do
+  case $1 in
+    --yes|-y)  ASSUME_YES=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "null-iso: unknown argument '$1'" >&2; echo >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
 need() { command -v "$1" >/dev/null 2>&1 || { echo "null-iso: $1 is not installed" >&2; return 1; }; }
 fail=0
 need livemedia-creator || fail=1
@@ -33,6 +62,23 @@ avail=$(df --output=avail -BG "$(dirname "$WORK")" 2>/dev/null | tail -1 | tr -d
 [ "${avail:-0}" -ge 20 ] || { echo "null-iso: ${avail}G free; an ISO build wants 20G or more" >&2; exit 1; }
 
 mkdir -p "$WORK"
+
+# AND THE DELETION IS ANNOUNCED. There is an ISO in there that took hours, and
+# the only thing standing between it and this line used to be remembering what
+# this command does.
+if [ -d "$WORK/results" ] && [ "$ASSUME_YES" != 1 ]; then
+  echo "null-iso: this deletes what is already built:"
+  find "$WORK/results" -maxdepth 2 -name '*.iso' -printf '  %p  (%s bytes)\n' 2>/dev/null
+  if [ -t 0 ]; then
+    printf 'null-iso: delete it and rebuild? [y/N] '
+    read -r a
+    case $a in y|Y|yes) ;; *) echo "null-iso: nothing deleted."; exit 1 ;; esac
+  else
+    echo "null-iso: not a terminal, so nothing was asked and nothing was deleted." >&2
+    echo "  Pass --yes to rebuild anyway." >&2
+    exit 1
+  fi
+fi
 rm -rf "$WORK/results"
 
 # The kickstart names the repository by absolute path, which is only known

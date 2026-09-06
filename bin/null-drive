@@ -288,6 +288,12 @@ cmd_format() {
 
 case "${1:-list}" in
   list)     cmd_list ;;
+  # THE SAME FACTS, WITHOUT THE DECORATION. `list` is for a person: dot
+  # leaders, colour, indented partitions. Another program that wants the drives
+  # should not have to take that apart again -- bin/null-settings did, with
+  # `tr ' ' '\t'`, which turns every space into a field separator and so splits
+  # a model called "Ultra USB 3.0" across three of them.
+  records)  removable ;;
   unmount)  cmd_unmount "${2:-}" ;;
   eject)    cmd_eject "${2:-}" ;;
   format)   cmd_format "${2:-}" ;;
@@ -297,6 +303,7 @@ case "${1:-list}" in
     echo "  unmount   unmount every mounted partition of a drive"
     echo "  eject     unmount, then power the drive off so it is safe to unplug"
     echo "  format    erase a drive and put one filesystem on it"
+    echo "  records   the same drives, tab separated, for another program"
     echo
     echo "Removable drives only. A fixed disk is the installer's business." ;;
   *) echo "null-drive: unknown verb '$1'" >&2; exit 2 ;;
