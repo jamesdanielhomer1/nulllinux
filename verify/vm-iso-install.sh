@@ -45,10 +45,16 @@ sshg() { ssh -i "$KEY" -p "$PORT" -o StrictHostKeyChecking=no \
              -o UserKnownHostsFile=/dev/null -o ConnectTimeout=4 root@127.0.0.1 "$@"; }
 
 case "${1:-install}" in
-  install|boot|ssh|down) ;;
-  *) die "usage: vm-iso-install.sh [install|boot|ssh [cmd]|down]" ;;
+  install|boot|ssh|down|check) ;;
+  *) die "usage: vm-iso-install.sh [install|boot|ssh [cmd]|down|check]" ;;
 esac
 [ "${1:-install}" = ssh ] && exec sshg "${@:2}"
+# `check` is the other half of `install`. This script used to end at "the
+# install is unattended and reboots when it finishes", and what happened after
+# that was inspected by hand, differently each time -- which is how an
+# initramfs that could not boot on other hardware survived every install test
+# the project ever ran. Nobody asked it.
+[ "${1:-install}" = check ] && exec "$ROOT/verify/vm-post-install.sh"
 # STOPPING THE GUEST, MATCHED ON THE EXECUTABLE, NOT THE COMMAND LINE.
 #
 # bin/null-column says this in §8.6 and I fell into it anyway, three times in
@@ -236,3 +242,7 @@ setsid qemu-system-x86_64 -enable-kvm -cpu host -m "$MEM" -smp 4 \
   >/dev/null 2>&1 &
 
 echo "  qemu started; the install is unattended and reboots when it finishes"
+if [ "${1:-install}" = install ]; then
+  echo
+  echo "  when it comes up:  verify/vm-iso-install.sh check"
+fi
