@@ -81,6 +81,11 @@ probe=$(mktemp -d); mkdir -p "$probe/BAT0"
 echo 1 > "$probe/BAT0/present"
 echo 50000 > "$probe/BAT0/energy_now"; echo 100000 > "$probe/BAT0/energy_full"
 echo Discharging > "$probe/BAT0/status"
+# ON A TEST MACHINE ONLY. This starts a watcher and then runs a second one
+# whose whole job is to displace others -- which is the mechanism that took the
+# live warner down when this check first ran (lib/host.sh).
+. lib/host.sh
+if null_only_on_a_test_machine "the watcher-displacement test"; then
 NULL_POWER_SUPPLY="$probe" "./$B" watch >/dev/null 2>&1 &
 keeper=$!
 sleep 1
@@ -100,6 +105,7 @@ else
 fi
 kill "$keeper" 2>/dev/null
 wait "$keeper" 2>/dev/null
+fi
 rm -rf "$probe"
 
 # 4. A MACHINE WITH NO BATTERY IS NOT A BROKEN LAPTOP. The watcher must exit

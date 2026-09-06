@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Run the checks on nullLinux, not on the machine that builds it.
+#
+# The development machine is not the product. nox runs the system nullLinux
+# replaces, and this tree is a checkout on it -- so a check that touches
+# anything outside the repository is aimed at somebody's desktop unless
+# something points it somewhere else. Twice in one evening that cost real
+# damage: a session ended by a `pkill -x sway` meant for a test instance, and an
+# account and its home directory deleted by a verb that was supposed to refuse.
+#
+# This is the somewhere else. It copies the WORKING TREE -- not the installed
+# package, so uncommitted changes are what gets tested -- into a nullLinux guest
+# and runs the suite there, where NULL_TEST_MACHINE is redundant because the
+# machine genuinely is nullLinux.
+#
+#   verify/in-guest.sh                     the whole suite
+#   verify/in-guest.sh check-drive.sh      one check
+#   verify/in-guest.sh -- <command>        anything, in the guest
+#
+# The guest is the one verify/vm-iso-install.sh builds and keeps: an ISO
+# install, with the test ssh key the kickstart carries for exactly this and
+# which is stripped from shipped media.
+set -uo pipefail
+ROOT=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd); cd "$ROOT"
+
+VM="$ROOT/verify/vm-iso-install.sh"
+[ -x "$VM" ] || { echo "in-guest: $VM is missing" >&2; exit 1; }
+
+# WHERE IT LANDS IN THE GUEST. Not /usr/nulllinux: that is the installed
+# package, and overwriting it would mean the next check ran against a tree
+# somebody's session is also using. A separate directory, so what is tested and
+# what is running are never the same files.
+DEST=/root/nulllinux-under-test
+
+say() { printf '  %s\n' "$*"; }
+
+guest() { "$VM" ssh "$@"; }
+
+# 1. IS THERE A GUEST? Reported, not assumed -- and the message says the one
+#    command that makes one, because "connection refused" does not.
+if ! guest true >/dev/null 2>&1; then
+  echo "in-guest: no nullLinux guest is answering." >&2
+  echo >&2
+  echo "  Boot the one that is already installed:" >&2
+  echo "      verify/vm-iso-install.sh boot" >&2
+  echo "  Or install a fresh one from the current ISO (long):" >&2
+  echo "      verify/vm-iso-install.sh install" >&2
+  exit 1
+fi
+
+# 2. AND IS IT ACTUALLY nullLinux? A guest that is something else would run the
+#    suite and mean nothing by it.
+if ! guest 'grep -qiE "^(ID|NAME)=.*null" /etc/os-release' >/dev/null 2>&1; then
+  echo "in-guest: the guest answering is not nullLinux:" >&2
+  guest 'grep PRETTY_NAME /etc/os-release' 2>&1 | sed 's/^/    /' >&2
+  exit 1
+fi
+say "guest: $(guest '. /etc/os-release; echo "$PRETTY_NAME"' 2>/dev/null)"
+
+# 3. THE WORKING TREE, INCLUDING WHAT IS NOT COMMITTED. The point of running in
+#    a guest is to test the change you just made; sending HEAD would test the
+#    change before it.
+#
+#    Built artefacts travel too -- render/target holds the binaries several
+#    checks run -- but nothing else large: .git is the tree's history and the
+#    guest has no use for it.
+say "copying the working tree to $DEST"
+guest "rm -rf $DEST && mkdir -p $DEST" >/dev/null 2>&1
+tar -C "$ROOT" -cf - \
+    --exclude=.git \
+    --exclude='render/target/debug' \
+    --exclude='packaging/rpmbuild/BUILD*' \
+    . 2>/dev/null | guest "tar -C $DEST -xf -" || {
+  echo "in-guest: copying the tree failed" >&2; exit 1; }
+
+# 4. RUN IT THERE.
+if [ "${1:-}" = "--" ]; then
+  shift
+  guest "cd $DEST && $*"
+  exit $?
+fi
+
+if [ $# -gt 0 ]; then
+  rc=0
+  for c in "$@"; do
+    case $c in verify/*) c=${c#verify/} ;; esac
+    say "running $c in the guest"
+    guest "cd $DEST && ./verify/$c" || rc=1
+  done
+  exit $rc
+fi
+
+say "running the whole suite in the guest"
+guest "cd $DEST && ./verify/run.sh"

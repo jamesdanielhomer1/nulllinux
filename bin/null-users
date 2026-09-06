@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+# Who can log in (NULL.md §8.4).
+#
+# "Adding or removing a user is useradd in a terminal. There is no panel." That
+# was written down in docs/STATUS.md as something this honestly is not, and it
+# is a thing every operating system has.
+#
+# IT OWNS NOTHING. useradd, userdel, usermod, chpasswd and gpasswd own the
+# account database; this asks them, and reports what they said afterwards
+# rather than what they returned.
+#
+# WHO COUNTS AS A PERSON. Accounts with uid below UID_MIN are the system's --
+# daemons, the compositor's greeter, nobody -- and they are not listed and
+# cannot be touched from here. UID_MIN is read from /etc/login.defs rather than
+# assumed to be 1000, because it is a setting and this system does not get to
+# decide what somebody else's machine set it to.
+#
+# ADMIN MEANS wheel. The installer puts the first account there and locks root
+# (bin/null-installer), so sudo is the only way up and wheel is the only way to
+# sudo. Removing the last member of wheel would leave a machine nobody can
+# administer, with root locked and no way to unlock it -- so that is refused.
+#
+# REMOVING SOMEBODY ASKS FOR THEIR NAME IN FULL, as the installer and
+# bin/null-drive do, and asks separately about their home directory, which
+# defaults to KEEPING it. Files somebody made are not a detail of an account.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+
+C_RESET=$'\033[0m'; C_DIM=$'\033[33m'; C_TEXT=$'\033[37m'
+C_ACCENT=$'\033[34m'; C_ERROR=$'\033[31m'; C_LINE=$'\033[90m'
+say()   { printf '  %s%s%s\n' "$C_TEXT"  "$1" "$C_RESET"; }
+hint()  { printf '  %s%s%s\n' "$C_DIM"   "$1" "$C_RESET"; }
+oops()  { printf '  %s%s%s\n' "$C_ERROR" "$1" "$C_RESET" >&2; }
+title() { printf '\n%s%s%s\n%s%s%s\n' "$C_ACCENT" "$1" "$C_RESET" \
+          "$C_LINE" "$(printf '%.0s-' $(seq 64))" "$C_RESET"; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+UID_MIN=$(awk '/^UID_MIN[[:space:]]/ {print $2; exit}' /etc/login.defs 2>/dev/null)
+case ${UID_MIN:-} in ''|*[!0-9]*) UID_MIN=1000 ;; esac
+UID_MAX=$(awk '/^UID_MAX[[:space:]]/ {print $2; exit}' /etc/login.defs 2>/dev/null)
+case ${UID_MAX:-} in ''|*[!0-9]*) UID_MAX=60000 ;; esac
+
+ADMIN_GROUP=wheel
+
+# --- reading ----------------------------------------------------------------
+#
+# getent, not /etc/passwd. A machine joined to a directory has accounts that
+# are not in that file, and a panel that cannot see them will happily tell you
+# a name is free when it is taken.
+people() {  # name<TAB>uid<TAB>gecos<TAB>home<TAB>shell
+  getent passwd 2>/dev/null | while IFS=: read -r n _ u _ g h sh; do
+    [ "$u" -ge "$UID_MIN" ] 2>/dev/null || continue
+    [ "$u" -le "$UID_MAX" ] 2>/dev/null || continue
+    printf '%s\t%s\t%s\t%s\t%s\n' "$n" "$u" "${g%%,*}" "$h" "$sh"
+  done
+}
+
+admins() { getent group "$ADMIN_GROUP" 2>/dev/null | awk -F: '{print $4}' | tr ',' '\n' | grep -v '^$'; }
+
+is_admin() { admins | grep -qxF "$1"; }
+
+# Locked, from the shadow entry's own marker. `passwd -S` needs root; this does
+# not, so the panel reads the same on a machine where it is not yet elevated.
+locked() {  # <name>
+  local h; h=$(getent shadow "$1" 2>/dev/null | cut -d: -f2)
+  [ -z "$h" ] && return 1
+  case $h in '!'*|'*'*|'!!') return 0 ;; *) return 1 ;; esac
+}
+
+exists() { getent passwd "$1" >/dev/null 2>&1; }
+
+# --- elevation --------------------------------------------------------------
+#
+# RE-RUN AS ROOT RATHER THAN ASKING PER COMMAND. Adding somebody is useradd,
+# then chpasswd, then gpasswd: three prompts for one action reads as three
+# separate decisions. pkexec puts it through polkit, which the session already
+# runs an agent for; sudo is the fallback for a console with no session.
+#
+# THE SAME VERB, RE-RUN. Not a private "already confirmed" one.
+#
+# The first version of this file split every mutating verb in two: `remove`
+# asked the questions, then re-ran itself as `remove-confirmed` under pkexec to
+# do the deed. `remove-confirmed` was a verb in the case statement, so it was
+# reachable from a command line, and its only guard was
+#
+#     [ "$(id -u)" = 0 ] || refuse
+#
+# which permits exactly the dangerous case and refuses only the harmless one. I
+# typed it as root while testing the refusals and it deleted a real account and
+# its home directory, immediately, with no question asked -- because every
+# question lived in the half that had been skipped.
+#
+# So there is no second half. If root is needed, this re-runs THIS verb as
+# root, and the questions -- including the typed confirmation -- are asked by
+# the process that is going to act. One code path, and the confirmation is
+# always between the request and the deletion.
+need_root() {  # <verb> [args...]
+  [ "$(id -u)" = 0 ] && return 0
+  local self; self=$(readlink -f -- "$0")
+  if have pkexec && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+    exec pkexec env NULL_ROOT="$ROOT" "$self" "$@"
+  elif have sudo; then
+    exec sudo -E env NULL_ROOT="$ROOT" "$self" "$@"
+  fi
+  oops "this needs root, and neither pkexec nor sudo is here"
+  exit 1
+}
+
+# --- verbs ------------------------------------------------------------------
+cmd_list() {
+  title "People"
+  local n=0 name uid gecos home shell tags
+  while IFS=$'\t' read -r name uid gecos home shell; do
+    [ -n "$name" ] || continue
+    n=$((n+1))
+    tags=""
+    is_admin "$name" && tags="admin"
+    locked "$name"   && tags="${tags:+$tags, }locked"
+    case $shell in */nologin|*/false) tags="${tags:+$tags, }no login" ;; esac
+    null_row "$name" "${gecos:-$name}${tags:+  ($tags)}"
+    hint "    uid $uid   $home"
+  done < <(people)
+  [ "$n" = 0 ] && hint "no ordinary accounts on this machine"
+
+  title "Administrators"
+  local a; a=$(admins)
+  if [ -z "$a" ]; then
+    hint "nobody is in $ADMIN_GROUP"
+    hint "with root locked, that is a machine nobody can administer"
+  else
+    printf '%s\n' "$a" | while read -r m; do null_row "$m" "$ADMIN_GROUP"; done
+  fi
+}
+
+# The same facts, undecorated, for another program.
+cmd_records() { people; }
+
+ask() {  # <prompt> <default>
+  local p=$1 d=${2:-} a
+  if [ -n "$d" ]; then printf '  %s%s%s [%s]: ' "$C_TEXT" "$p" "$C_RESET" "$d" >&2
+  else printf '  %s%s%s: ' "$C_TEXT" "$p" "$C_RESET" >&2; fi
+  read -r a
+  printf '%s\n' "${a:-$d}"
+}
+
+ask_secret() {  # <prompt>
+  local p=$1 a b
+  while :; do
+    printf '  %s%s%s: ' "$C_TEXT" "$p" "$C_RESET" >&2; read -rs a; echo >&2
+    [ -n "$a" ] || { oops "empty"; continue; }
+    printf '  %sand again%s: ' "$C_TEXT" "$C_RESET" >&2; read -rs b; echo >&2
+    [ "$a" = "$b" ] && { printf '%s\n' "$a"; return 0; }
+    oops "they do not match"
+  done
+}
+
+cmd_add() {
+  need_root add "$@"
+  local name=${1:-}
+  [ -n "$name" ] || name=$(ask "username" "")
+  case $name in
+    ''|*[!a-z0-9_-]*) oops "a username is lowercase letters, digits, _ and -"; return 2 ;;
+    [0-9]*)           oops "a username does not begin with a digit"; return 2 ;;
+  esac
+  exists "$name" && { oops "$name already exists"; return 1; }
+
+  local full admin
+  full=$(ask "full name" "$name")
+  admin=$(null_pick "administrator" "administrators can use sudo; root is locked" "no" yes no) || return 1
+  local pass; pass=$(ask_secret "password")
+
+  do_add "$name" "$full" "$admin" "$pass"
+}
+
+do_add() {  # <name> <full> <admin> <password>
+  local name=$1 full=$2 admin=$3 pass=$4
+  useradd -m -c "$full" -s /bin/bash "$name" || { oops "useradd failed"; return 1; }
+  printf '%s:%s\n' "$name" "$pass" | chpasswd || { oops "setting the password failed"; return 1; }
+  if [ "$admin" = yes ]; then
+    gpasswd -a "$name" "$ADMIN_GROUP" >/dev/null || { oops "could not add $name to $ADMIN_GROUP"; return 1; }
+  fi
+  # SAID BY getent, not by useradd's exit status.
+  if exists "$name"; then
+    say "$name exists, uid $(id -u "$name")$( is_admin "$name" && printf ', administrator')"
+  else
+    oops "$name was not created"; return 1
+  fi
+}
+
+cmd_passwd() {
+  need_root passwd "$@"
+  local name=${1:-}
+  [ -n "$name" ] || name=$(pick_person) || return 1
+  [ -n "$name" ] || return 1
+  exists "$name" || { oops "$name does not exist"; return 1; }
+  local pass; pass=$(ask_secret "new password for $name")
+  printf '%s:%s\n' "$name" "$pass" | chpasswd && say "$name's password is set" \
+    || { oops "could not set it"; return 1; }
+}
+
+cmd_admin() {
+  need_root admin "$@"
+  local name=${1:-} state=${2:-}
+  [ -n "$name" ] || name=$(pick_person) || return 1
+  exists "$name" || { oops "$name does not exist"; return 1; }
+  [ -n "$state" ] || state=$(null_pick "administrator" "$name" "" yes no) || return 1
+
+  # THE LAST ADMINISTRATOR STAYS. root is locked by the installer, so wheel is
+  # the only way to sudo and sudo is the only way up. Taking the last member
+  # out leaves a machine nobody can administer and no way back in.
+  if [ "$state" = no ] && is_admin "$name" && [ "$(admins | wc -l)" -le 1 ]; then
+    oops "$name is the only administrator."
+    hint "Root is locked on this system, so nobody could administer it."
+    hint "Make somebody else an administrator first."
+    return 1
+  fi
+  if [ "$state" = yes ]; then gpasswd -a "$name" "$ADMIN_GROUP" >/dev/null
+  else gpasswd -d "$name" "$ADMIN_GROUP" >/dev/null; fi
+  is_admin "$name" && say "$name is an administrator" || say "$name is not an administrator"
+}
+
+pick_person() {
+  mapfile -t P < <(people | cut -f1)
+  [ "${#P[@]}" -gt 0 ] || { oops "there are no ordinary accounts here"; return 1; }
+  null_pick "person" "accounts with a uid of $UID_MIN or more" "" "${P[@]}"
+}
+
+cmd_remove() {
+  need_root remove "$@"
+  local name=${1:-}
+  [ -n "$name" ] || name=$(pick_person) || return 1
+  [ -n "$name" ] || return 1
+  exists "$name" || { oops "$name does not exist"; return 1; }
+
+  # EVERY GUARD BEFORE ANY QUESTION.
+  local u; u=$(id -u "$name" 2>/dev/null)
+  if [ "${u:-0}" -lt "$UID_MIN" ]; then
+    oops "$name is a system account (uid $u), not a person"; return 2
+  fi
+  if [ "$name" = "${SUDO_USER:-$(id -un)}" ]; then
+    oops "$name is you."
+    hint "Removing the account you are logged in as leaves a running session"
+    hint "belonging to nobody. Do it from another account."
+    return 1
+  fi
+  if is_admin "$name" && [ "$(admins | wc -l)" -le 1 ]; then
+    oops "$name is the only administrator."
+    hint "Root is locked on this system, so nobody could administer it."
+    return 1
+  fi
+
+  local home; home=$(getent passwd "$name" | cut -d: -f6)
+  local size; size=$(du -sh "$home" 2>/dev/null | cut -f1)
+  local keep; keep=$(null_pick "their files" "$home${size:+  ($size)}" "keep" keep delete) || return 1
+
+  title "This removes an account"
+  null_row "user" "$name"
+  null_row "uid" "$u"
+  null_row "home" "$home${size:+  ($size)}"
+  null_row "their files" "$keep"
+  echo
+  oops "$name will not be able to log in again."
+  [ "$keep" = delete ] && oops "Everything in $home will be destroyed."
+  hint "Type the username to confirm, or anything else to stop."
+  printf '  %sconfirm by typing %s%s: ' "$C_TEXT" "$name" "$C_RESET" >&2
+  local answer; read -r answer
+  if [ "$answer" != "$name" ]; then
+    echo; say "Nothing has been changed."
+    return 1
+  fi
+
+  do_remove "$name" "$keep"
+}
+
+do_remove() {  # <name> <keep|delete>
+  local name=$1 keep=$2
+  # ANY LIVE SESSION FIRST, or userdel refuses with "currently used by process".
+  if have loginctl; then
+    loginctl terminate-user "$name" >/dev/null 2>&1 || true
+    sleep 1
+  fi
+  if [ "$keep" = delete ]; then userdel -r "$name" || { oops "userdel failed"; return 1; }
+  else userdel "$name" || { oops "userdel failed"; return 1; }; fi
+  if exists "$name"; then oops "$name is still there"; return 1; fi
+  say "$name is gone"
+  [ "$keep" = keep ] && hint "their files are still in $(getent passwd "$name" >/dev/null || echo 'their home directory')"
+  return 0
+}
+
+case "${1:-list}" in
+  list)     cmd_list ;;
+  records)  cmd_records ;;
+  add)      cmd_add "${2:-}" ;;
+  passwd)   cmd_passwd "${2:-}" ;;
+  admin)    cmd_admin "${2:-}" "${3:-}" ;;
+  remove)   cmd_remove "${2:-}" ;;
+
+  -h|--help|help)
+    echo "usage: null-users [list|add|passwd|admin|remove] [name]"
+    echo "  list      who can log in, and who can administer (changes nothing)"
+    echo "  records   the same people, tab separated, for another program"
+    echo "  add       create an account, with a password, optionally an admin"
+    echo "  passwd    set somebody's password"
+    echo "  admin     grant or withdraw administrator ($ADMIN_GROUP)"
+    echo "  remove    delete an account, keeping or deleting their files"
+    echo
+    echo "Accounts below uid $UID_MIN belong to the system and are not shown." ;;
+  *) echo "null-users: unknown verb '$1'" >&2; exit 2 ;;
+esac

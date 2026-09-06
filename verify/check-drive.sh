@@ -94,7 +94,12 @@ grep -q 'null-drive' bin/null-settings \
   || { note "bin/null-settings does not offer null-drive"; fail=1; }
 
 # 7. AND, WHEN ASKED, THE WHOLE THING AGAINST A REAL REMOVABLE DISK.
-if [ "${NULL_TEST_SCSI_DEBUG:-0}" = 1 ]; then
+#
+#    ON A MACHINE WHOSE STATE IS EXPENDABLE, AND NOWHERE ELSE. This loads a
+#    kernel module and formats a block device. Both are fine on a nullLinux
+#    guest and neither is fine on the desktop somebody develops from (lib/host.sh).
+. lib/host.sh
+if [ "${NULL_TEST_SCSI_DEBUG:-0}" = 1 ] && null_only_on_a_test_machine "the end-to-end format"; then
   if [ "$(id -u)" != 0 ]; then
     note "(NULL_TEST_SCSI_DEBUG needs root; end-to-end skipped)"
   elif ! modprobe scsi_debug dev_size_mb=64 removable=1 2>/dev/null; then
@@ -134,8 +139,8 @@ if [ "${NULL_TEST_SCSI_DEBUG:-0}" = 1 ]; then
     # OURS, AND ONLY BECAUSE WE LOADED IT.
     rmmod scsi_debug 2>/dev/null || note "(scsi_debug is still loaded; rmmod refused)"
   fi
-else
-  note "(end-to-end format not run; NULL_TEST_SCSI_DEBUG=1 as root runs it)"
+elif [ "${NULL_TEST_SCSI_DEBUG:-0}" != 1 ]; then
+  note "(end-to-end format not run; NULL_TEST_SCSI_DEBUG=1 as root on a test machine runs it)"
 fi
 
 [ $fail = 0 ] && echo "PASS: it erases removable media and refuses everything else"
