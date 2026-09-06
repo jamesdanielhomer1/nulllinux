@@ -664,3 +664,29 @@ it happens.
 Phase 10's reboot gate and the audio deviation. What remains genuinely
 untested is real hardware: firmware, secure boot, a discrete GPU, a wifi
 chipset, suspend and resume, and a panel whose EDID is not qemu's.
+
+---
+
+## The ISO installs with no repository of ours reachable (2026-09-06)
+
+`NULL_TEST_EMBEDDED=1` points the kickstart at `file:///run/install/repo/nulllinux`
+— the copy of the package on the medium — instead of the harness's HTTP server.
+That is the path a stranger's machine takes, and the one that cannot be tested
+by accident, because everything works on a build host either way.
+
+It passes. Every assertion green, including the ones that matter for a disk
+that will be moved: nftables active with input and forward at policy drop, the
+generic initramfs carrying `sdhci_pci`, `mmc_block`, `megaraid_sas`, `i915`,
+`amdgpu`, `nouveau`, `ast`, the greeter up, no failed units, machine-sync
+`loaded success`.
+
+Boot on this install: 25.1s first boot (machine-sync placing 11 files), 17.1s
+steady state.
+
+The media itself was rebuilt from scratch after `null-installer-iso --help`
+destroyed the previous copy — the script ignored the argument and turned it
+into a destructive rebuild. Two lorax runs then died forty minutes in on a
+single package that every mirror has, because `download.fedoraproject.org` is a
+redirector and hands each of nine hundred requests to a different mirror. The
+builder now resolves **one** mirror from the metalink and proves it answers for
+both metadata and a real package before downloading anything.
