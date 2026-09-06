@@ -39,9 +39,11 @@ done
 
 OUT=""
 DRY=0
+CONSOLE=""
 while [ $# -gt 0 ]; do
   case $1 in
     --generate) OUT=${2:?--generate needs a path}; shift ;;
+    --console)  CONSOLE=${2:?--console needs a device}; shift ;;
     --dry-run)  DRY=1 ;;
     -h|--help)
       cat <<'U'
@@ -59,6 +61,21 @@ U
 done
 [ -n "$OUT" ] || { echo "null-installer: --generate <path> is required" >&2; exit 2; }
 
+# OPEN THE CONSOLE OURSELVES WHEN TOLD WHICH ONE.
+#
+# Relying on the caller to redirect worked on a development machine and not in
+# anaconda's installer environment: %pre bound stdin and stdout to /dev/tty6,
+# chvt reported success, and this program still decided neither was a terminal
+# and exited 3. Rather than keep guessing at why the handover differs, it is
+# removed: --console names the device and the program opens it, so what it has
+# is what it opened.
+if [ -n "$CONSOLE" ]; then
+  if ! exec <"$CONSOLE" >"$CONSOLE" 2>&1; then
+    echo "null-installer: cannot open $CONSOLE" >&2
+    exit 3
+  fi
+fi
+
 # A HANG IS THE WORST OUTCOME, SO IT IS REFUSED INSTEAD.
 #
 # This program asks questions. Started somewhere with no terminal -- which is
@@ -71,7 +88,7 @@ done
 # cannot even be diagnosed without a second machine.
 #
 # --dry-run is exempt, because that is how the checks drive it from a pipe.
-if [ "$DRY" != 1 ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
+if [ "$DRY" != 1 ] && [ -z "$CONSOLE" ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
   echo "null-installer: no terminal on stdin/stdout -- refusing to hang." >&2
   echo "  This program asks questions and must be given a console." >&2
   echo "  From anaconda's %pre, bind it to one first:" >&2
