@@ -22,6 +22,7 @@ run "no accidental rebuild"          ./verify/check-no-accidental-build.sh
 run "screen measured one way"        ./verify/check-output-geometry.sh
 run "initramfs boots elsewhere"      ./verify/check-portable-initramfs.sh
 run "firewall is default-deny"       ./verify/check-firewall.sh
+run "the lock screen is ours"        ./verify/check-lock-screen.sh
 run "every tool has a caller (§10.1)"     ./verify/check-callers.sh
 run "themes have one name (§8.10)"       ./verify/check-theme-names.sh
 run "the splash is complete (§9.6)"      ./verify/check-splash-complete.sh

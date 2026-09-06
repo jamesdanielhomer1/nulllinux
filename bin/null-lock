@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Lock the screen, in this system's palette and with this machine's hero.
+#
+# WHY A WRAPPER RATHER THAN A CONFIG FILE ALONE.
+#
+# swaylock reads ~/.config/swaylock/config, which is a per-user path; this is a
+# system-wide install and the config lives in the checkout. `-C` names it
+# explicitly, and that alone is reason enough for a wrapper.
+#
+# The second reason is the image. The greeter already has this machine's hero
+# rendered at this machine's grid, placed at install time from the prebuilt
+# rungs -- an installed machine has no Pillow and no numpy, so nothing can make
+# one at runtime. Locking and logging in are the same moment from where the
+# person is standing, so the lock screen uses the greeter's own first frame.
+#
+# THE LOCK MUST NEVER FAIL TO APPEAR. That is the whole point of the program.
+# Every lookup here is optional and every failure falls through to a plain
+# styled lock; the last line is an unconditional exec. A lock screen that
+# refuses to start because it could not find a picture is worse than an ugly
+# one by a distance that does not need arguing.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+CONF="$ROOT/config/swaylock/config"
+
+command -v swaylock >/dev/null 2>&1 || {
+  echo "null-lock: swaylock is not installed -- the screen CANNOT be locked" >&2
+  exit 1
+}
+
+args=()
+[ -r "$CONF" ] && args+=(-C "$CONF")
+
+# The greeter's first frame, wherever null-system sddm put it. Tried in order;
+# the first that exists wins, and none existing is fine.
+for img in /usr/share/sddm/themes/nullLinux/f00.png \
+           "$ROOT/system/sddm-theme/f00.png"; do
+  if [ -r "$img" ]; then
+    # `center`, never `fill` or `stretch`: this is a grid of glyphs rendered at
+    # a fixed cell size, and resampling it is the same mistake that cropped the
+    # greeter on a 1280x800 panel. Centred on the palette ground, a still that
+    # is smaller than the screen is framed rather than distorted.
+    args+=(-i "$img" -s center)
+    break
+  fi
+done
+
+# --help and friends pass straight through, so this can be inspected without
+# locking the screen of whoever is inspecting it.
+case ${1:-} in
+  -h|--help)
+    echo "usage: null-lock [swaylock options]"
+    echo
+    echo "  Locks the screen with $CONF"
+    printf '  image: %s\n' "$(printf '%s\n' "${args[@]}" | grep -A1 -x -- -i | tail -1)"
+    echo "  Any argument given here is passed to swaylock after ours, so it wins."
+    exit 0 ;;
+esac
+
+exec swaylock "${args[@]}" "$@"

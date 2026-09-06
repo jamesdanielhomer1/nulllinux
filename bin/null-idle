@@ -74,13 +74,13 @@ write_conf() {
         # The lock stops the screensaver FIRST: a lock surface renders above
         # every layer surface and would otherwise leave it animating, unseen,
         # at full frame rate.
-        lock)        echo "timeout $secs '$ROOT/bin/null-screensaver stop; swaylock -f'" ;;
+        lock)        echo "timeout $secs '$ROOT/bin/null-screensaver stop; $ROOT/bin/null-lock'" ;;
         screenoff)   echo "timeout $secs 'swaymsg \"output * dpms off\"' resume 'swaymsg \"output * dpms on\"'" ;;
         suspend)     echo "timeout $secs 'systemctl suspend'" ;;
       esac
     done
     echo
-    echo "before-sleep '$ROOT/bin/null-screensaver stop; swaylock -f'"
+    echo "before-sleep '$ROOT/bin/null-screensaver stop; $ROOT/bin/null-lock'"
   } > "$CONF"
 }
 

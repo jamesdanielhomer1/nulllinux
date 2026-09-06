@@ -1,0 +1,71 @@
+# The lock screen, in the palette (NULL.md §4.6, §8.10).
+#
+# GENERATED SHAPE, HAND-KEPT VALUES: every colour here is one of the ten roles
+# in assets/palette.json, spelled the way config/sway/colours.conf spells it.
+# verify/check-lock-screen.sh fails if any of them drifts from that file.
+#
+# WHAT THIS REPLACES. swaylock was invoked as a bare `swaylock -f` from three
+# places, so the lock screen was stock: a FULL-SCREEN WHITE FIELD with a
+# rounded ring on it. The most-seen window in the system after the greeter, and
+# the one surface where the machine is asking for a password, in the default
+# palette of a program nobody configured.
+#
+# swaylock takes RRGGBB without the leading '#'.
+
+# The ground. Everything else sits on it.
+color=05060a
+
+# THE INDICATOR IS A RULE, NOT A FILLED BUTTON (§7.1).
+#
+# The inside is the same ground as the screen, so nothing is a lifted box; the
+# ring is what carries state. That the ring is a circle is not decoration here
+# -- it is the one shape this whole system is a projection of.
+inside-color=05060a
+inside-clear-color=05060a
+inside-ver-color=05060a
+inside-wrong-color=05060a
+inside-caps-lock-color=05060a
+
+# Idle: a line-coloured rule, the same weight as every other rule in the
+# system. Typing lifts it to accent. The two failure states are the palette's
+# own error and warning, which are sampled off the Planckian locus rather than
+# chosen -- a wrong password is red because heat is.
+ring-color=232c40
+ring-clear-color=b9ccff
+ring-ver-color=b9ccff
+ring-wrong-color=ff8000
+ring-caps-lock-color=ffb161
+
+# The hairline between inside and ring would be a second border on a surface
+# that already has one, so it is the ground and therefore invisible.
+line-color=05060a
+line-clear-color=05060a
+line-ver-color=05060a
+line-wrong-color=05060a
+line-caps-lock-color=05060a
+
+# Keypress feedback: one segment of the ring, in accent, and backspace in dim.
+# Not a filled arc -- the ring is already the rule.
+key-hl-color=b9ccff
+bs-hl-color=ff7800
+separator-color=05060a
+
+# Text is neutral, and there is no second typeface anywhere in this system.
+text-color=ffefe6
+text-clear-color=b9ccff
+text-ver-color=b9ccff
+text-wrong-color=ff8000
+text-caps-lock-color=ffb161
+font=Terminus
+font-size=18
+
+# A THIN RING, NOT A DIAL. 1px is the rule weight used everywhere else; the
+# radius is large enough to read as the asset's ring rather than as a spinner.
+indicator-radius=110
+indicator-thickness=1
+indicator-idle-visible
+
+# No decoration beyond that.
+daemonize
+ignore-empty-password
+show-failed-attempts

@@ -275,7 +275,7 @@ for d in json.load(sys.stdin):
       "$(null_row 'shutdown'    'systemctl poweroff')")
     case $sel in
       screensaver) exec "$B/null-screensaver" start ;;
-      lock)        "$B/null-screensaver" stop; swaylock -f ;;
+      lock)        "$B/null-screensaver" stop; "$B/null-lock" ;;
       suspend)     systemctl suspend ;;
       logout)      swaymsg exit ;;
       restart)     systemctl reboot ;;
