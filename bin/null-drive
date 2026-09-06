@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+# Removable media (NULL.md §8.4).
+#
+# A stick plugged into this system already mounts: udisks2 does the work,
+# thunar-volman notices, and the file manager opens it. What had no window at
+# all was everything after that -- unmounting something safely, ejecting it,
+# and formatting it. `mkfs.exfat` in a terminal was the whole answer, which is
+# not an answer on a desktop.
+#
+# IT OWNS NOTHING, like every other panel here. udisks2 owns mounting, the
+# kernel owns the block devices, and the mkfs tools own filesystems. This asks
+# them and reports what they said.
+#
+# WHAT IT WILL NOT TOUCH, and why each rule is here rather than left to care:
+#
+#   not removable          a disk with no removable flag and no USB transport
+#                          is somebody's system drive or a data disk. The one
+#                          window in this system that may erase a fixed disk is
+#                          the installer, and it asks differently.
+#   the running system     the disk holding /, /boot or any active swap, found
+#                          from the mount table rather than assumed from a
+#                          name. A USB-booted machine's own stick is removable
+#                          AND in use, and only the second test catches it.
+#   mounted                unmount first, deliberately, so that "format" cannot
+#                          be the thing that discovers a file was open.
+#
+# FORMATTING ASKS FOR THE DEVICE'S NAME IN FULL, exactly as bin/null-installer
+# does, and for the same reason: y/n is a keystroke somebody has already
+# started making before they have finished reading.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/menu.sh"
+
+C_RESET=$'\033[0m'; C_DIM=$'\033[33m'; C_TEXT=$'\033[37m'
+C_ACCENT=$'\033[34m'; C_ERROR=$'\033[31m'; C_LINE=$'\033[90m'
+say()   { printf '  %s%s%s\n' "$C_TEXT"   "$1" "$C_RESET"; }
+hint()  { printf '  %s%s%s\n' "$C_DIM"    "$1" "$C_RESET"; }
+oops()  { printf '  %s%s%s\n' "$C_ERROR"  "$1" "$C_RESET" >&2; }
+title() { printf '\n%s%s%s\n%s%s%s\n' "$C_ACCENT" "$1" "$C_RESET" \
+          "$C_LINE" "$(printf '%.0s-' $(seq 64))" "$C_RESET"; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# --- what is in use ---------------------------------------------------------
+#
+# DERIVED FROM THE MOUNT TABLE AND THE SWAP TABLE, never from a device name.
+# "the system disk is sda" is false on any machine that boots from NVMe, from a
+# USB stick, or from the second disk -- and it is false silently, which is the
+# worst way for a guard about erasing a disk to be wrong.
+system_disks() {
+  {
+    awk '$2=="/" || $2=="/boot" || $2=="/boot/efi" || $2=="/home" {print $1}' /proc/mounts
+    awk 'NR>1 {print $1}' /proc/swaps 2>/dev/null
+  } 2>/dev/null | while read -r dev; do
+    [ -b "$dev" ] || continue
+    # PKNAME IS EMPTY FOR A WHOLE DISK, and an empty line prefixed with /dev/
+    # is the string "/dev/", which matches nothing and looks like a bug in the
+    # output of a tool whose job is deciding what may be erased.
+    lsblk -ndo PKNAME,NAME "$dev" 2>/dev/null | tr ' ' '\n'
+  done | grep -v '^$' | sed 's|^|/dev/|' | sort -u
+}
+
+# A whole-disk device, its size, model and transport. TYPE==disk only: a
+# partition is not a thing you format from a list of drives.
+removable() {
+  local sysd; sysd=$(system_disks)
+  local dev size model rm hp tran
+
+  # ONE COLUMN PER QUESTION, asked separately.
+  #
+  # `lsblk -dnpo NAME,SIZE,MODEL,RM,HOTPLUG,TRAN,TYPE` looks like seven fields
+  # and is not: an empty column collapses, so a disk with no transport --
+  # scsi_debug, a virtio disk, an NVMe on some kernels -- produces six, `read`
+  # puts "disk" into $tran, leaves $type empty, and the test deciding whether
+  # this is a disk at all fails on every one of them. A MODEL with a space in
+  # it ("Samsung SSD 970") shifts the same fields the other way.
+  #
+  # Found by plugging in a removable disk that this listed as nothing at all.
+  for dev in $(lsblk -dnpo NAME,TYPE 2>/dev/null | awk '$2=="disk"{print $1}'); do
+    # TRIMMED. lsblk pads every value to its column width, so SIZE comes back
+    # as "     0B" and `case $size in 0B)` does not match it -- which put an
+    # empty card reader back into a list of drives you may erase, one edit
+    # after it had been taken out.
+    trim() { sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
+    size=$(lsblk -dnpo SIZE    "$dev" 2>/dev/null | trim)
+    model=$(lsblk -dnpo MODEL  "$dev" 2>/dev/null | trim)
+    rm=$(lsblk -dnpo RM        "$dev" 2>/dev/null | trim)
+    hp=$(lsblk -dnpo HOTPLUG   "$dev" 2>/dev/null | trim)
+    tran=$(lsblk -dnpo TRAN    "$dev" 2>/dev/null | trim)
+
+    # REMOVABLE OR HOTPLUGGED OR ON A REMOVABLE TRANSPORT. RM alone misses
+    # every USB SSD, which reports RM=0 and HOTPLUG=1; TRAN alone misses an
+    # SD card on an internal reader.
+    case "$rm$hp" in
+      *1*) ;;
+      *) case $tran in usb|mmc|ieee1394) ;; *) continue ;; esac ;;
+    esac
+    printf '%s\n' "$sysd" | grep -qxF "$dev" && continue
+    # AN EMPTY CARD READER IS NOT A DRIVE. A reader with no card in it is a
+    # removable block device of size 0B, and it appears in this list looking
+    # exactly like something you could format. Same filter as the installer's.
+    case $size in 0B|0|'') continue ;; esac
+    printf '%s\t%s\t%s\n' "$dev" "$size" "${model:-unknown}"
+  done
+}
+
+# -l EVERYWHERE A DEVICE NAME IS READ BACK.
+#
+# lsblk's default output is a TREE, and -p prefixes the full path to a name it
+# has already decorated: a partition comes back as "└─/dev/sdb1", which is not
+# a path. Passed to mkfs it fails; passed to udisksctl it unmounts nothing.
+# Observed: `mkfs.exfat failed on └─/dev/sdb1` on the first real format this
+# tool ever attempted.
+#
+# -l asks for a flat list, and the names in it are names.
+
+# What a device currently holds, so that erasing it is never abstract.
+contents() {  # <disk>
+  lsblk -lnpo NAME,FSTYPE,LABEL,SIZE,MOUNTPOINT "$1" 2>/dev/null | tail -n +2
+}
+
+mounted_parts() {  # <disk> -> mountpoints, one per line
+  lsblk -lnpo NAME,MOUNTPOINT "$1" 2>/dev/null | awk 'NF>1 {print $2}'
+}
+
+# --- verbs ------------------------------------------------------------------
+cmd_list() {
+  title "Removable drives"
+  local any=0 name size model
+  while IFS=$'\t' read -r name size model; do
+    [ -n "$name" ] || continue
+    any=1
+    null_row "$name" "$size  $model"
+    contents "$name" | while read -r p fs label psize mp; do
+      hint "    ${p##*/}  ${fs:---}  ${label:-}  ${psize}${mp:+  on $mp}"
+    done
+  done < <(removable)
+  if [ "$any" = 0 ]; then
+    hint "nothing removable is plugged in"
+    hint "(fixed disks are not listed here; the installer is the only window that writes to one)"
+  fi
+}
+
+pick_drive() {  # -> device on stdout, or empty
+  # THE SHARED PICKER, so this learns nothing fzf already taught the installer:
+  # fzf needs a tty and fails to stderr while returning nothing, which reads as
+  # "no drive chosen" about a drive it has just listed (lib/menu.sh).
+  mapfile -t D < <(removable | sed 's/\t/  /g')
+  [ "${#D[@]}" -gt 0 ] || { oops "nothing removable is plugged in"; return 1; }
+  local chosen
+  chosen=$(null_pick "drive" "removable drives only" "" "${D[@]}") || return 1
+  printf '%s\n' "${chosen%% *}"
+}
+
+cmd_unmount() {
+  local d=${1:-}; [ -n "$d" ] || d=$(pick_drive) || return 1
+  [ -n "$d" ] || return 1
+  local mps; mps=$(mounted_parts "$d")
+  [ -n "$mps" ] || { say "$d is not mounted"; return 0; }
+  local mp rc=0
+  while read -r mp; do
+    [ -n "$mp" ] || continue
+    if have udisksctl; then
+      udisksctl unmount -b "$(lsblk -lnpo NAME,MOUNTPOINT "$d" | awk -v m="$mp" '$2==m{print $1}')" \
+        >/dev/null 2>&1 && say "unmounted $mp" || { oops "could not unmount $mp"; rc=1; }
+    else
+      umount "$mp" >/dev/null 2>&1 && say "unmounted $mp" || { oops "could not unmount $mp"; rc=1; }
+    fi
+  done <<<"$mps"
+  return $rc
+}
+
+cmd_eject() {
+  local d=${1:-}; [ -n "$d" ] || d=$(pick_drive) || return 1
+  [ -n "$d" ] || return 1
+  cmd_unmount "$d" || return 1
+  if have udisksctl; then
+    udisksctl power-off -b "$d" >/dev/null 2>&1 \
+      && say "$d is safe to unplug" \
+      || hint "$d is unmounted; the drive would not power off, which is normal for some readers"
+  else
+    hint "$d is unmounted (udisksctl is not here, so it was not powered off)"
+  fi
+}
+
+FILESYSTEMS="exfat vfat ntfs ext4"
+
+fs_tool() {  # <fs> -> the program that makes it
+  case $1 in
+    exfat) echo mkfs.exfat ;;
+    vfat)  echo mkfs.vfat  ;;
+    ntfs)  echo mkfs.ntfs  ;;
+    ext4)  echo mkfs.ext4  ;;
+  esac
+}
+
+cmd_format() {
+  local d=${1:-}
+  [ -n "$d" ] || d=$(pick_drive) || return 1
+  [ -n "$d" ] || return 1
+
+  # EVERY GUARD RE-CHECKED HERE, not only in the picker. A device name may
+  # arrive as an argument, from a script, or from a list read a minute ago.
+  [ -b "$d" ] || { oops "$d is not a block device"; return 2; }
+  if ! removable | cut -f1 | grep -qxF "$d"; then
+    oops "$d is not a removable drive this will touch"
+    hint "fixed disks are the installer's business, and it asks differently"
+    return 2
+  fi
+
+  local fs; fs=$(null_pick "filesystem" "exfat reads everywhere; ext4 keeps permissions" \
+                          "" $FILESYSTEMS) || return 1
+  [ -n "$fs" ] || return 1
+  local tool; tool=$(fs_tool "$fs")
+  have "$tool" || { oops "$tool is not installed, so $fs cannot be made here"; return 1; }
+
+  local label; label=$(printf '  %slabel%s [NULL]: ' "$C_TEXT" "$C_RESET" >&2; read -r l; echo "${l:-NULL}")
+  case $label in *[!A-Za-z0-9_-]*) oops "a label is letters, digits, _ and -"; return 2 ;; esac
+
+  local size model
+  size=$(removable | awk -F'\t' -v k="$d" '$1==k{print $2}')
+  model=$(removable | awk -F'\t' -v k="$d" '$1==k{print $3}')
+
+  title "This erases the drive"
+  null_row "drive" "$d"
+  null_row "size" "$size"
+  null_row "model" "$model"
+  null_row "filesystem" "$fs"
+  null_row "label" "$label"
+  echo
+  say "what is on it now:"
+  contents "$d" | while read -r p f l ps mp; do
+    hint "    ${p##*/}  ${f:---}  ${l:-}  ${ps}${mp:+  mounted on $mp}"
+  done
+  echo
+
+  if [ -n "$(mounted_parts "$d")" ]; then
+    oops "$d is mounted."
+    hint "Unmount it first, so that formatting cannot be what discovers an open file:"
+    hint "    null-drive unmount $d"
+    return 1
+  fi
+
+  oops "Everything on $d will be destroyed."
+  hint "Type the drive's name to confirm, or anything else to stop."
+  printf '  %sconfirm by typing %s%s: ' "$C_TEXT" "$d" "$C_RESET" >&2
+  local answer; read -r answer
+  if [ "$answer" != "$d" ]; then
+    echo; say "Nothing has been changed."
+    return 1
+  fi
+
+  # ONE PARTITION SPANNING THE DRIVE, which is what a stick is for. A drive
+  # somebody wants partitioned differently is a drive for a partition editor,
+  # and this does not pretend to be one.
+  say "writing a new partition table"
+  if ! have sfdisk; then oops "sfdisk is not installed"; return 1; fi
+  printf 'label: gpt\n,,\n' | sfdisk --quiet --wipe always "$d" >/dev/null 2>&1 \
+    || { oops "could not write a partition table to $d"; return 1; }
+  # SETTLE, then ask the kernel what the partition is called rather than
+  # guessing: it is p1 on nvme and mmcblk, and 1 on sd.
+  have udevadm && udevadm settle >/dev/null 2>&1
+  local part
+  part=$(lsblk -lnpo NAME,TYPE "$d" | awk '$2=="part"{print $1; exit}')
+  [ -n "$part" ] || { oops "the new partition did not appear on $d"; return 1; }
+
+  say "making $fs on $part"
+  local rc=0
+  case $fs in
+    exfat) mkfs.exfat -n "$label" "$part" >/dev/null 2>&1 || rc=$? ;;
+    vfat)  mkfs.vfat  -n "$label" "$part" >/dev/null 2>&1 || rc=$? ;;
+    ntfs)  mkfs.ntfs  -Q -L "$label" "$part" >/dev/null 2>&1 || rc=$? ;;
+    ext4)  mkfs.ext4  -q -L "$label" "$part" >/dev/null 2>&1 || rc=$? ;;
+  esac
+  [ "$rc" = 0 ] || { oops "$tool failed on $part"; return 1; }
+
+  # SAID BY THE KERNEL, not by us. A tool that reports success because its own
+  # last command returned 0 has not checked anything.
+  have udevadm && udevadm settle >/dev/null 2>&1
+  local got; got=$(lsblk -ndo FSTYPE "$part" 2>/dev/null)
+  if [ "$got" = "$fs" ] || { [ "$fs" = vfat ] && [ "$got" = vfat ]; }; then
+    say "$part is $got, labelled $label"
+  else
+    oops "$part reports '$got' rather than '$fs' -- the format did not take"
+    return 1
+  fi
+}
+
+case "${1:-list}" in
+  list)     cmd_list ;;
+  unmount)  cmd_unmount "${2:-}" ;;
+  eject)    cmd_eject "${2:-}" ;;
+  format)   cmd_format "${2:-}" ;;
+  -h|--help|help)
+    echo "usage: null-drive [list|unmount|eject|format] [device]"
+    echo "  list      what is plugged in and what is on it (changes nothing)"
+    echo "  unmount   unmount every mounted partition of a drive"
+    echo "  eject     unmount, then power the drive off so it is safe to unplug"
+    echo "  format    erase a drive and put one filesystem on it"
+    echo
+    echo "Removable drives only. A fixed disk is the installer's business." ;;
+  *) echo "null-drive: unknown verb '$1'" >&2; exit 2 ;;
+esac

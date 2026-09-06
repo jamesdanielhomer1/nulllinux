@@ -106,7 +106,7 @@ pick_from() {  # prompt header  < lines on stdin
 
 # --------------------------------------------------------------- categories
 
-CATEGORIES="DISPLAY SOUND NETWORK BLUETOOTH POWER KEYBOARD NOTIFICATIONS CLOCK SYSTEM"
+CATEGORIES="DISPLAY SOUND NETWORK BLUETOOTH DRIVES POWER KEYBOARD NOTIFICATIONS CLOCK SYSTEM"
 
 rows_DISPLAY() {
   if "$MACHINE" probe backlight 2>/dev/null; then
@@ -153,6 +153,22 @@ act_DISPLAY() {
                     "in machines/$(hostname).conf, then re-run: machine check-grid" ;;
   esac
 }
+
+rows_DRIVES() {
+  # DERIVED FROM THE MACHINE. A row per removable drive, and nothing at all
+  # when nothing is plugged in -- an empty category is better than a category
+  # that always says "none".
+  local n name size model
+  n=0
+  while IFS=$'\t' read -r name size model; do
+    [ -n "$name" ] || continue
+    null_row "${name##*/}" "$size  $model"
+    n=$((n+1))
+  done < <("$B/null-drive" list 2>/dev/null | grep -oE '^/dev/[a-z0-9]+ .*' | sed 's/ \.* / /' | tr ' ' '\t')
+  [ "$n" = 0 ] && null_row "DRIVES" "nothing plugged in"
+  return 0
+}
+act_DRIVES() { "$B/null-drive" format >/dev/null 2>&1 || true; }
 
 rows_SOUND() {
   local v m; v=$(read_volume) || v="$NULL_UNMEASURED"; m=$(read_mic) || m="$NULL_UNMEASURED"

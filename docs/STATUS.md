@@ -829,15 +829,23 @@ A flatpak is sandboxed and does not see `/usr/share/themes`, so it arrives in
 its own colours. That is third-party application *interiors*, which §8.10
 treats as its own tier — not a system window, and not claimed as styled.
 
-**Formatting a drive** has no window. `exfatprogs`, `dosfstools` and `ntfs-3g`
-are declared so the tools exist, but partitioning and formatting are terminal
-operations here.
+~~**Formatting a drive** has no window.~~ **RETIRED 2026-09-06.**
+`bin/null-drive` lists removable media, mounts, unmounts, ejects and formats
+it, in this system's palette. Formatting names the device, its size, its model
+and what is on it, and requires the device's own name typed in full — the same
+confirmation the installer asks for, for the same reason. It refuses any disk
+that is not removable, and refuses the one the system booted from.
 
 **Adding or removing a user** is `useradd` in a terminal. There is no panel.
 
-**The installer is Fedora's.** Anaconda's own branding shows during an
-install. Since the install is unattended and driven entirely by a kickstart,
-nobody watches it — which is why this is recorded rather than fixed.
+~~**The installer is Fedora's.**~~ **RETIRED 2026-09-06.** The questions are
+this system's, asked on a console in its own palette beside its hero, and
+nothing is written until the last one. Anaconda's progress display still shows
+during the package transaction — a thousand lines of `Installing foo.x86_64
+(412/1042)` — and that is left alone deliberately: it is the honest report of
+a long operation, and replacing it would mean reimplementing progress
+reporting for a transaction this project does not own. See "nullLinux installs
+itself".
 
 **A VM is not metal.** Real firmware, secure boot, a discrete GPU's driver, a
 wifi chipset, suspend and resume, and a panel whose EDID is not qemu's are all

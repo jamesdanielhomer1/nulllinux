@@ -152,91 +152,11 @@ banner() {
 # One picker for choices, one prompt for text. Both are the ones every other
 # surface in this system uses, so the installer does not introduce a second
 # idiom for the same job.
-pick() {  # <prompt> <context> <option>...   -- options as ARGUMENTS
-  # A TERMINAL, OR THE NUMBERED FALLBACK.
-  #
-  # fzf needs a tty and fails with "inappropriate ioctl for device" when it does
-  # not have one -- and it fails to STDERR while returning nothing, so the
-  # caller sees an empty answer and reports "no disk chosen". The installer
-  # would look like it had rejected a perfectly good disk. Tested for, rather
-  # than assumed, because the %pre console has a tty and a test harness does
-  # not.
-  local prompt=$1 header=$2 def=$3; shift 3
-  local -a opts=("$@")
-  [ "${#opts[@]}" -gt 0 ] || return 1
-
-  # HOW MUCH SCREEN THERE IS. A virtual console has no scrollback, so anything
-  # printed past the last row is gone rather than scrolled.
-  local rows
-  rows=$(stty size 2>/dev/null | awk '{print $1}')
-  case $rows in ''|*[!0-9]*) rows=${LINES:-24} ;; esac
-
-  if [ -t 0 ] && [ -t 2 ] && command -v fzf >/dev/null 2>&1 && [ "$(type -t null_fzf_flags)" = function ]; then
-    null_fzf_flags
-    printf '%s\n' "${opts[@]}" | fzf "${NULL_FZF[@]}" --prompt="$prompt > " --header="$header" --height=14 --reverse
-  else
-    # OPTIONS AS ARGUMENTS, NOT ON STDIN.
-    #
-    # The first version read the option list from stdin with mapfile, which
-    # consumed the whole pipe -- so the `read` for the answer got EOF, returned
-    # nothing, and the installer reported "no disk chosen" about a disk it had
-    # just listed. On a machine with fzf the bug is invisible, because fzf
-    # takes the list on stdin and the answer from the terminal itself.
-    # A LIST TOO LONG TO PRINT IS NOT A LIST, IT IS A WALL.
-    #
-    # timedatectl knows 598 timezones. Numbered one per line that is 598 lines
-    # onto a console with no scrollback: the hero, every question already
-    # answered, and the line promising that nothing has been written yet all
-    # leave the screen, and what remains is a wall of place names ending in a
-    # prompt reading [1-598]. Observed, on the first install this ISO ever ran.
-    #
-    # So a long list is narrowed by typing, and the numbered picker comes back
-    # the moment what is left fits. Same control -- a prompt and a rule -- and
-    # the answer is still chosen from the list rather than spelled out, so a
-    # typo cannot become a timezone.
-    local room=$((rows - 10)); [ "$room" -lt 6 ] && room=6
-    if [ "${#opts[@]}" -gt "$room" ]; then
-      local q; local -a hit
-      hint "$header" >&2
-      while :; do
-        if [ -n "$def" ]; then
-          printf '  %s%s%s -- %d to choose from; type part of a name [%s]: ' \
-            "$C_TEXT" "$prompt" "$C_RESET" "${#opts[@]}" "$def" >&2
-        else
-          printf '  %s%s%s -- %d to choose from; type part of a name: ' \
-            "$C_TEXT" "$prompt" "$C_RESET" "${#opts[@]}" >&2
-        fi
-        read -r q || return 1
-        if [ -z "$q" ]; then
-          [ -n "$def" ] && { printf '%s\n' "$def"; return 0; }
-          continue
-        fi
-        # FIXED STRINGS, not a regex: somebody typing "GMT+0" or "(" should get
-        # an answer, not an error about an unmatched parenthesis.
-        mapfile -t hit < <(printf '%s\n' "${opts[@]}" | grep -iF -- "$q")
-        if [ "${#hit[@]}" -eq 0 ]; then
-          oops "nothing matches '$q'" >&2
-        elif [ "${#hit[@]}" -eq 1 ]; then
-          printf '%s\n' "${hit[0]}"; return 0
-        elif [ "${#hit[@]}" -gt "$room" ]; then
-          hint "${#hit[@]} match '$q' -- narrow it further" >&2
-        else
-          opts=("${hit[@]}"); break
-        fi
-      done
-    fi
-
-    local i=1 o
-    for o in "${opts[@]}"; do printf '  %2d) %s\n' "$i" "$o" >&2; i=$((i+1)); done
-    printf '  %s [1-%d] ' "$prompt" "${#opts[@]}" >&2
-    local n; read -r n
-    if [ -z "$n" ] && [ -n "$def" ]; then printf '%s\n' "$def"; return 0; fi
-    case $n in ''|*[!0-9]*) return 1 ;; esac
-    [ "$n" -ge 1 ] && [ "$n" -le "${#opts[@]}" ] || return 1
-    printf '%s\n' "${opts[$((n-1))]}"
-  fi
-}
-
+#
+# THE PICKER ITSELF NOW LIVES IN lib/menu.sh as null_pick, because a second
+# caller appeared: bin/null-drive, which chooses a drive to erase. Two copies
+# of a picker means two places to learn that fzf needs a tty, and only one of
+# them ever does.
 ask() {  # <prompt> <default> -> stdout
   local p=$1 d=${2:-} a
   if [ -n "$d" ]; then printf '  %s%s%s [%s]: ' "$C_TEXT" "$p" "$C_RESET" "$d" >&2
@@ -291,7 +211,7 @@ if [ "${#DISKS[@]}" -eq 0 ]; then
   if [ "$DRY" = 1 ]; then DISKS=("/dev/sda 20G (dry run)")
   else oops "no disks found -- there is nothing here to install onto"; exit 1; fi
 fi
-DISK=$(pick "disk" "everything on the disk you choose will be erased" "" "${DISKS[@]}" | awk '{print $1}')
+DISK=$(null_pick "disk" "everything on the disk you choose will be erased" "" "${DISKS[@]}" | awk '{print $1}')
 [ -n "$DISK" ] || { oops "no disk chosen"; exit 1; }
 DISK_DESC=$(printf '%s\n' "${DISKS[@]}" | grep -F "$DISK" | head -1)
 
@@ -311,7 +231,7 @@ title "Where you are"
 TZ_DEFAULT=$(cat /etc/timezone 2>/dev/null || timedatectl show -p Timezone --value 2>/dev/null || echo Europe/London)
 if command -v timedatectl >/dev/null 2>&1; then
   mapfile -t ZONES < <(timedatectl list-timezones 2>/dev/null)
-  TIMEZONE=$(pick "timezone" "enter alone keeps $TZ_DEFAULT" "$TZ_DEFAULT" "${ZONES[@]}")
+  TIMEZONE=$(null_pick "timezone" "enter alone keeps $TZ_DEFAULT" "$TZ_DEFAULT" "${ZONES[@]}")
 else
   TIMEZONE=$(ask "timezone" "$TZ_DEFAULT")
 fi

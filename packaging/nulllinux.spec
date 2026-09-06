@@ -59,6 +59,7 @@ Requires:       exfatprogs
 Requires:       fd-find
 Requires:       file
 Requires:       firefox
+Requires:       flatpak
 Requires:       foot
 Requires:       fwupd
 Requires:       fzf

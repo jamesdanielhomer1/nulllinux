@@ -75,3 +75,97 @@ null_row() {
 # The one renderer of "no reading" (§7.1). A missing value printed four
 # different ways is four different things to search for.
 NULL_UNMEASURED="--"
+
+# A PICKER FOR A LIST OF THINGS. fzf when there is a terminal for it, numbers
+# when there is not, and a typed filter when the list is longer than the
+# screen.
+#
+# It began in bin/null-installer, where every one of the comments below was
+# written after watching it fail: on an anaconda console with no fzf, on a
+# console with no scrollback and 598 timezones, and on a pipe with no tty at
+# all. bin/null-drive then needed exactly the same control to choose a drive to
+# erase, and a second copy would have started the same education again.
+null_pick() {  # <prompt> <context> <default> <option>...  -- options as ARGUMENTS
+  # A TERMINAL, OR THE NUMBERED FALLBACK.
+  #
+  # fzf needs a tty and fails with "inappropriate ioctl for device" when it does
+  # not have one -- and it fails to STDERR while returning nothing, so the
+  # caller sees an empty answer and reports "no disk chosen". The installer
+  # would look like it had rejected a perfectly good disk. Tested for, rather
+  # than assumed, because the %pre console has a tty and a test harness does
+  # not.
+  local prompt=$1 header=$2 def=$3; shift 3
+  local -a opts=("$@")
+  [ "${#opts[@]}" -gt 0 ] || return 1
+
+  # HOW MUCH SCREEN THERE IS. A virtual console has no scrollback, so anything
+  # printed past the last row is gone rather than scrolled.
+  local rows
+  rows=$(stty size 2>/dev/null | awk '{print $1}')
+  case $rows in ''|*[!0-9]*) rows=${LINES:-24} ;; esac
+
+  if [ -t 0 ] && [ -t 2 ] && command -v fzf >/dev/null 2>&1 && [ "$(type -t null_fzf_flags)" = function ]; then
+    null_fzf_flags
+    printf '%s\n' "${opts[@]}" | fzf "${NULL_FZF[@]}" --prompt="$prompt > " --header="$header" --height=14 --reverse
+  else
+    # OPTIONS AS ARGUMENTS, NOT ON STDIN.
+    #
+    # The first version read the option list from stdin with mapfile, which
+    # consumed the whole pipe -- so the `read` for the answer got EOF, returned
+    # nothing, and the installer reported "no disk chosen" about a disk it had
+    # just listed. On a machine with fzf the bug is invisible, because fzf
+    # takes the list on stdin and the answer from the terminal itself.
+    # A LIST TOO LONG TO PRINT IS NOT A LIST, IT IS A WALL.
+    #
+    # timedatectl knows 598 timezones. Numbered one per line that is 598 lines
+    # onto a console with no scrollback: the hero, every question already
+    # answered, and the line promising that nothing has been written yet all
+    # leave the screen, and what remains is a wall of place names ending in a
+    # prompt reading [1-598]. Observed, on the first install this ISO ever ran.
+    #
+    # So a long list is narrowed by typing, and the numbered picker comes back
+    # the moment what is left fits. Same control -- a prompt and a rule -- and
+    # the answer is still chosen from the list rather than spelled out, so a
+    # typo cannot become a timezone.
+    local room=$((rows - 10)); [ "$room" -lt 6 ] && room=6
+    if [ "${#opts[@]}" -gt "$room" ]; then
+      local q; local -a hit
+      hint "$header" >&2
+      while :; do
+        if [ -n "$def" ]; then
+          printf '  %s%s%s -- %d to choose from; type part of a name [%s]: ' \
+            "$C_TEXT" "$prompt" "$C_RESET" "${#opts[@]}" "$def" >&2
+        else
+          printf '  %s%s%s -- %d to choose from; type part of a name: ' \
+            "$C_TEXT" "$prompt" "$C_RESET" "${#opts[@]}" >&2
+        fi
+        read -r q || return 1
+        if [ -z "$q" ]; then
+          [ -n "$def" ] && { printf '%s\n' "$def"; return 0; }
+          continue
+        fi
+        # FIXED STRINGS, not a regex: somebody typing "GMT+0" or "(" should get
+        # an answer, not an error about an unmatched parenthesis.
+        mapfile -t hit < <(printf '%s\n' "${opts[@]}" | grep -iF -- "$q")
+        if [ "${#hit[@]}" -eq 0 ]; then
+          oops "nothing matches '$q'" >&2
+        elif [ "${#hit[@]}" -eq 1 ]; then
+          printf '%s\n' "${hit[0]}"; return 0
+        elif [ "${#hit[@]}" -gt "$room" ]; then
+          hint "${#hit[@]} match '$q' -- narrow it further" >&2
+        else
+          opts=("${hit[@]}"); break
+        fi
+      done
+    fi
+
+    local i=1 o
+    for o in "${opts[@]}"; do printf '  %2d) %s\n' "$i" "$o" >&2; i=$((i+1)); done
+    printf '  %s [1-%d] ' "$prompt" "${#opts[@]}" >&2
+    local n; read -r n
+    if [ -z "$n" ] && [ -n "$def" ]; then printf '%s\n' "$def"; return 0; fi
+    case $n in ''|*[!0-9]*) return 1 ;; esac
+    [ "$n" -ge 1 ] && [ "$n" -le "${#opts[@]}" ] || return 1
+    printf '%s\n' "${opts[$((n-1))]}"
+  fi
+}
