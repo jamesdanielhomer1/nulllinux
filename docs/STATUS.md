@@ -27,8 +27,9 @@ box it was installed on, and doubled everything that must be baked and shipped.
 
 ## Verification
 
-`./verify/run.sh` — 24 checks, including six that had drifted out of the suite
-and are now wired back in. Menu coverage derives its topics from the menu
+`./verify/run.sh` — **47 checks**. It was 24 when this line was written; the
+difference is one night's work, and most of the new ones exist because
+something they now catch had already gone wrong once. Menu coverage derives its topics from the menu
 itself: **28 topics, 27 drawing clean**, the 28th recorded with its reason.
 
 ## Since the plan: Omarchy alignment
@@ -48,8 +49,10 @@ visible to any existing check:
   `ESC ( B` is three bytes and only the `(` was consumed, so hosted output came
   out sprayed with stray capital Bs.
 
-§8.4's component list stands at **13 of 16**. Absent: player, calendar,
-clipboard.
+§8.4's component list stands at **16 of 16**. This said 13 — absent: player,
+calendar, clipboard — and all three have existed for some time:
+`bin/null-player`, `bin/null-calendar`, `bin/null-clipboard`, each reachable as
+a column topic. The line was stale, not the work.
 
 ## The two open gates
 
@@ -80,16 +83,19 @@ satisfy the gate.
 
 ## Known deviations
 
-- **The session runs as root.** PipeWire will not connect, so audio readings are
-  `--` and the audio component cannot be exercised. A user `james` (uid 1000)
-  exists and is unused. Not a plan item — the spec says nothing about which
-  account the desktop runs as — but it is the largest single gap between this
-  and a daily driver, and the recommended next piece of work.
+- ~~**The session runs as root.**~~ **RETIRED 2026-09-06.** This described the
+  BUILD HOST, not the product. An installed machine creates `null` at uid 1000,
+  and a real login through the greeter reaches a full session with sway,
+  dwindle, column, bar and the wallpaper all running as that user — and with
+  PipeWire answering on `/run/user/1000/pulse/native`. Audio works. See
+  "Somebody logged in" below.
 - **One ordinary kernel**, so the rescue entry is the sole fallback (§9.6
   assumes several). Recorded rather than worked around.
-- **Runtime CPU figures are absent, not stale.** They cannot be taken under a
-  session lock without being false zeros, and the harnesses now refuse instead
-  of reporting them.
+- ~~**Runtime CPU figures are absent.**~~ **MEASURED 2026-09-06.** Whole
+  desktop idle across three outputs: **1% of one core** — sway 0.7%, and the
+  column, bar, wallpaper and dwindle under 0.2% each. Taken in a headless sway
+  session on the installed guest, which is what made it possible to measure at
+  all without a session lock.
 
 ## The goal, and where it stands
 
@@ -130,7 +136,14 @@ The guest's interface atlas is 34,618 bytes; this machine's is 48,034. Different
 strikes for different panels, from the same tree, with nothing configured by
 hand. That is the parameterisation working rather than being asserted.
 
-## The unattended install does not work yet, and here is exactly where it stops
+## ~~The unattended install does not work yet~~ — SUPERSEDED
+
+**It works, and has since 2026-09-03.** The section below is kept because the
+diagnosis in it is still the record of how it was made to, but its title is
+wrong and reading only the heading would mislead. See "The non-live installer
+ISO installs" and everything after it.
+
+## Where it used to stop
 
 The ISO boots. That is proved twice, with screenshots: it comes up in the
 desktop, autologin, sway, the hero, the bar and the column, from the disc.
@@ -690,3 +703,73 @@ single package that every mirror has, because `download.fedoraproject.org` is a
 redirector and hands each of nine hundred requests to a different mirror. The
 builder now resolves **one** mirror from the metalink and proves it answers for
 both metadata and a real package before downloading anything.
+
+---
+
+## What a person can actually do with it (2026-09-06)
+
+The question "is this fully featured as an operating system" turned out to have
+a short and unflattering answer: `bin/null-open` knew three roles — `dir`,
+`reveal`, `editor`. `grim` is installed and bound to Print, so **this system
+could take a screenshot it had no way to show you**. Nor open a PDF, a video,
+or a zip.
+
+It now dispatches on MIME type read from the bytes — a text file called
+`notes.pdf` opens in the editor, which is what it is — with roles for image,
+PDF, video, audio and archive, each degrading through what is installed. An
+unrecognised type opens its folder rather than erroring.
+
+The tools were chosen for the design system as much as for the capability:
+
+| role | tool | why that one |
+|---|---|---|
+| image | `imv` | Wayland-native, background and text are settings |
+| PDF | `zathura` | every colour it draws is a `zathurarc` line |
+| video, audio | `mpv` | one player for one verb; its rounded translucent OSC is off |
+| archive | `xarchiver` | GTK3, so it inherits the theme rather than being themed |
+| editor | `nano` | terminal-first, so it inherits foot's palette |
+
+A GTK4/libadwaita viewer would do neither, which is why none is listed first.
+
+Also added, each because its absence was silent: **printing** (GTK's print
+dialog talks to CUPS; with no CUPS it offered nothing at all), the **portal
+backends** (a file chooser that never appears), `gvfs-mtp` (a phone over USB),
+and a **polkit agent** — without which every privileged action failed with no
+prompt and no message.
+
+### Declared rather than inherited
+
+Four things this system depends on were present only because something else
+dragged them in, and each failure would have been silent:
+
+    nftables      the firewall's own binary, arriving via the firewalld we
+                  stopped using — four hops of Requires
+    polkit        nothing would put the password prompt on screen
+    pipewire      no sound server
+    wireplumber   pipewire runs and routes nothing, which reads as missing
+                  hardware — this is why "audio has never worked" sat in these
+                  notes for weeks
+    nano          the editor role landed on it by luck
+
+## Every key window is this system's (2026-09-06)
+
+| surface | was | now |
+|---|---|---|
+| lock screen | stock swaylock: a full-screen **white** field with a rounded ring | palette, Terminus, indicator as a rule, greeter's own frame behind it |
+| every menu | fzf's own 16 colours, `--border=rounded` | palette roles, `--border=sharp` |
+| the greeter's session | Fedora's "Sway", running bare `sway` | `nullLinux`, running `bin/null-session` |
+| Qt windows | stock Fusion **light** | `QT_QPA_PLATFORMTHEME=gtk3` → the nullLinux GTK theme |
+| virtual console | the kernel's 1992 primaries | the same sixteen the terminal uses |
+| sway's error bar | a saturated red slab with a filled button | text on the ground, severity as a rule |
+| boot splash | `Font=Cantarell` | Terminus |
+| GTK, on the next bake | `gtk-theme-name=Default` | the generator writes `nullLinux` |
+
+Two of those were wrong **in the generator**, not just the output —
+`bake/export_theme.py` and `bake/make_boot_assets.py` would have undone the fix
+on the next bake. Checks now cover generators as well as their products.
+
+Two config files were read by **nothing**: `config/fzf/flags` (deleted;
+`lib/menu.sh` is what the pickers use) and `config/btop` (installed to
+`/etc/xdg/btop`, where btop has no system path at all). Every destination now
+comes from that program's own manual page, and
+`verify/check-config-reaches-apps.sh` makes an orphan impossible.
