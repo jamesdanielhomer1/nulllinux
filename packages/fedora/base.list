@@ -170,6 +170,33 @@ xdg-desktop-portal-wlr
 gvfs-mtp                        # a phone plugged in over USB appears at all
 bc                              # the calculator component (NULL.md 8.4) is a
                                 # column topic over bc, not a fifth GUI
+
+# AN EDITOR, DECLARED RATHER THAN INHERITED.
+#
+# null-open's editor role degrades through nvim, vim, vi and nano, and on the
+# test install it landed on nano -- which is present because @core's
+# dependencies happen to bring it, not because anything here asked. The same
+# shape as nftables, polkit and pipewire: a role the system offers, resting on
+# a package nobody declared.
+#
+# nano rather than neovim, deliberately. This desktop is terminal-first, so the
+# editor inherits foot's palette and needs no theming of its own; neovim would
+# be a configuration project in its own right and is a preference, not a
+# default. Anyone who wants it installs it and null-open picks it up first.
+nano
+
+# --- printing ------------------------------------------------------------
+#
+# There was no printing of any kind. GTK's print dialog talks to CUPS, so with
+# no CUPS there is no dialog -- printing from any application simply offered
+# nothing, which is not a state a general-purpose desktop should be in.
+#
+# system-config-printer is the management window: adding a printer, seeing the
+# queue. GTK3, so it resolves the nullLinux theme and arrives in the palette
+# rather than as a grey box.
+cups
+cups-filters
+system-config-printer
 #
 # Four hops, every one through firewalld -- the package we deliberately stopped
 # using. Remove firewalld as the obvious tidy-up after replacing it and `nft`

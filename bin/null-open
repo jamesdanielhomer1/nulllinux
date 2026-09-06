@@ -62,7 +62,10 @@ case $role in
           if command -v nautilus >/dev/null; then exec nautilus --select "$target"; fi
           if command -v dolphin >/dev/null; then exec dolphin --select "$target"; fi
           cmd=$(first "foot -e ls -la") ; target=$(dirname "$target") ;;
-  editor) cmd=$(first "nvim" "vim" "nano") ;;
+  # vi IS IN THIS LIST because vim-minimal, which @core installs, provides
+  # /usr/bin/vi and no `vim` at all -- so a list without it would skip straight
+  # past the editor the machine actually has.
+  editor) cmd=$(first "nvim" "vim" "vi" "nano") ;;
   image)  cmd=$(first "imv" "imv-wayland" "swayimg" "nsxiv" "feh") ;;
   pdf)    cmd=$(first "zathura" "mupdf" "evince" "okular") ;;
   video)  cmd=$(first "mpv" "vlc" "ffplay") ;;
@@ -76,11 +79,11 @@ esac
 
 # A TERMINAL PROGRAM NEEDS A TERMINAL.
 #
-# nvim, vim and nano are terminal programs. Exec'ing one from a keybinding,
+# nvim, vim, vi and nano are terminal programs. Exec'ing one from a keybinding,
 # where there is no terminal attached, is a process that exits without drawing
 # anything -- indistinguishable from the binding not working at all.
 case $cmd in
-  nvim|vim|nano)
+  nvim|vim|vi|nano)
     [ -t 1 ] && exec $cmd "$target"
     exec foot -e $cmd "$target" ;;
 esac
