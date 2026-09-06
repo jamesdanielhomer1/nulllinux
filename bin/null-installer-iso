@@ -385,7 +385,17 @@ STRIP
     # package directory is how the installer came to be staged, referenced by
     # the kickstart, and absent from the medium -- the same shape as the
     # session entry that was written, wired in, and never shipped.
+    # THE DEFAULT ENTRY IS "Install", NOT "Test this media & install".
+    #
+    # lorax writes set default="1", and entry 1 verifies the whole 1.2 GB
+    # image before it will start. That is a fair default for a disc somebody
+    # burned and scratched, and a poor one for the first thing a person sees.
+    # The check is still there as entry 1, one keypress away.
+    #
+    # -R rewrites grub.cfg inside the image, which is mkksiso's own supported
+    # way of doing it: editing an ISO by hand is how boot records get broken.
     if mkksiso --ks "$ks" -a "$stage/nulllinux" -a "$stage/nulllinux-installer" \
+             -R 'set default="1"' 'set default="0"' \
                "$iso" "$tmpiso" >"$WORK/mkksiso.log" 2>&1 \
        && mv -f "$tmpiso" "$final"; then
       echo "  embedded"

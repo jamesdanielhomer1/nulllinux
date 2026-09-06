@@ -60,5 +60,15 @@ grep -q 'GRUB still waits' "$KS" \
 grep -qiE 'esc or shift|Esc/Shift|hold (esc|shift)' "$KS" \
   || { note "$KS: hides the menu without saying how to bring it back"; fail=1; }
 
+# 6. AND THE DEFAULT ENTRY INSTALLS, rather than verifying the medium first.
+#
+#    lorax writes set default="1", which is "Test this media & install" -- a
+#    full read of 1.2 GB before anything starts. Fair for a scratched disc,
+#    poor as the first thing a person meets. The check stays as entry 1.
+grep -q "set default=" bin/null-installer-iso \
+  || { note "bin/null-installer-iso does not set the default boot entry -- the ISO verifies 1.2 GB before installing"; fail=1; }
+grep -q "'set default=\"0\"'" bin/null-installer-iso \
+  || { note "bin/null-installer-iso does not select entry 0 (Install)"; fail=1; }
+
 [ $fail = 0 ] && echo "PASS: the boot menu is quiet, and says how to summon it"
 exit $fail
