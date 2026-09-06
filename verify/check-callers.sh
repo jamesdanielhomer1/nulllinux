@@ -52,8 +52,38 @@ for f in bin/*; do
   fail=1
 done
 
+# AND EVERY CHECK MUST BE IN THE SUITE.
+#
+# The same defect one level further out. A check file that exists, passes when
+# run by hand, and is not in verify/run.sh is indistinguishable from a check
+# that works -- and it is easier to end up with than an uncalled tool, because
+# writing the check feels like the finish.
+#
+# It happened while this very line was being written: a sed replacement using
+# \& -- which sed reads as "the whole match" rather than as an ampersand, a
+# trap this project has already documented once -- REPLACED the line
+# registering check-idle-ladder-writable with a bare `&`. That broke run.sh
+# outright, so it was caught in seconds; had the substitution been slightly
+# different it would have silently dropped a check instead.
+suite=verify/run.sh
+for c in verify/check-*.sh; do
+  b=$(basename "$c")
+  if grep -qF "$b" "$suite"; then
+    :
+  else
+    printf '  %s exists but is not in %s -- it would never run\n' "$c" "$suite"
+    fail=1
+  fi
+done
+# And the suite must not name a check that is gone, which would fail every run
+# for a reason that has nothing to do with the tree.
+while read -r named; do
+  [ -e "$named" ] || { printf '  %s names %s, which does not exist\n' "$suite" "$named"; fail=1; }
+done < <(grep -oE '\./verify/check-[a-z-]+\.sh' "$suite" | sort -u)
+
 echo
-printf '  %d tool(s) invoked, %d declared operator entry points\n' "$called" "$operator"
+printf '  %d tool(s) invoked, %d declared operator entry points, %d check(s) in the suite\n' \
+  "$called" "$operator" "$(grep -c '^run ' "$suite")"
 if [ $fail = 0 ]; then
   echo "PASS: every tool is either invoked or declares why it is not"
 else
