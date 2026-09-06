@@ -87,6 +87,39 @@ st=$?
 if [ $st -eq 0 ]; then
   echo "built:"
   find "$TOP/RPMS" -name '*.rpm' -printf '  %p  %s bytes\n'
+
+  # PUBLISH IT, or the install test tests the last one.
+  #
+  # packaging/repo is what verify/vm-iso-install.sh serves to the installer and
+  # what bin/null-installer-iso embeds on the ISO. Building did not update it,
+  # so the two could -- and did -- drift: a package built at 00:55 and a repo
+  # still holding the 22:11 copy, with nothing anywhere saying so. An install
+  # test against that proves the previous build works.
+  #
+  # The version-release does not change between rebuilds here, so the filename
+  # is the same and staleness is invisible. That is precisely why this cannot
+  # be left to whoever remembers.
+  echo
+  echo "publishing to packaging/repo"
+  mkdir -p packaging/repo
+  find "$TOP/RPMS" -name '*.rpm' -exec cp -f {} packaging/repo/ \;
+  if command -v createrepo_c >/dev/null 2>&1; then
+    createrepo_c -q --update packaging/repo || { echo "createrepo_c failed" >&2; exit 1; }
+  else
+    echo "  createrepo_c is not installed -- the repo metadata is now STALE" >&2
+    exit 1
+  fi
+  # And check it, rather than trusting the copy.
+  for r in packaging/repo/*.rpm; do
+    b=$(find "$TOP/RPMS" -name "$(basename "$r")" | head -1)
+    [ -n "$b" ] || continue
+    if cmp -s "$b" "$r"; then
+      printf '  %s  matches what was just built\n' "$(basename "$r")"
+    else
+      echo "null-package: packaging/repo/$(basename "$r") is NOT the package just built" >&2
+      exit 1
+    fi
+  done
 else
   echo "rpmbuild FAILED -- last lines of $TOP/build.log:" >&2
   tail -20 "$TOP/build.log" >&2
