@@ -392,6 +392,29 @@ for entry in \
   esac
 done
 
+head_ "the session the greeter offers"
+say "without this the greeter lists Fedora's generic \"Sway\", which runs bare"
+say "sway -- so the session has no name of ours and nowhere to set environment"
+SESSION_SRC="$ROOT/packaging/nulllinux-session.desktop"
+SESSION_DST=/usr/share/wayland-sessions/nulllinux.desktop
+if [ -r "$SESSION_SRC" ]; then
+  if [ "$APPLY" -eq 1 ]; then
+    mkdir -p /usr/share/wayland-sessions
+    backup "$SESSION_DST"
+    # The Exec path is written from $ROOT rather than assumed, so a checkout
+    # somewhere other than /opt/nulllinux produces a session entry that works.
+    sed "s|/opt/nulllinux/bin/null-session|$ROOT/bin/null-session|g" \
+        "$SESSION_SRC" > "$SESSION_DST"
+    chmod 0644 "$SESSION_DST"
+    restore_selinux "$SESSION_DST"
+    say "installed $SESSION_DST -> $ROOT/bin/null-session"
+  else
+    say "would install $SESSION_DST -> $ROOT/bin/null-session"
+  fi
+else
+  say "no $SESSION_SRC -- the greeter will offer Fedora's Sway instead"
+fi
+
 head_ "file manager defaults"
 xd=/etc/xdg/xfce4/xfconf/xfce-perchannel-xml
 if [ "$APPLY" -eq 1 ]; then

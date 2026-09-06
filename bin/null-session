@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# The session the greeter starts. Sets the environment, then becomes sway.
+#
+# WHY THIS EXISTS AT ALL. The greeter offered Fedora's own sway.desktop, which
+# runs bare `sway` and is called "Sway". Two consequences, and the second is
+# the one that matters:
+#
+#   * the session list on a nullLinux machine did not have nullLinux in it;
+#   * there was nowhere to set session environment. A compositor started by a
+#     display manager does not read /etc/profile.d -- that is for login SHELLS
+#     -- so every variable below had no place to live and none of them was set.
+#
+# NOT /etc/environment, deliberately. That is read by PAM for every session on
+# the machine INCLUDING THE GREETER'S, and sddm is itself a Qt application:
+# setting QT_QPA_PLATFORMTHEME there would reach into the greeter and reskin
+# the one surface this project draws entirely by hand. Here it reaches the
+# user's session and stops.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+export NULL_ROOT="$ROOT"
+
+# --- what this desktop is, for anything that asks --------------------------
+#
+# xdg-desktop-portal picks its backend from XDG_CURRENT_DESKTOP. Without this
+# the wlr portal is not chosen, and screen sharing and the screenshot portal
+# do not work -- silently, because a portal that is not selected simply never
+# answers.
+export XDG_CURRENT_DESKTOP=sway
+export XDG_SESSION_DESKTOP=nulllinux
+export XDG_SESSION_TYPE=wayland
+
+# --- the theme, for toolkits that do not read settings.ini -----------------
+#
+# GTK3 resolves the theme from gtk-theme-name in settings.ini. GTK4 does too --
+# but libadwaita applications IGNORE it and load their own stylesheet, and
+# GTK_THEME is the one lever that overrides them. Nothing here is libadwaita
+# today; a user installing one tomorrow should not have to discover this.
+export GTK_THEME=nullLinux
+
+# Qt applications have no platform theme of their own here, so they render in
+# stock Fusion light -- a white dialog in a system with no white in it. qgtk3
+# comes with qt6-qtbase-gui, which is already installed because the greeter is
+# Qt, and it makes Qt take its colours, fonts and dialogs from GTK3 -- which is
+# to say, from us.
+export QT_QPA_PLATFORMTHEME=gtk3
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+
+# The pointer is the one recorded exception to "everything is ours" (§8.11):
+# Adwaita, because it is flat and near-monochrome, at 24. Exported as well as
+# set in the settings keys, because a cursor theme that is only in gsettings is
+# not seen by anything that does not ask gsettings.
+export XCURSOR_THEME=Adwaita
+export XCURSOR_SIZE=24
+
+# --- applications that need telling they are on Wayland --------------------
+export MOZ_ENABLE_WAYLAND=1
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+# Java's window manager list is hardcoded and does not include any wlroots
+# compositor, so without this Java windows come up blank and unmovable.
+export _JAVA_AWT_WM_NONREPARENTING=1
+
+# --- become sway -----------------------------------------------------------
+#
+# exec, so there is no shell left holding the session open: when sway exits the
+# session ends, which is what the greeter is waiting for.
+exec sway "$@"

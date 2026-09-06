@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=nullLinux
+Comment=One baked black hole, projected onto every surface
+Exec=/opt/nulllinux/bin/null-session
+TryExec=/opt/nulllinux/bin/null-session
+Type=Application
+DesktopNames=sway;wlroots
+Keywords=tiling;wayland;sway;
