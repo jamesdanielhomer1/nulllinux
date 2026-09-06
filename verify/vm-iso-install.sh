@@ -242,9 +242,25 @@ setsid qemu-system-x86_64 -enable-kvm -cpu host -m "$MEM" -smp 4 \
   -audiodev none,id=snd0 -device ich9-intel-hda -device hda-output,audiodev=snd0 \
   -display none -serial file:"$WORK/install-console.log" \
   -monitor unix:"$WORK/install-monitor",server,nowait \
-  >/dev/null 2>&1 &
+  >"$WORK/qemu.log" 2>&1 &
+qpid=$!
 
-echo "  qemu started; the install is unattended and reboots when it finishes"
+# "qemu started" WAS A CLAIM, NOT A CHECK.
+#
+# qemu's own stderr went to /dev/null and nothing looked at whether it was
+# still running, so an install that died on its command line -- a port already
+# bound, a missing file, an unsupported device -- printed "qemu started; the
+# install is unattended" and left a blank disk behind. That happened: a run
+# reported success, and half an hour later there was no VM, an empty console
+# log, and no record anywhere of why it had gone.
+sleep 3
+if ! kill -0 "$qpid" 2>/dev/null; then
+  echo >&2
+  echo "vm-iso-install: qemu exited immediately -- $WORK/qemu.log:" >&2
+  sed 's/^/  /' "$WORK/qemu.log" >&2
+  exit 1
+fi
+echo "  qemu started (pid $qpid); the install is unattended and reboots when it finishes"
 if [ "${1:-install}" = install ]; then
   echo
   echo "  when it comes up:  verify/vm-iso-install.sh check"
