@@ -8,12 +8,25 @@
 # inside the session, and "any panel, any number of monitors" is the hardware
 # promise this project rests on.
 #
-# THIS IS TESTED WITHOUT A COMPOSITOR, deliberately. The build host has one
-# screen and the guest has one screen, so the interesting cases -- three
-# screens, one above another, one switched off, one unplugged since the rule
-# was written -- exist nowhere this suite can reach. The solver is therefore
-# pure: screens in, positions out, no compositor involved, and `null-outputs
-# solve` is the door the verifier comes in by.
+# TESTED TWICE OVER, because the two halves fail differently.
+#
+# The ARITHMETIC is tested without a compositor. The build host has one screen
+# and the guest has one, so three screens, one above another, one switched off
+# and one unplugged since its rule was written exist nowhere this suite can
+# otherwise reach. The solver is therefore pure -- screens in, positions out --
+# and `null-outputs solve` is the door the verifier comes in by.
+#
+# The COMMANDS are tested against a real sway, on a private socket, using the
+# headless backend: three outputs made out of nothing, touching no screen and
+# no running session. Arithmetic cannot show whether sway accepts what it
+# produces -- whether the command is spelled right, whether an identity with
+# spaces in it survives being quoted, whether a position is read as logical or
+# physical pixels. Two screens plugged into this machine would answer that; so
+# does a compositor with no screens at all.
+#
+# It also shows the problem. Three headless outputs come up as HEADLESS-3 at
+# x=0 and HEADLESS-1 at x=2560 -- the connector order, reversed from the names,
+# and nothing to do with any desk.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 fail=0
@@ -134,6 +147,80 @@ after=$(cksum < "$conf_dir/outputs.conf")
 [ "$before" = "$after" ] \
   && note "ok    list reports and writes nothing" \
   || { note "list modified the saved arrangement"; fail=1; }
+
+# 10. AND AGAINST A REAL COMPOSITOR, when there is one to be had.
+#
+#     Everything above is arithmetic. What it cannot show is whether sway
+#     ACCEPTS what the arithmetic produces -- whether the command spelling is
+#     right, whether an identity with spaces in it survives being quoted,
+#     whether a position is taken as logical or physical pixels.
+#
+#     sway's headless backend makes three outputs out of nothing, on a private
+#     socket, touching no screen and no running session. It is how the
+#     multi-monitor promise gets tested on a machine with one panel.
+if command -v sway >/dev/null 2>&1 && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+  sock=$tmp/sway.sock
+  SWAYSOCK=$sock WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=3 \
+    setsid sway -c /dev/null >"$tmp/sway.log" 2>&1 &
+  # Wait for the socket rather than sleeping a guessed number of seconds.
+  for _ in $(seq 1 40); do [ -S "$sock" ] && break; sleep 0.25; done
+
+  if [ -S "$sock" ]; then
+    export SWAYSOCK=$sock
+    cfg=$tmp/e2e; mkdir -p "$cfg/nullLinux"
+    printf 'place\tHEADLESS-2\tright-of\tHEADLESS-1\n' >  "$cfg/nullLinux/outputs.conf"
+    printf 'place\tHEADLESS-3\tabove\tHEADLESS-1\n'    >> "$cfg/nullLinux/outputs.conf"
+    XDG_CONFIG_HOME=$cfg "./$O" apply >/dev/null 2>&1
+
+    got=$(swaymsg -t get_outputs -r 2>/dev/null | python3 -c '
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(1)
+for o in sorted(d, key=lambda o: o["name"]):
+    r=o.get("rect") or {}
+    print("%s %s,%s %sx%s" % (o["name"], r.get("x"), r.get("y"),
+                              r.get("width"), r.get("height")))')
+
+    # One width to the right, one height above, and the whole thing pinned to
+    # the origin. Read back from the compositor, not from what we sent it.
+    w=$(sed -n 's/^HEADLESS-1 [0-9]*,[0-9]* \([0-9]*\)x[0-9]*$/\1/p' <<<"$got")
+    h=$(sed -n 's/^HEADLESS-1 [0-9]*,[0-9]* [0-9]*x\([0-9]*\)$/\1/p' <<<"$got")
+    if [ -n "$w" ] && [ -n "$h" ] \
+       && grep -qx "HEADLESS-1 0,$h ${w}x${h}" <<<"$got" \
+       && grep -qx "HEADLESS-2 $w,$h ${w}x${h}" <<<"$got" \
+       && grep -qx "HEADLESS-3 0,0 ${w}x${h}"   <<<"$got"; then
+      note "ok    sway put three real outputs exactly where the rules said"
+    else
+      note "sway did not place three headless outputs as asked:"
+      sed 's/^/      /' <<<"$got"
+      fail=1
+    fi
+
+    # AND IT MUST DISABLE, which is a different command with a different way of
+    # going wrong -- a disabled output vanishes from the layout rather than
+    # moving in it.
+    printf 'power\tHEADLESS-3\toff\n' > "$cfg/nullLinux/outputs.conf"
+    XDG_CONFIG_HOME=$cfg "./$O" apply >/dev/null 2>&1
+    if swaymsg -t get_outputs -r 2>/dev/null \
+       | python3 -c 'import json,sys; d=json.load(sys.stdin);
+sys.exit(0 if any(o["name"]=="HEADLESS-3" and not o.get("active") for o in d) else 1)'; then
+      note "ok    switching a screen off reaches the compositor"
+    else
+      note "HEADLESS-3 was told to switch off and did not"
+      fail=1
+    fi
+    unset SWAYSOCK
+  else
+    note "(sway is here but the headless backend did not start; end-to-end skipped)"
+  fi
+  # OURS ONLY, BY PID, and never by a name or a pattern (lib/once.sh).
+  for pid in $(pgrep -x sway 2>/dev/null); do
+    tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -qxF "SWAYSOCK=$sock" \
+      && kill "$pid" 2>/dev/null
+  done
+else
+  note "(no sway here; the end-to-end placement is not exercised)"
+fi
 
 [ $fail = 0 ] && echo "PASS: the screens go where somebody said, and refuse what has no answer"
 exit $fail

@@ -27,7 +27,7 @@ box it was installed on, and doubled everything that must be baked and shipped.
 
 ## Verification
 
-`./verify/run.sh` — **47 checks**. It was 24 when this line was written; the
+`./verify/run.sh` — **51 checks**. It was 24 when this line was written; the
 difference is one night's work, and most of the new ones exist because
 something they now catch had already gone wrong once. Menu coverage derives its topics from the menu
 itself: **28 topics, 27 drawing clean**, the 28th recorded with its reason.
@@ -53,6 +53,36 @@ visible to any existing check:
 calendar, clipboard — and all three have existed for some time:
 `bin/null-player`, `bin/null-calendar`, `bin/null-clipboard`, each reachable as
 a column topic. The line was stale, not the work.
+
+## nullLinux installs itself
+
+**2026-09-06.** The ISO shows this system's own installer, not anaconda's
+screens. anaconda still does the machinery — partitioning, the package
+transaction, the bootloader, every place where a second implementation would
+trade a real risk for an aesthetic — but it is driven from a kickstart fragment
+that `bin/null-installer` writes from answers a person gave on a console, in
+this system's palette, beside its hero.
+
+Driven end to end in a VM: nine questions, then 1042 packages and **6.03 GiB**
+written. The disk boots on its own with no medium attached, reaches the greeter
+showing the hostname that was typed into the installer, and logging in reaches
+the full desktop.
+
+Nothing is written until the last question, which asks for the disk's name in
+full. Declining writes no file at all, and the kickstart's `%include` of that
+missing file is what stops anaconda — the refusal is structural rather than a
+branch that has to be remembered.
+
+Three defects only a real run could show, each fixed:
+
+- **A getty was stealing every keystroke.** The installer drew correctly on
+  tty6 and could not be answered. `openvt` finds a genuinely free VT and is not
+  in anaconda's runtime, so it is shipped on the medium — 24 KB, only libc.
+- **The timezone question printed all 598 of them**, numbered, onto a console
+  with no scrollback, taking the hero and every previous answer off the screen.
+  Long lists are now narrowed by typing; nine questions cost 51 lines.
+- **`openvt` returned 8 from a run that succeeded**, and `%pre` reported that as
+  its own verdict. It now decides on whether the answers exist.
 
 ## The two open gates
 
@@ -107,7 +137,7 @@ a clean VM rather than on nox.**
 | `null-bootstrap` exists, idempotent, report-first | **done** |
 | a clean Fedora 44 reaches a built, installed desktop from the git tree alone | **done** |
 | the hero bake run end-to-end and its cost measured | not started |
-| the 24-check suite passes inside the guest | not started |
+| the check suite passes inside the guest | not started — runs on the build host |
 | deviations written down rather than skipped | ongoing |
 
 Reached on the fourth attempt. The first three failed, and every reason was a

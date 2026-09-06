@@ -299,6 +299,24 @@ cmd_arrange() {
     [ -n "$ref" ] || return 0
     printf '%s\n' "$kept" | grep -v '^$' > "$CONF.new" 2>/dev/null || true
     printf 'place\t%s\t%s\t%s\n' "$subject" "$rel" "$ref" >> "$CONF.new"
+
+    # WHAT `mirror-of` ACTUALLY DOES, said out loud when it matters. wlroots has
+    # no mirror: two outputs given the same position overlap in one layout, and
+    # the compositor draws whatever part of it each screen covers. Same size,
+    # that is a mirror. Different sizes, the smaller one shows a CORNER of the
+    # larger, which is a surprise worth having before it happens rather than
+    # after.
+    if [ "$rel" = mirror-of ]; then
+      local sw sh rw rh
+      sw=$(awk -F'\t' -v k="$subject" '$1==k{print $7}' <<<"$tsv")
+      sh=$(awk -F'\t' -v k="$subject" '$1==k{print $8}' <<<"$tsv")
+      rw=$(awk -F'\t' -v k="$ref"     '$1==k{print $7}' <<<"$tsv")
+      rh=$(awk -F'\t' -v k="$ref"     '$1==k{print $8}' <<<"$tsv")
+      if [ "$sw" != "$rw" ] || [ "$sh" != "$rh" ]; then
+        hint "these screens are ${sw}x${sh} and ${rw}x${rh}, so this is not a mirror:"
+        hint "the smaller one shows the top-left corner of the larger"
+      fi
+    fi
   fi
 
   # PROVED BEFORE IT IS KEPT. The solver refuses a cycle and refuses to switch
