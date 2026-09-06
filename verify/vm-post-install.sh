@@ -169,11 +169,21 @@ info "/boot: $(g 'df -h /boot | tail -1')"
 head_ "surfaces"
 sync_line=$(g 'journalctl -b -u nulllinux-machine-sync --no-pager -o cat | tail -2 | tr "\n" " "')
 info "${sync_line:-<no machine-sync output>}"
-if g 'systemctl is-active nulllinux-machine-sync' | grep -qxE 'active|inactive'; then
-  ok "machine-sync ran"
-else
-  bad "machine-sync did not run"
-fi
+# "inactive" IS ALSO WHAT A UNIT THAT DOES NOT EXIST REPORTS.
+#
+# A Type=oneshot unit that ran and exited is inactive, so the check has to
+# tolerate that -- but systemctl prints inactive for a unit that was never
+# enabled, never started, or is not installed at all, and the exit status is
+# swallowed by the pipe. The only states that failed this were failed and
+# activating, and failed is already caught by the no-failed-units check above.
+# So it asserted the strongest property in this file while testing nothing.
+ms=$(g 'systemctl show -p LoadState -p Result --value nulllinux-machine-sync' | tr '\n' ' ')
+info "machine-sync: ${ms:-<no answer>}"
+case $ms in
+  "loaded success "*|"loaded success") ok "machine-sync is installed and ran to success" ;;
+  "not-found"*)  bad "nulllinux-machine-sync is not installed on the guest" ;;
+  *)             bad "machine-sync did not run cleanly: ${ms:-<no answer>}" ;;
+esac
 if [ "$(g 'test -d /var/cache/nulllinux/hero && echo yes || echo no')" = yes ]; then
   ok "the hero cache exists"
   info "$(g 'ls -1 /var/cache/nulllinux/hero/*.cells 2>/dev/null | wc -l') derived grid(s)"

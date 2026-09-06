@@ -10,8 +10,15 @@ if ! grep -q 'NULL_REPLACE' bin/null-install; then
   fail=1
 fi
 # the guard has to come before anything is written
-guard=$(grep -n 'NULL_REPLACE' bin/null-install | head -1 | cut -d: -f1)
-first_write=$(grep -nE '^\s*(install_|write_|ln -sf|cp .*/etc/)' bin/null-install | head -1 | cut -d: -f1)
+# ANCHOR BOTH ENDS ON CODE.
+#
+# 'NULL_REPLACE' matched the COMMENT 24 lines above the guard, and the write
+# regex missed every heredoc -- `cat > /etc/sway/config <<EOF` among them -- so
+# it compared a comment at line 77 against a write at line 337 and left 220
+# lines of slack. The guard could have been moved to after /etc/sway/config was
+# already overwritten and this would still have passed.
+guard=$(grep -n 'NULL_REPLACE:-0' bin/null-install | head -1 | cut -d: -f1)
+first_write=$(grep -nE '^\s*(install_|write_|ln -sf|cp .*/etc/|cat >+ *"?/etc/|mkdir -p /etc/)' bin/null-install | head -1 | cut -d: -f1)
 if [ -n "$guard" ] && [ -n "$first_write" ] && [ "$guard" -gt "$first_write" ]; then
   echo "bin/null-install: the takeover guard is at line $guard, after the first write at line $first_write"
   fail=1
@@ -45,6 +52,16 @@ for token in 'inc=${inc#\"}' 'case $inc in */config/sway/config)' 'other_root=$c
   grep -qF "$token" bin/null-install \
     || { note "verify and bin/null-install have drifted: '$token' is not in null-install"; fail=1; }
 done
+
+# THE TOKENS ARE ALL INSIDE THE LOOP BODY. The regression this file exists for
+# -- putting `| head -1` back on the include extraction -- lives OUTSIDE it, so
+# every token would still match, all eight fixtures would still pass, and the
+# suite would print its reassuring line over a guard that Fedora's stock
+# `include /etc/sway/config.d/*` had already disarmed.
+if sed -n '/if \[ -r \/etc\/sway\/config \]/,/^fi$/p' bin/null-install | grep -q 'head -'; then
+  note "bin/null-install: the include scan is truncated by head -- the stock first include disarms the guard"
+  fail=1
+fi
 
 t=$(mktemp -d)
 other=$(mktemp -d)/rootA; mkdir -p "$other"

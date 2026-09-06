@@ -28,7 +28,7 @@ for chain in input forward; do
   awk -v c="$chain" '
     $0 ~ "chain "c" *\\{" {inc=1}
     inc && /policy drop;/ {ok=1}
-    inc && /^  \}/ {inc=0}
+    inc && /^[[:space:]]*\}/ {inc=0}
     END {exit ok?0:1}' "$RULES" \
     || { note "$RULES: chain $chain does not have policy drop"; fail=1; }
 done
