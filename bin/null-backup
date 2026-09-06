@@ -10,7 +10,17 @@
 # also corrupts a copy made while it was happening.
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
-MASTER=${NULL_MASTER:-/opt/nulllinux-hdr-master-v4}
+# WHERE THE MASTER ACTUALLY IS.
+#
+# This defaulted to /opt/nulllinux-hdr-master-v4, which has never existed. The
+# path came across from the predecessor project during the rename -- there IS
+# an /opt/rice-hdr-master-v4 -- and nothing noticed, because the tool refuses
+# with "no master at ..." and a refusal reads like the drive not being plugged
+# in. So the one gate protecting the one irreplaceable artefact in this project
+# could not be attempted, and the failure looked like the expected one.
+#
+# The master is 240 frames and 423 MB, in the tree, at assets/master.hdrcells.
+MASTER=${NULL_MASTER:-$ROOT/assets/master.hdrcells}
 DEST=${1:-}
 
 have_manifest() { [ -r "$MASTER/MANIFEST.sha256" ]; }
