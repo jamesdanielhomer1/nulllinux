@@ -87,6 +87,14 @@ exec_always NULL_ROOT=$null $null/bin/null-clipboard watch
 # GTK3, so it resolves the nullLinux theme and arrives in the palette.
 exec_always pkill -x xfce-polkit; /usr/libexec/xfce-polkit
 
+# SAY SOMETHING BEFORE THE BATTERY RUNS OUT.
+#
+# Nothing did. The bar shows a percentage and that was the whole of it, while
+# UPower's CriticalPowerAction=Auto powers the machine off at 2% -- it cannot
+# hibernate, because the kickstart partitions with --noswap. Powering off at 2%
+# is the right last resort; doing it without having said anything first is not.
+exec_always pkill -f 'null-battery watch'; NULL_ROOT=$null $null/bin/null-battery watch
+
 # THE PER-USER HALF, and it needs a caller.
 #
 # null-install puts everything it can where the SYSTEM looks, so a new account

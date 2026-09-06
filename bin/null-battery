@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Say something before the battery runs out.
+#
+# WHAT WAS THERE BEFORE: nothing. The bar shows a percentage, and that is all
+# there was between a working session and the machine going off. UPower's
+# CriticalPowerAction is Auto, which means hybrid-sleep if it can, hibernate if
+# it can, and power off if it cannot -- and the kickstart uses
+# `autopart --noswap`, so it cannot. The installed default is therefore: at 2%
+# the machine powers off, without having said anything at all first.
+#
+# Powering off at 2% is the right last resort. Doing it with no warning is not.
+# This is the warning.
+#
+# AGGREGATED ACROSS CELLS, for the same reason render/src/sysinfo.rs is: this
+# ThinkPad has BAT0 at 5% and BAT1 at 83%, and neither of those is the answer.
+# Reading the first battery found reports 5% on a machine that is five-sixths
+# charged, which would fire every warning here at once and teach the user to
+# ignore them.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+SUPPLY=${NULL_POWER_SUPPLY:-/sys/class/power_supply}
+STATE=${XDG_RUNTIME_DIR:-/tmp}/null-battery.state
+
+# The thresholds, and what each is for. LOW is "finish what you are doing";
+# CRITICAL is "save now"; the machine's own action happens below both.
+LOW=${NULL_BATTERY_LOW:-20}
+CRITICAL=${NULL_BATTERY_CRITICAL:-5}
+INTERVAL=${NULL_BATTERY_INTERVAL:-60}
+
+read_first() { [ -r "$1" ] && head -1 "$1" 2>/dev/null || echo ""; }
+
+# percent_of <supply-dir> -> "PERCENT STATUS", or nothing at all when the
+# machine has no battery. A desktop is not a broken laptop.
+percent_of() {
+  local root=$1 now=0 full=0 any=0 status=Unknown d n f
+  for d in "$root"/BAT* "$root"/CMB*; do
+    [ -d "$d" ] || continue
+    # energy_* is microwatt-hours, charge_* is microamp-hours. A machine
+    # reports one or the other and mixing them silently gives nonsense, so
+    # each battery is read in whichever unit it uses and the pair is summed.
+    n=$(read_first "$d/energy_now");  f=$(read_first "$d/energy_full")
+    [ -n "$n" ] && [ -n "$f" ] || { n=$(read_first "$d/charge_now"); f=$(read_first "$d/charge_full"); }
+    [ -n "$n" ] && [ -n "$f" ] && [ "$f" -gt 0 ] 2>/dev/null || continue
+    now=$((now + n)); full=$((full + f)); any=1
+    case $(read_first "$d/status") in
+      Charging)  status=Charging ;;
+      Full)      [ "$status" = Unknown ] && status=Full ;;
+      Discharging) [ "$status" != Charging ] && status=Discharging ;;
+    esac
+  done
+  [ "$any" = 1 ] && [ "$full" -gt 0 ] || return 1
+  printf '%s %s\n' "$(( now * 100 / full ))" "$status"
+}
+
+notify() {  # <urgency> <summary> <body>
+  command -v notify-send >/dev/null 2>&1 || { printf '%s: %s\n' "$2" "$3"; return 0; }
+  notify-send -u "$1" -a nullLinux "$2" "$3"
+}
+
+# WHICH WARNING, IF ANY. Pure: percent, status and the last level warned at go
+# in, the level to warn at comes out. Separated so it can be tested without a
+# battery, which is the only way it can be tested at all on this hardware.
+#
+#   prints the new level (low|critical|none) and nothing else.
+decide() {  # <percent> <status> <last>
+  local p=$1 st=$2 last=$3
+  # Charging clears everything. A machine on mains is not running out.
+  case $st in Charging|Full) echo none; return ;; esac
+  if   [ "$p" -le "$CRITICAL" ]; then
+    [ "$last" = critical ] && echo none || echo critical
+  elif [ "$p" -le "$LOW" ]; then
+    # Not re-warned on the way down through the low band, but a machine that
+    # charged above the band and fell back into it warns again.
+    case $last in low|critical) echo none ;; *) echo low ;; esac
+  else
+    echo none
+  fi
+}
+
+case ${1:-watch} in
+  --help|-h)
+    echo "usage: null-battery [watch|once|decide <percent> <status> <last>]"
+    echo
+    echo "  watch   loop, warning at ${LOW}% and ${CRITICAL}% (every ${INTERVAL}s)"
+    echo "  once    check now and warn if a threshold has been crossed"
+    echo "  decide  the pure decision, for testing without a battery"
+    exit 0 ;;
+  decide)
+    [ $# -eq 4 ] || { echo "decide needs <percent> <status> <last>" >&2; exit 2; }
+    decide "$2" "$3" "$4"; exit 0 ;;
+esac
+
+check_once() {
+  local reading pct st last level
+  reading=$(percent_of "$SUPPLY") || { echo "no battery"; return 0; }
+  pct=${reading%% *}; st=${reading##* }
+  last=$(read_first "$STATE"); last=${last:-none}
+  level=$(decide "$pct" "$st" "$last")
+  case $level in
+    critical) notify critical "Battery ${pct}%" \
+                "Save your work. This machine powers off at 2% and cannot hibernate -- it has no swap." ;;
+    low)      notify normal   "Battery ${pct}%" \
+                "About to get short. There is no hibernate on this machine." ;;
+  esac
+  # The state records the band we are IN, not the last thing said, so a
+  # recovery above the low band re-arms both warnings.
+  case $st in
+    Charging|Full) printf 'none\n' > "$STATE" ;;
+    *) if   [ "$pct" -le "$CRITICAL" ]; then printf 'critical\n' > "$STATE"
+       elif [ "$pct" -le "$LOW" ];      then printf 'low\n'      > "$STATE"
+       else                                  printf 'none\n'     > "$STATE"; fi ;;
+  esac
+  printf '%s%% %s (was: %s)\n' "$pct" "$st" "$last"
+}
+
+case ${1:-watch} in
+  once)  check_once ;;
+  watch)
+    # A machine with no battery exits rather than looping for ever over a
+    # directory that will never have one.
+    percent_of "$SUPPLY" >/dev/null 2>&1 || { echo "null-battery: no battery here"; exit 0; }
+    while :; do check_once >/dev/null; sleep "$INTERVAL"; done ;;
+  *) echo "null-battery: unknown verb '$1'" >&2; exit 2 ;;
+esac

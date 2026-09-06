@@ -28,6 +28,7 @@ run "every colour is the palette"    ./verify/check-palette-only.sh
 run "config reaches its app"         ./verify/check-config-reaches-apps.sh
 run "the greeter offers ours"        ./verify/check-session-entry.sh
 run "one typeface"                   ./verify/check-one-typeface.sh
+run "battery and lid"                ./verify/check-battery.sh
 run "every tool has a caller (§10.1)"     ./verify/check-callers.sh
 run "themes have one name (§8.10)"       ./verify/check-theme-names.sh
 run "the splash is complete (§9.6)"      ./verify/check-splash-complete.sh

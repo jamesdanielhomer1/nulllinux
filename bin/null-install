@@ -366,6 +366,7 @@ for entry in \
     "mpv|/etc/mpv/" \
     "imv/config|/etc/imv_config" \
     "zathura/zathurarc|/etc/zathurarc" \
+    "systemd/10-null-lid.conf|/etc/systemd/logind.conf.d/10-null-lid.conf" \
   ; do
   from=${entry%%|*}; to=${entry##*|}
   src="$ROOT/config/$from"
