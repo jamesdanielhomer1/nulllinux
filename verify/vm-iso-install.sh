@@ -75,12 +75,34 @@ esac
 # then narrows it to the guest this script started, so a qemu somebody else is
 # running is left alone.
 stop_guest() {
-  local p exe
+  local p exe pids=""
   for p in /proc/[0-9]*; do
     exe=$(readlink -f "$p/exe" 2>/dev/null) || continue
     case "$exe" in */qemu-system-x86_64) ;; *) continue ;; esac
-    grep -qa "installed.qcow2" "$p/cmdline" 2>/dev/null && kill "${p#/proc/}" 2>/dev/null
+    grep -qa "installed.qcow2" "$p/cmdline" 2>/dev/null || continue
+    pids="$pids ${p#/proc/}"
+    kill "${p#/proc/}" 2>/dev/null
   done
+  [ -n "$pids" ] || return 0
+
+  # AND WAIT FOR IT TO ACTUALLY GO.
+  #
+  # kill only asks. The next qemu was started immediately after, while the old
+  # one still held the ssh forward, and died with
+  #
+  #   Could not set up host forwarding rule 'tcp::2223-:22'
+  #
+  # A port is released when the process exits, not when it is signalled.
+  local i
+  for i in $(seq 1 40); do
+    local alive=0 q
+    for q in $pids; do [ -d "/proc/$q" ] && alive=1; done
+    [ "$alive" = 0 ] && { echo "  stopped the previous guest"; return 0; }
+    sleep 0.25
+  done
+  echo "  the previous guest did not exit; killing it" >&2
+  for q in $pids; do kill -9 "$q" 2>/dev/null; done
+  sleep 1
 }
 [ "${1:-install}" = down ] && { stop_guest; echo stopped; exit 0; }
 
