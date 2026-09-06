@@ -60,8 +60,10 @@ grep -q 'cmd_firewall' bin/null-system \
 # 6. The module preload is what made it fast. Without it the ruleset still
 #    loads, just back on the critical path -- so this is a warning, not a
 #    failure, and it should say which.
-[ -r config/modules-load.d/nulllinux-nftables.conf ] \
-  || note "(config/modules-load.d/nulllinux-nftables.conf is gone -- still correct, 600ms slower)"
+[ -r packaging/nulllinux-netfilter-modules.service ] \
+  || note "(packaging/nulllinux-netfilter-modules.service is gone -- still correct, 600ms slower)"
+grep -q 'ExecStart=-' packaging/nulllinux-netfilter-modules.service 2>/dev/null \
+  || { note "the netfilter preload does not tolerate a failed modprobe -- it would fail the boot as /etc/modules-load.d did"; fail=1; }
 
 # 7. `nft -c` NEEDS A KERNEL, and the install runs where there is not one.
 #

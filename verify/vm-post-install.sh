@@ -110,6 +110,9 @@ if g 'systemctl is-active display-manager.service' | grep -qx active; then
 else
   bad "the display manager is not running"
 fi
+# A FAILED UNIT IS A FAILED INSTALL. This caught systemd-modules-load failing
+# at every boot on nft_reject_inet -- EINTR, from inserting it concurrently
+# with the nf_tables it depends on -- which nothing else would have reported.
 if g 'systemctl is-failed --quiet "*"'; then
   info "failed units:"
   g 'systemctl list-units --state=failed --no-legend --plain' | sed 's/^/        /'

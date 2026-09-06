@@ -1,0 +1,33 @@
+[Unit]
+Description=nullLinux: preload the firewall's kernel modules
+Documentation=man:nft(8)
+# WHY NOT /etc/modules-load.d, WHICH IS THE OBVIOUS MECHANISM.
+#
+# It was, and it failed at every boot. systemd-modules-load fails the whole
+# unit if ANY listed module fails to insert, and nft_reject_inet reliably
+# returned EINTR -- "Interrupted system call" -- because it was being inserted
+# concurrently with the nf_tables it depends on. A failed unit at every boot,
+# reported by `systemctl --failed`, in exchange for 216ms.
+#
+# The modules are all optional here: the '-' prefix means a failure to insert
+# one is not a failure of the unit. nft loads whatever is missing when it reads
+# the ruleset, so the worst case is the cost this unit exists to avoid, not a
+# firewall that does not come up.
+#
+# sysinit, where nothing is waiting. nftables.service runs later at
+# network-pre.target, which is on the ordering chain that ends at the greeter,
+# and doing the modprobes there put every millisecond of them before login.
+DefaultDependencies=no
+Before=sysinit.target nftables.service
+After=systemd-modules-load.service
+ConditionPathExists=/sys/module
+ConditionVirtualization=!container
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/sbin/modprobe -a nf_tables nf_conntrack nf_defrag_ipv4 nf_defrag_ipv6
+ExecStart=-/usr/sbin/modprobe -a nft_ct nft_reject nft_reject_inet nf_reject_ipv4 nf_reject_ipv6
+
+[Install]
+WantedBy=sysinit.target

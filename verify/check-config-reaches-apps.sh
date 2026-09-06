@@ -44,8 +44,8 @@ declare -A CARRIED=(
   [shell]="null-join:joined into the user's own shell files:shell"
   [fzf]="ORPHAN"
   [nftables]="null-system:/etc/nftables + /etc/sysconfig/nftables.conf:config/nftables/nulllinux.nft"
+  [vconsole]="null-install:/etc/vconsole/vtrgb:vconsole/vtrgb|"
   [systemd]="null-install:/etc/systemd/logind.conf.d:systemd/10-null-lid.conf|"
-  [modules-load.d]="null-system:/etc/modules-load.d:modules-load.d"
 )
 
 for d in config/*/; do

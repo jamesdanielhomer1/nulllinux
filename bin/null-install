@@ -367,6 +367,7 @@ for entry in \
     "imv/config|/etc/imv_config" \
     "zathura/zathurarc|/etc/zathurarc" \
     "systemd/10-null-lid.conf|/etc/systemd/logind.conf.d/10-null-lid.conf" \
+    "vconsole/vtrgb|/etc/vconsole/vtrgb" \
   ; do
   from=${entry%%|*}; to=${entry##*|}
   src="$ROOT/config/$from"
@@ -392,6 +393,34 @@ for entry in \
       fi ;;
   esac
 done
+
+head_ "the virtual console's sixteen colours"
+say "before the greeter appears, and on every tty, the console used the"
+say "kernel's own colours -- the bright primaries every Linux machine has had"
+say "since 1992, in a system whose whole palette is blackbody"
+say ""
+say "THE FONT IS NOT TOUCHED HERE. A console font with more than 256 glyphs"
+say "loses bright backgrounds (§9.5), so it stays where it is: an opt-in"
+say "`null-system tty`. Colours cannot break a console, so they are a default."
+if command -v setvtrgb >/dev/null 2>&1 && [ -r "$ROOT/config/vconsole/vtrgb" ]; then
+  if [ "$APPLY" -eq 1 ]; then
+    install -D -m 0644 "$ROOT/packaging/nulllinux-vtrgb.service" \
+      /usr/lib/systemd/system/nulllinux-vtrgb.service 2>/dev/null \
+      && say "installed nulllinux-vtrgb.service" \
+      || say "could not install nulllinux-vtrgb.service"
+    systemctl enable nulllinux-vtrgb.service >/dev/null 2>&1 \
+      && say "enabled it" || say "could not enable nulllinux-vtrgb.service"
+    # Applied now as well as at the next boot, so the change is visible without
+    # rebooting to see whether it worked.
+    setvtrgb "$ROOT/config/vconsole/vtrgb" 2>/dev/null \
+      && say "applied to the consoles that exist now" \
+      || say "could not apply now (no console here?); it is set for next boot"
+  else
+    say "would install and enable nulllinux-vtrgb.service, and apply it now"
+  fi
+else
+  say "setvtrgb or config/vconsole/vtrgb is missing -- the console keeps the kernel's colours"
+fi
 
 head_ "the session the greeter offers"
 say "without this the greeter lists Fedora's generic \"Sway\", which runs bare"

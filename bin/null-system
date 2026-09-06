@@ -448,7 +448,8 @@ CONF
 # firewalld took 3.024 seconds of every boot on the test install to emit 366
 # lines of nftables that are the same 366 lines every time. Replacing it with
 # those rules, written down, took that to 164ms -- and 30ms of THAT is the
-# ruleset; the rest was modprobe, which config/modules-load.d moves to sysinit
+# ruleset; the rest was modprobe, which nulllinux-netfilter-modules.service
+# moves to sysinit
 # where nothing waits for it.
 #
 # The policy is not being loosened. This is `firewall-cmd --list-all` from the
@@ -461,7 +462,7 @@ cmd_firewall() {
   head_ "firewall -- nftables with a static ruleset, in place of firewalld"
 
   local src="$ROOT/config/nftables/nulllinux.nft"
-  local mods="$ROOT/config/modules-load.d/nulllinux-nftables.conf"
+  local mods="$ROOT/packaging/nulllinux-netfilter-modules.service"
   [ -r "$src" ]  || refuse "no ruleset at $src"
   [ -r "$mods" ] || refuse "no module list at $mods"
 
@@ -509,7 +510,7 @@ cmd_firewall() {
   if [ "$APPLY" -eq 0 ]; then
     say "would install $src -> /etc/nftables/nulllinux.nft"
     say "would point /etc/sysconfig/nftables.conf at it"
-    say "would install $(basename "$mods") -> /etc/modules-load.d/"
+    say "would install $(basename "$mods") and enable it"
     say "would enable nftables.service and disable firewalld.service"
     return 0
   fi
@@ -520,7 +521,16 @@ cmd_firewall() {
   mkdir -p /etc/sysconfig
   printf 'include "/etc/nftables/nulllinux.nft"\n' > /etc/sysconfig/nftables.conf
   say "wrote /etc/sysconfig/nftables.conf"
-  install_file "$mods" /etc/modules-load.d/nulllinux-nftables.conf
+  # A UNIT, NOT /etc/modules-load.d. systemd-modules-load fails the whole unit
+  # if any one module fails to insert, and nft_reject_inet reliably returned
+  # EINTR when inserted concurrently with the nf_tables it depends on -- so
+  # every boot had a failed unit in exchange for 216ms. This one prefixes each
+  # modprobe with '-', so a module that races or is absent costs its own time
+  # back and nothing else.
+  install_file "$mods" /usr/lib/systemd/system/nulllinux-netfilter-modules.service
+  systemctl enable nulllinux-netfilter-modules.service >/dev/null 2>&1 \
+    && say "enabled nulllinux-netfilter-modules.service" \
+    || say "could not enable nulllinux-netfilter-modules.service"
 
   systemctl enable nftables.service >/dev/null 2>&1 \
     && say "enabled nftables.service" \
