@@ -75,10 +75,29 @@ sudo -u nobody test -r "$ROOT/config/sway/config" 2>/dev/null \
 #
 # So: if /etc/sway/config includes a checkout that is not this one AND that
 # checkout is still there, refuse. NULL_REPLACE=1 says you mean it.
+#
+# EVERY include, NOT THE FIRST ONE.
+#
+# This took `head -1`, and Fedora's stock sway config opens with
+# `include /etc/sway/config.d/*`. That is not a checkout, so the guard passed
+# and went on to overwrite the installation named on the NEXT line -- the exact
+# thing it was written to stop, disarmed by a line that was already there.
+# Quotes are stripped too: `include "/opt/rice/..."` kept its quote, the
+# directory test failed on the quoted name, and the guard passed again.
 if [ -r /etc/sway/config ]; then
-  other=$(grep -oE '^\s*include\s+\S+' /etc/sway/config 2>/dev/null | awk '{print $2}' | head -1)
-  other_root=${other%/config/sway/config}
-  if [ -n "$other_root" ] && [ "$other_root" != "$ROOT" ] && [ -d "$other_root" ]; then
+  other_root=""
+  while read -r inc; do
+    inc=${inc#\"}; inc=${inc%\"}       # include "path"
+    inc=${inc#\'}; inc=${inc%\'}       # include 'path'
+    case $inc in */config/sway/config) ;; *) continue ;; esac
+    cand=${inc%/config/sway/config}
+    [ -n "$cand" ] && [ "$cand" != "$ROOT" ] && [ -d "$cand" ] || continue
+    other_root=$cand
+    break
+  done <<EOF
+$(grep -oE '^[[:space:]]*include[[:space:]]+\S+' /etc/sway/config 2>/dev/null | awk '{print $2}')
+EOF
+  if [ -n "$other_root" ]; then
     if [ "${NULL_REPLACE:-0}" != 1 ]; then
       head_ "this machine already runs a different installation"
       say "/etc/sway/config includes $other_root/config/sway/config"

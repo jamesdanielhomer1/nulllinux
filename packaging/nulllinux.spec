@@ -59,6 +59,7 @@ Requires:       fzf
 Requires:       git
 Requires:       grim
 Requires:       iw
+Requires:       nftables
 Requires:       playerctl
 Requires:       plymouth-plugin-two-step
 Requires:       sddm
