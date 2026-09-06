@@ -624,3 +624,43 @@ which is valid — the harness boots that ISO's kernel directly and serves
 today's kickstart and package over HTTP — but a full media rebuild, an
 `--embed-only` pass, and a `NULL_TEST_EMBEDDED=1` run to prove the offline
 path are all still owed.
+
+---
+
+## Somebody logged in (2026-09-06)
+
+Until now nothing had ever logged in to an installed nullLinux. The greeter
+rendered and that was as far as any test went — `last` showed only reboots and
+`/home/null` held nothing but the skeleton files. "Reaches a themed greeter"
+was the proven claim; "you can log in and use it" was not.
+
+Driven through the real path, by typing at the greeter over the qemu monitor
+rather than by configuring autologin: `null` / `nulltest`, Tab, Enter.
+
+It works, and it brings three things with it that had never been observed:
+
+    session 54  user null  seat0  tty2
+    sway, dwindle, column, bar, render  — all running as null, not root
+    pactl: Server String: /run/user/1000/pulse/native
+
+**Audio works.** The largest recorded deviation — "the session runs as root,
+PipeWire will not connect, audio readings are `--`" — was a property of the
+build host, not of the product. An ordinary user on an installed machine gets
+a working PipeWire.
+
+**The per-user hero cache was already right.** `null-hero` falls back from
+`/var/cache/nulllinux/hero` to `~/.cache/nulllinux/hero` when it cannot write
+the system one, so the wallpaper derived its own 213x66 grid into
+`/home/null/.cache/` with no privilege at all. Worth naming because it is the
+kind of thing that is usually wrong and is only ever discovered here.
+
+One inefficiency, not a defect: machine-sync takes its fast path at boot and
+never populates the system cache, so the first login pays for its own derive
+(about 7s, in the background, behind a prebuilt rung). Nothing is blank while
+it happens.
+
+### What this closes
+
+Phase 10's reboot gate and the audio deviation. What remains genuinely
+untested is real hardware: firmware, secure boot, a discrete GPU, a wifi
+chipset, suspend and resume, and a panel whose EDID is not qemu's.
