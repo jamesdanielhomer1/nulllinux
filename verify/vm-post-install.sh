@@ -213,6 +213,25 @@ for f in /etc/zathurarc /etc/imv_config /etc/mpv/mpv.conf /etc/xdg/foot/foot.ini
   else bad "MISSING: $f -- that program runs in its own colours"; fi
 done
 
+# --- removable media -------------------------------------------------------
+#
+# thunar Requires none of these, so on any machine they were present only by
+# accident. Plugging in a USB stick is one of the first things anybody does.
+head_ "plugging something in"
+for pair in "udisks2:/usr/libexec/udisks2/udisksd" "gvfs:/usr/libexec/gvfsd" "thunar-volman:/usr/bin/thunar-volman"; do
+  what=${pair%%:*}; path=${pair##*:}
+  if [ "$(g "test -e $path && echo yes || echo no")" = yes ]; then
+    ok "$what is installed"
+  else
+    bad "$what is NOT installed -- a USB stick would not mount, or would not be noticed"
+  fi
+done
+if g 'systemctl is-active udisks2' | grep -qx active; then
+  ok "udisks2 is running, so a device can be mounted without a root password"
+else
+  info "udisks2 is not running (it is socket/dbus activated, so this may be normal)"
+fi
+
 # --- privileged actions ----------------------------------------------------
 head_ "asking for a password"
 if [ "$(g 'command -v /usr/libexec/xfce-polkit >/dev/null && echo yes || echo no')" = yes ]; then

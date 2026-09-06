@@ -197,6 +197,30 @@ nano
 cups
 cups-filters
 system-config-printer
+
+# --- removable media, which had nothing behind it ------------------------
+#
+# thunar Requires NONE of these. Checked: `dnf repoquery --requires --resolve
+# thunar` matches neither gvfs, nor udisks2, nor thunar-volman. So a USB stick
+# plugged into an installed machine might mount, or might do nothing at all,
+# depending on what else happened to be dragged in -- and "plug in a stick"
+# is not an advanced operation, it is one of the first things anybody does.
+#
+# udisks2 is what mounts a device without asking for a root password. gvfs is
+# what thunar uses for mounts, for network locations, and for TRASH: without
+# it, deleting a file in the file manager is not a move to the trash, it is a
+# delete. thunar-volman is what notices the device was plugged in at all.
+udisks2
+gvfs
+thunar-volman
+
+# AND THE FILESYSTEMS A STICK ACTUALLY HAS ON IT. A drive over 32 GB is
+# formatted exFAT out of the box and anything from a Windows machine is NTFS.
+# The kernel can read both; these are what let this system CHECK and FORMAT
+# them, which is the half a desktop is expected to have.
+exfatprogs
+dosfstools
+ntfs-3g
 #
 # Four hops, every one through firewalld -- the package we deliberately stopped
 # using. Remove firewalld as the obvious tidy-up after replacing it and `nft`

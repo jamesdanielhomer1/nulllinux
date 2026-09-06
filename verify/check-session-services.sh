@@ -46,6 +46,12 @@ need pipewire            "there would be no sound server"
 need wireplumber         "pipewire would run and route nothing, which reads as missing hardware"
 need swaylock            "the screen could not be locked at all"
 
+# REMOVABLE MEDIA. thunar Requires none of these, so a USB stick plugged into
+# an installed machine would depend on what else happened to drag them in.
+need udisks2             "a USB stick could not be mounted without a root password"
+need gvfs                "the file manager would have no trash and no network locations"
+need thunar-volman       "nothing would notice a device had been plugged in"
+
 # THE AGENT MUST ACTUALLY BE STARTED. sway does not run XDG autostart, so
 # shipping the package is not the same as running it -- and the two failures
 # look identical from the user's side.
