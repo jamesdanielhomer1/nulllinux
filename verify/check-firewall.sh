@@ -63,5 +63,36 @@ grep -qx 'nftables' packages/fedora/base.list \
 [ -r config/modules-load.d/nulllinux-nftables.conf ] \
   || note "(config/modules-load.d/nulllinux-nftables.conf is gone -- still correct, 600ms slower)"
 
+# 7. `nft -c` NEEDS A KERNEL, and the install runs where there is not one.
+#
+#    It opens a netlink socket to nf_tables rather than merely parsing, so in
+#    anaconda's %post chroot it fails with "Unable to initialize Netlink
+#    socket: Protocol not supported". Reading that as a bad ruleset made the
+#    first install fall back to firewalld. The two cases must stay
+#    distinguishable, so this drives cmd_firewall with a stub nft that fails
+#    each way and checks it reacts differently.
+stub=$(mktemp -d)
+printf '#!/bin/sh\necho "src/mnl.c:66: Unable to initialize Netlink socket: Protocol not supported" >&2\nexit 1\n' > "$stub/nft"
+printf '#!/bin/sh\necho "x.nft:12:3-8: Error: syntax error, unexpected string" >&2\nexit 1\n' > "$stub/nft-bad"
+chmod +x "$stub/nft" "$stub/nft-bad"
+
+out=$(PATH="$stub:$PATH" ./bin/null-system firewall 2>&1)
+if printf '%s' "$out" | grep -q 'cannot validate here'; then
+  note "ok    a chroot with no netlink is reported as unverifiable, not as a bad ruleset"
+else
+  note "bin/null-system: a netlink failure is treated as a parse error -- %post will fall back to firewalld"
+  fail=1
+fi
+
+cp "$stub/nft-bad" "$stub/nft"
+out=$(PATH="$stub:$PATH" ./bin/null-system firewall 2>&1); rc=$?
+if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'does not parse'; then
+  note "ok    a real syntax error still refuses"
+else
+  note "bin/null-system: a syntax error in the ruleset no longer refuses (exit $rc)"
+  fail=1
+fi
+rm -rf "$stub"
+
 [ $fail = 0 ] && echo "the firewall is default-deny, installed, and has a fallback"
 exit $fail

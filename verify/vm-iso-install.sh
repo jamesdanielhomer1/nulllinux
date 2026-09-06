@@ -48,7 +48,10 @@ case "${1:-install}" in
   install|boot|ssh|down|check) ;;
   *) die "usage: vm-iso-install.sh [install|boot|ssh [cmd]|down|check]" ;;
 esac
-[ "${1:-install}" = ssh ] && exec sshg "${@:2}"
+# NOT `exec sshg` -- sshg is a shell function, and exec cannot exec a function.
+# It failed with "exec: sshg: not found" every time the verb was used, which is
+# to say the ssh verb had never once worked.
+[ "${1:-install}" = ssh ] && { sshg "${@:2}"; exit $?; }
 # `check` is the other half of `install`. This script used to end at "the
 # install is unattended and reboots when it finishes", and what happened after
 # that was inspected by hand, differently each time -- which is how an

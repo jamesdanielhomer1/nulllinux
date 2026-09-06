@@ -467,13 +467,37 @@ cmd_firewall() {
 
   command -v nft >/dev/null 2>&1 || refuse "nft is not installed"
 
-  # SYNTAX FIRST. A ruleset that fails to load leaves a machine with no
-  # firewall at all, and nftables.service failing at boot is a quiet way to
-  # arrive there.
-  if ! nft -c -f "$src" 2>&1 | sed 's/^/    /'; then
-    refuse "$src does not parse -- refusing to install it"
+  # SYNTAX FIRST -- BUT `nft -c` IS NOT A SYNTAX CHECK.
+  #
+  # It opens a netlink socket to the kernel's nf_tables subsystem and validates
+  # against it. Inside anaconda's %post chroot there is no such socket, and it
+  # fails with
+  #
+  #   src/mnl.c:66: Unable to initialize Netlink socket: Protocol not supported
+  #
+  # Reading that as "the ruleset is bad" refused a perfectly good file. That is
+  # not hypothetical: it is what the first install with this code did -- it
+  # fell back to firewalld, and the machine booted 8.7 seconds slower with the
+  # firewall this was written to replace.
+  #
+  # So: a PARSE error still refuses. An environment that cannot answer the
+  # question says so and continues, because the ruleset is checked for real at
+  # build time by verify/check-firewall.sh, on a machine that has a kernel to
+  # check it against.
+  if err=$(nft -c -f "$src" 2>&1); then
+    say "ruleset parses"
+  else
+    case $err in
+      *Netlink*|*"Protocol not supported"*|*"Operation not permitted"*|*"Could not process rule"*netlink*)
+        say "cannot validate here -- no netlink to nf_tables (a chroot or a container)"
+        say "  checked at build time instead, by verify/check-firewall.sh"
+        ;;
+      *)
+        printf '%s\n' "$err" | sed 's/^/    /'
+        refuse "$src does not parse -- refusing to install it"
+        ;;
+    esac
   fi
-  say "ruleset parses"
   say "$(grep -cE '^\s+(ct|iif|meta|udp|tcp|reject|type)' "$src") rules, against firewalld's 366"
 
   if systemctl is-enabled firewalld.service >/dev/null 2>&1; then
