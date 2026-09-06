@@ -773,3 +773,42 @@ Two config files were read by **nothing**: `config/fzf/flags` (deleted;
 `/etc/xdg/btop`, where btop has no system path at all). Every destination now
 comes from that program's own manual page, and
 `verify/check-config-reaches-apps.sh` makes an orphan impossible.
+
+---
+
+## What this is honestly not, yet (2026-09-06)
+
+Written down rather than left to be discovered.
+
+**Accessibility.** There is none. No screen reader, no magnifier, no sticky
+keys. This is not an oversight that a package would fix: AT-SPI, which every
+Linux screen reader is built on, has no working path on a wlroots compositor —
+Orca cannot read a sway session the way it reads GNOME. A desktop that cannot
+be used without sight is not a general-purpose operating system, and saying so
+plainly is better than shipping a checkbox that does nothing.
+
+**Installing software that is not in Fedora.** `flatpak` is declared, because
+it is in Fedora's own repositories. **No remote is added.** NULL.md §9.1 —
+"third-party repositories are a deliberate, recorded decision each time" — and
+Flathub is that decision, one command away when somebody wants it:
+
+    flatpak remote-add --if-not-exists flathub \
+      https://dl.flathub.org/repo/flathub.flatpakrepo
+
+A flatpak is sandboxed and does not see `/usr/share/themes`, so it arrives in
+its own colours. That is third-party application *interiors*, which §8.10
+treats as its own tier — not a system window, and not claimed as styled.
+
+**Formatting a drive** has no window. `exfatprogs`, `dosfstools` and `ntfs-3g`
+are declared so the tools exist, but partitioning and formatting are terminal
+operations here.
+
+**Adding or removing a user** is `useradd` in a terminal. There is no panel.
+
+**The installer is Fedora's.** Anaconda's own branding shows during an
+install. Since the install is unattended and driven entirely by a kickstart,
+nobody watches it — which is why this is recorded rather than fixed.
+
+**A VM is not metal.** Real firmware, secure boot, a discrete GPU's driver, a
+wifi chipset, suspend and resume, and a panel whose EDID is not qemu's are all
+untested by anything in this repository.

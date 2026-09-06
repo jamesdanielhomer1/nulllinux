@@ -221,6 +221,32 @@ thunar-volman
 exfatprogs
 dosfstools
 ntfs-3g
+
+# --- installing an application that is not in Fedora ----------------------
+#
+# WITHOUT THIS, "install the app you want" ends at whatever Fedora packages.
+# That is a real limit for a general-purpose desktop: no Spotify, no Discord,
+# no Steam, nothing that ships only as a flatpak.
+#
+# flatpak ITSELF is in Fedora's own repositories, so it is an ordinary
+# dependency. NO REMOTE IS ADDED. NULL.md 9.1: "Anything not in the
+# distribution's own repositories is a separate, clearly marked tier, and must
+# never be a hard dependency of a core component. Third-party repositories are
+# a deliberate, recorded decision each time." Flathub is exactly that decision,
+# and it is not mine to make on someone's behalf -- it is one command when they
+# want it:
+#
+#   flatpak remote-add --if-not-exists flathub \
+#     https://dl.flathub.org/repo/flathub.flatpakrepo
+#
+# The portal backends this needs are already declared above; a flatpak
+# application with no portal cannot open a file at all.
+#
+# A NOTE ON HOW THOSE APPLICATIONS WILL LOOK. They are sandboxed and do not see
+# /usr/share/themes, so a flatpak arrives in its own colours until the theme is
+# given to it. That is third-party application INTERIORS, which NULL.md 8.10
+# treats as its own tier -- not a system window, and not claimed as styled here.
+flatpak
 #
 # Four hops, every one through firewalld -- the package we deliberately stopped
 # using. Remove firewalld as the obvious tidy-up after replacing it and `nft`

@@ -52,8 +52,10 @@ Requires:       cava
 Requires:       cliphist
 Requires:       cups
 Requires:       cups-filters
+Requires:       dosfstools
 Requires:       dracut-config-generic
 Requires:       dunst
+Requires:       exfatprogs
 Requires:       fd-find
 Requires:       file
 Requires:       firefox
@@ -62,12 +64,14 @@ Requires:       fwupd
 Requires:       fzf
 Requires:       git
 Requires:       grim
+Requires:       gvfs
 Requires:       gvfs-mtp
 Requires:       imv
 Requires:       iw
 Requires:       mpv
 Requires:       nano
 Requires:       nftables
+Requires:       ntfs-3g
 Requires:       pipewire
 Requires:       pipewire-pulseaudio
 Requires:       playerctl
@@ -83,6 +87,8 @@ Requires:       terminus-fonts
 Requires:       terminus-fonts-console
 Requires:       thunar
 Requires:       thunar-archive-plugin
+Requires:       thunar-volman
+Requires:       udisks2
 Requires:       webkit2gtk4.1
 Requires:       wf-recorder
 Requires:       wiremix
