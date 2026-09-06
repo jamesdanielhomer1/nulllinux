@@ -204,14 +204,23 @@ selection {{ background-color: {r['accent']}; color: {r['background']}; }}
 Path("config/gtk-3.0").mkdir(parents=True, exist_ok=True)
 Path("config/gtk-3.0/gtk.css").write_text(gtk_css)
 
-# Adwaita-dark is NOT a theme name on this system -- only Default and Emacs
-# exist under /usr/share/themes. Naming a theme that does not exist falls back
-# to the LIGHT one, silently (§8.10). The dark variant is a FLAG.
+# THE NAMES THIS FILE WRITES ARE THE NAMES bin/null-install CREATES.
+#
+# This wrote gtk-theme-name=Default and gtk-icon-theme-name=Adwaita, from
+# before /usr/share/themes/nullLinux and /usr/share/icons/nullLinux existed --
+# and it OVERWRITES config/gtk-{3.0,4.0}/settings.ini, so running the bake put
+# them back every time. The committed files said nullLinux, the generator that
+# owns them said Default, and check-theme-names only ever looked at the output.
+# One re-bake and GTK falls back to its built-in LIGHT palette, silently, which
+# is the exact failure §8.10 and that check exist for.
+#
+# Dark remains a FLAG, not a theme name: there is no -dark variant to name, and
+# naming one would fall back to light for a different reason.
 settings_ini = """[Settings]
-gtk-theme-name=Default
+gtk-theme-name=nullLinux
 gtk-application-prefer-dark-theme=1
 gtk-font-name=Terminus 12
-gtk-icon-theme-name=Adwaita
+gtk-icon-theme-name=nullLinux
 gtk-cursor-theme-name=Adwaita
 gtk-enable-animations=0
 gtk-primary-button-warps-slider=0

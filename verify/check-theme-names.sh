@@ -142,6 +142,27 @@ else
 fi
 
 echo
+# THE GENERATOR THAT OWNS THESE FILES MUST AGREE WITH THEM.
+#
+# bake/export_theme.py OVERWRITES config/gtk-{3.0,4.0}/settings.ini, and it
+# wrote gtk-theme-name=Default while the committed files said nullLinux. This
+# check only ever inspected the output, so it passed -- right up until somebody
+# ran the bake, at which point GTK fell back to its built-in light palette with
+# nothing said. Checking the file without checking what writes the file is how
+# a check outlives the thing it was protecting.
+for key in gtk-theme-name gtk-icon-theme-name; do
+  gen=$(grep -oE "^$key=.*" bake/export_theme.py | head -1 | cut -d= -f2)
+  com=$(grep -oE "^$key=.*" config/gtk-3.0/settings.ini | head -1 | cut -d= -f2)
+  printf '  %-38s %s' "export_theme.py $key" "${gen:-(absent)}"
+  if [ -z "$gen" ]; then
+    printf "   <- the generator does not write it\n"; fail=1
+  elif [ "$gen" = "$com" ]; then
+    printf '\n'
+  else
+    printf "   <- committed settings.ini says '%s'\n" "$com"; fail=1
+  fi
+done
+
 if [ $fail = 0 ]; then
   echo "PASS: every theme has one name, and every place that names it agrees"
 else
