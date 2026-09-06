@@ -50,7 +50,14 @@ grep -q 'systemctl enable firewalld.service' packaging/nulllinux-install.ks \
 grep -q 'cmd_firewall' bin/null-system \
   || { note "bin/null-system: no firewall subcommand"; fail=1; }
 
-# 5. The module preload is what made it fast. Without it the ruleset still
+# 5. nft is the firewall. It must be a declared dependency and not a thing that
+#    arrives because firewalld drags it in through four levels of Requires --
+#    which is how it got here, and which breaks the moment anyone removes the
+#    firewalld we stopped using.
+grep -qx 'nftables' packages/fedora/base.list \
+  || { note "packages/fedora/base.list: nftables is not declared -- /usr/sbin/nft arrives only via firewalld"; fail=1; }
+
+# 6. The module preload is what made it fast. Without it the ruleset still
 #    loads, just back on the critical path -- so this is a warning, not a
 #    failure, and it should say which.
 [ -r config/modules-load.d/nulllinux-nftables.conf ] \

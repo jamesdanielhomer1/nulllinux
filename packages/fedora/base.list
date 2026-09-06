@@ -83,6 +83,23 @@ plymouth-plugin-two-step
 # inside a transaction is not a guarantee. See `null-system initramfs`.
 dracut-config-generic
 
+# THE FIREWALL'S OWN BINARY, DECLARED RATHER THAN INHERITED.
+#
+# config/nftables/nulllinux.nft is this system's firewall and nftables.service
+# loads it with /usr/sbin/nft. Nothing here asked for that binary. It arrived
+# by:
+#
+#   @core -> firewalld -> python3-firewall -> python3-nftables -> nftables
+#
+# Four hops, every one through firewalld -- the package we deliberately stopped
+# using. Remove firewalld as the obvious tidy-up after replacing it and `nft`
+# goes with it: nftables.service fails at boot, and the %post fallback that
+# would re-enable firewalld has nothing left to re-enable. The machine ends up
+# with no firewall and nothing saying so.
+#
+# NULL.md 9.1: a package this project depends on is named here.
+nftables
+
 # --- GPU / bake --------------------------------------------------------
 # The simulation is a Vulkan compute workload (§5.5). NVK exposes the
 # discrete adapter, so no proprietary driver is required; this was verified
