@@ -490,3 +490,73 @@ wrong on its own terms, not because it is known to fix this.
 
 Worth knowing if it recurs: it appeared only after `plymouth-plugin-two-step`
 was installed, which is the first time plymouth had a graphical plugin to load.
+
+---
+
+## Speed, measured (2026-09-06)
+
+All numbers from the clean VM install unless marked, and all reproducible with
+`systemd-analyze` and `render derive`'s own phase clock.
+
+### Boot
+
+| | |
+|---|---|
+| at the start of the session | 26.8s |
+| after dropping our `systemd-udev-settle` dependency | 18.9s |
+| now | **17.9s**, *and* with a generic initramfs |
+
+The generic initramfs costs 0.66s on its own, so like-for-like the userspace
+work below is worth more than the totals suggest.
+
+    firewalld -> nftables with a static ruleset   userspace 10.2s -> 8.1s
+    netfilter modules preloaded at sysinit        nftables.service 766ms -> 164ms
+    machine-sync reads its profile once           718ms -> 252ms
+
+What is left, and why it is left:
+
+* `initrd-switch-root` 3.5s. Most of it is the kernel freeing a 219 MB
+  initramfs and PID 1 re-execing; SELinux policy load inside that window
+  measures ~90ms and is not the problem.
+* `systemd-udev-trigger` 1.1s in the initrd. This is the price of a generic
+  initramfs and is being paid deliberately.
+* `firewalld` is gone from the boot path but still installed, so the revert is
+  one `systemctl enable`.
+
+### A hero derive
+
+A monitor the machine has not seen before waits for this. On the 4-core guest:
+
+| grid | before | after |
+|---|---|---|
+| 320x90 (1080p) | 24.3s | **6.9s** |
+| 640x180 (4K) | 57.8s | **21.1s** |
+
+Byte-identical output: at `--zstd-level 19` the new binary reproduces the old
+one's files exactly under `cmp`. The order the costs were found in is worth
+recording, because the first two guesses were both wrong:
+
+1. split the frame resample across cores -- **2%**
+2. hoist a per-cell `Vec` allocation -- 14%
+3. `zstd` level 19 on a **local cache** file -- 12.5s of 19.6s
+4. `tone_curve` recomputing two `ln()`s and calling `powf(1.0)` per cell
+5. `Ramp::len()` walking the UTF-8 ramp string per cell
+
+`render derive` now prints its own phase timings on every run, so the next
+person does not have to guess twice.
+
+### The running desktop
+
+Whole desktop idle, three outputs, on the guest: **1% of one core**
+(sway 0.7%, column, bar, wallpaper, dwindle under 0.2% each). The column's
+event loop is a real `poll()` with no sleeps in it; the wallpaper suspends
+when occluded. Nothing here needed changing.
+
+### Many monitors, verified rather than assumed
+
+Driven with headless sway on the guest: three outputs at two different
+resolutions, each with its own bar and its own wallpaper; two outputs of the
+same size share one derive through the flock; hot-unplug removes the surfaces
+and re-plug brings them back on the new output name. A new output shows a
+prebuilt rung immediately and swaps to its own exact grid when the derive
+lands, so a freshly plugged screen is never blank.
