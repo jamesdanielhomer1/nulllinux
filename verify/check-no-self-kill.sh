@@ -28,6 +28,11 @@ cd "$(dirname "$0")/.." || exit 1
 fail=0
 note() { printf '  %s\n' "$*"; }
 
+# The 15-character check below reads CODE, not prose: this file and its
+# neighbours quote the broken forms on purpose.
+[ -r lib/source.sh ] || { note "lib/source.sh is gone"; exit 1; }
+. lib/source.sh
+
 # 1. THE HELPER EXISTS AND SPARES ITS OWN ANCESTORS.
 #
 #    Behavioural, not a grep: start a process whose command line carries a
@@ -163,6 +168,35 @@ for f in config/sway/config bin/* lib/*.sh; do
   done < "$f"
 done
 [ "$names" = 0 ] && note "ok    every name-matched signal and probe is scoped to this user"
+
+# AND A NAME THE KERNEL CANNOT STORE.
+#
+# Linux truncates a process's comm to fifteen characters (TASK_COMM_LEN is 16,
+# including the terminator). `pgrep -x` and `pkill -x` compare against THAT, so
+# an exact match on a longer name never fires -- silently, and in the direction
+# that reads as "the process is not running".
+#
+#   pgrep -x qemu-system-x86_64      18 chars; matches nothing, ever
+#
+# This is worse than a missed kill. Written as a liveness test it inverts to
+# "always dead": verify/vm-iso-install.sh aborted every install with "qemu is
+# gone and nothing is installed" while the install ran on behind it. pgrep does
+# warn on stderr, but only when a human is watching the stream.
+#
+# Read as CODE -- the comments in this tree quote the broken form on purpose.
+long_names=0
+for f in $(git ls-files bin lib verify config 2>/dev/null); do
+  [ -f "$f" ] || continue
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    [ "${#name}" -gt 15 ] || continue
+    note "$f matches on '$name' (${#name} chars) -- comm is truncated to 15, so this never fires"
+    long_names=$((long_names+1)); fail=1
+  done < <(null_code_only "$f" 2>/dev/null \
+             | grep -oE 'p(kill|grep)([[:space:]]+-[a-zA-Z]+)*[[:space:]]+-[a-zA-Z]*x[a-zA-Z]*[[:space:]]+[-a-zA-Z0-9_.]+' \
+             | grep -oE '[-a-zA-Z0-9_.]+$')
+done
+[ "$long_names" = 0 ] && note "ok    every exact-match process name fits in the kernel's 15 characters"
 
 [ $fail = 0 ] && echo "PASS: no restart clause kills the shell that runs it"
 exit $fail

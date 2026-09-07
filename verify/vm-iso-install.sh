@@ -46,7 +46,7 @@ sshg() { ssh -i "$KEY" -p "$PORT" -o StrictHostKeyChecking=no \
 
 case "${1:-install}" in
   install|boot|ssh|down|check|wait) ;;
-  *) die "usage: vm-iso-install.sh [install|boot|ssh [cmd]|down|check|wait]" ;;
+  *) die "usage: vm-iso-install.sh [install|boot|ssh [cmd]|down|check|wait [pid]]" ;;
 esac
 # NOT `exec sshg` -- sshg is a shell function, and exec cannot exec a function.
 # It failed with "exec: sshg: not found" every time the verb was used, which is
@@ -135,14 +135,34 @@ null_vm_wait() {
       echo "  the installed system is up and has the nulllinux package"
       return 0
     fi
-    # A console log that has stopped growing for fifteen minutes is a hang, not
-    # a slow install -- that is what the switch-root wedge looked like.
-    local size; size=$(stat -c %s "$WORK/install-console.log" 2>/dev/null || echo 0)
-    if [ "$size" = "$lastsize" ]; then stalled=$((stalled + 15)); else stalled=0; fi
-    lastsize=$size
+    # WEDGED IS NOT "THE CONSOLE WENT QUIET".
+    #
+    # The first version of this watched only install-console.log, and failed a
+    # perfectly healthy install fifteen minutes in. anaconda stops writing to
+    # the serial console once it leaves early boot -- the package phase, which
+    # is the longest part by far, goes to its own UI. So the quietest stretch
+    # of a working install looked exactly like a hang, and the check aborted
+    # the thing it was written to protect. Measured at the time it fired:
+    #
+    #   console  87742 bytes, untouched for 18 minutes
+    #   qemu     83 seconds of CPU in 30 seconds of wall clock (4 vCPUs)
+    #   disk     11 MB written in those same 30 seconds, 9.6 GB in total
+    #
+    # A guest doing that is not wedged. So progress is ANY of three signals
+    # moving, and only all three going flat for fifteen minutes is a hang.
+    local size cpu dsize now
+    size=$(stat -c %s "$WORK/install-console.log" 2>/dev/null || echo 0)
+    dsize=$(stat -c %s "$DISK" 2>/dev/null || echo 0)
+    cpu=0
+    if [ -n "$qpid_watch" ] && [ -r "/proc/$qpid_watch/stat" ]; then
+      cpu=$(awk '{print $14+$15}' "/proc/$qpid_watch/stat" 2>/dev/null || echo 0)
+    fi
+    now="$size:$dsize:$cpu"
+    if [ "$now" = "$lastsize" ]; then stalled=$((stalled + 15)); else stalled=0; fi
+    lastsize=$now
     if [ "$stalled" -ge 900 ]; then
       echo >&2
-      echo "vm-iso-install: the console has not moved in 15 minutes -- wedged." >&2
+      echo "vm-iso-install: no console output, no disk growth and no CPU for 15 minutes -- wedged." >&2
       tail -25 "$WORK/install-console.log" 2>/dev/null | tr -d '\r' | sed 's/^/    /' >&2
       return 1
     fi
@@ -152,7 +172,10 @@ null_vm_wait() {
   echo "vm-iso-install: gave up after ${limit}m" >&2
   return 1
 }
-[ "${1:-install}" = wait ] && { null_vm_wait; exit $?; }
+# `wait [pid]` -- the pid is optional, and re-attaching to an install already
+# in flight is exactly when it is wanted: with it, CPU time joins the progress
+# signals instead of the check running on disk and console alone.
+[ "${1:-install}" = wait ] && { null_vm_wait "${2:-}"; exit $?; }
 
 # AND ONE CHAIN AT A TIME.
 #
