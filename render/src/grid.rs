@@ -88,6 +88,21 @@ impl TextGrid {
 
     pub fn bump(&mut self) { self.generation += 1 }
 
+    /// Paint the WHOLE buffer the background colour, once.
+    ///
+    /// blit() writes only the grid area, cols*cell_w wide. On a panel whose
+    /// width is not a multiple of the cell width -- 1366 is not a multiple of 8
+    /// -- the pixels past the last column are never written, and a freshly
+    /// allocated shm slot leaves them transparent: the bar showed the wallpaper
+    /// through a strip at its right edge on real hardware, invisible in a VM at
+    /// 1280 which happens to divide evenly. Called once per slot at creation, so
+    /// it costs nothing per frame; the delta blit paints the cells on top.
+    pub fn fill(&self, buf: &mut [u8]) {
+        for px in buf.chunks_exact_mut(4) {
+            px[0] = self.bg[2]; px[1] = self.bg[1]; px[2] = self.bg[0]; px[3] = 0xff;
+        }
+    }
+
     /// Blit into a BGRA buffer, skipping rows the target already has.
     ///
     /// Returns the number of rows copied, which is the figure to watch: a
@@ -121,5 +136,25 @@ impl TextGrid {
             }
         }
         copied
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fill_leaves_no_transparent_pixel() {
+        // The bug this guards: a buffer wider than cols*cell_w has a right strip
+        // that blit never touches. fill() must cover the WHOLE buffer opaque, so
+        // that strip is the background, not the transparent shm zero that showed
+        // the wallpaper through the bar's edge on a 1366-wide panel.
+        let g = TextGrid::new(2, 1, [5, 6, 10]);
+        let mut buf = vec![0u8; 20 * 4];          // 20px wide, grid covers less
+        g.fill(&mut buf);
+        for (i, px) in buf.chunks_exact(4).enumerate() {
+            assert_eq!(px[3], 0xff, "pixel {i} is transparent after fill");
+            assert_eq!([px[2], px[1], px[0]], [5, 6, 10], "pixel {i} is not the bg");
+        }
     }
 }

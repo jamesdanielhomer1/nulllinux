@@ -418,8 +418,9 @@ impl Bar {
         if self.slots.is_empty() {
             let stride = self.px_w as i32 * 4;
             for _ in 0..2 {
-                if let Ok((buffer, _)) = self.pool.create_buffer(
+                if let Ok((buffer, canvas)) = self.pool.create_buffer(
                     self.px_w as i32, self.px_h as i32, stride, wl_shm::Format::Argb8888) {
+                    self.grid.fill(canvas);
                     self.slots.push(Slot { buffer, gen: 0 });
                 }
             }
