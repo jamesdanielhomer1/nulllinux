@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Copy the HDR cell master somewhere that is not this machine (§11 Phase 9).
+# Copy the HDR cell master AND the repository somewhere that is not this
+# machine (§11 Phase 9).
 #
 # The master is the ONE artefact that cannot be regenerated cheaply -- 240
 # frames, 95 s of GPU tracing, and it is the input every surface is derived
@@ -74,4 +75,48 @@ if ( cd "$target" && sha256sum --quiet -c MANIFEST.sha256 ); then
 else
   echo "VERIFICATION FAILED -- the copy is not trustworthy" >&2
   exit 1
+fi
+
+# AND THE SOURCE, WHICH IS THE OTHER THING THAT ONLY EXISTS HERE.
+#
+# The header of this file reasons that the master is the one artefact worth
+# copying because "everything else in this repository is either source or
+# derivable". That is true in isolation and false in context: derivable FROM THE
+# SOURCE, and the source is on nvme0n1, which the install of this distribution
+# onto this machine erases. There is no git remote. So the tool protected the
+# one thing that cannot be rebuilt and not the thing that rebuilds everything
+# else.
+#
+# A bundle rather than a copy of the working tree: one file, the entire history,
+# every branch and tag, and `git clone` reads it directly. It is also
+# verifiable, which a recursive copy of .git is not -- and an unverified backup
+# is the kind of thing that is discovered to be empty on the day it is needed.
+if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  bundle="$DEST/nulllinux-$(git -C "$ROOT" rev-parse --short HEAD).bundle"
+  echo
+  echo "bundling the repository to $bundle ..."
+  if git -C "$ROOT" bundle create "$bundle" --all 2>&1 | sed 's/^/  /'; then
+    sync
+    if git -C "$ROOT" bundle verify "$bundle" >/dev/null 2>&1; then
+      echo "  bundle verified: $(du -h "$bundle" | cut -f1), $(git -C "$ROOT" rev-list --all --count) commits"
+      echo "  restore with:  git clone $(basename "$bundle") nulllinux"
+    else
+      echo "BUNDLE VERIFICATION FAILED -- the source backup is not trustworthy" >&2
+      exit 1
+    fi
+  else
+    echo "bundling failed" >&2; exit 1
+  fi
+
+  # UNCOMMITTED WORK IS NOT IN THE BUNDLE, and saying so is the whole point:
+  # a backup that silently omits the last hour's edits is worse than none.
+  if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
+    echo
+    echo "  NOTE: the working tree is dirty and a bundle carries COMMITS ONLY."
+    git -C "$ROOT" status --porcelain | sed 's/^/    /'
+    echo "  commit before relying on this."
+  fi
+else
+  echo
+  echo "  NOTE: $ROOT is not a git repository -- only the master was copied." >&2
 fi
