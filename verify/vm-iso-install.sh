@@ -79,7 +79,11 @@ stop_guest() {
   for p in /proc/[0-9]*; do
     exe=$(readlink -f "$p/exe" 2>/dev/null) || continue
     case "$exe" in */qemu-system-x86_64) ;; *) continue ;; esac
-    grep -qa "installed.qcow2" "$p/cmdline" 2>/dev/null || continue
+    # THE WHOLE PATH, NOT A SUBSTRING OF IT. "installed.qcow2" is also a
+    # substring of "uefi-installed.qcow2", so this stopped the UEFI test guest
+    # every time somebody booted this one -- a pattern matching more than it
+    # meant, which is the same mistake as `pkill -f` in a different costume.
+    grep -qa -- "$DISK" "$p/cmdline" 2>/dev/null || continue
     pids="$pids ${p#/proc/}"
     kill "${p#/proc/}" 2>/dev/null
   done
