@@ -86,8 +86,12 @@ null_vm_wait() {
       tail -25 "$WORK/install-console.log" 2>/dev/null | tr -d '\r' | sed 's/^/    /' >&2
       return 1
     fi
+    # Through bin/pkg, not `rpm -q`: §9.1 forbids naming a package manager
+    # outside the abstraction, and check-package-abstraction caught this line
+    # the first time it was written. It is also the better test -- it proves
+    # the installed machine's own pkg works, on the installed machine.
     if sshg -o ConnectTimeout=5 \
-         'test ! -d /run/install/repo && rpm -q nulllinux' >/dev/null 2>&1; then
+         'test ! -d /run/install/repo && /opt/nulllinux/bin/pkg is-installed nulllinux' >/dev/null 2>&1; then
       echo "  the installed system is up and has the nulllinux package"
       return 0
     fi
