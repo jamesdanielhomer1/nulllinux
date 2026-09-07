@@ -180,6 +180,40 @@ for key in gtk-theme-name gtk-icon-theme-name; do
   fi
 done
 
+# --- and an application has to be able to REACH the theme -------------------
+#
+# §8.10's point is that naming a theme is not the same as resolving it. There
+# is a second version of the same mistake: an application that cannot read GTK
+# themes at all, however correctly they are named.
+#
+# LibreOffice is the case. Without a VCL plugin it draws its own widgets in its
+# own colours and looks like nothing else on the machine. `libreoffice-gtk3` is
+# the plugin, and it is a WEAK dependency of the LibreOffice packages -- which
+# means "usually installed", and §9.1 is about not relying on usually.
+echo
+echo "== an application can reach the theme, not just name it"
+DECLARED=$(./bin/pkg list-packages base 2>/dev/null | tr ' ' '\n' | sort -u)
+declares() { printf '%s\n' "$DECLARED" | grep -qix "$1"; }
+
+if declares libreoffice-writer || declares libreoffice-calc || declares libreoffice-impress; then
+  if declares libreoffice-gtk3; then
+    printf '  %-38s %s\n' "LibreOffice's toolkit" "libreoffice-gtk3, so it resolves the GTK theme"
+  else
+    printf '  %-38s %s\n' "LibreOffice's toolkit" "NONE -- it would draw its own widgets"
+    fail=1
+  fi
+fi
+
+# And the theme has to be somewhere GTK looks. A correctly named theme in the
+# wrong directory resolves to nothing, silently, which is the whole of §8.10.
+for d in /usr/share/themes/nullLinux/gtk-3.0/gtk.css; do
+  if [ -r "$d" ]; then
+    printf '  %-38s %s\n' "the theme GTK would find" "$d"
+  else
+    printf '  %-38s %s\n' "the theme GTK would find" "(not installed on this machine)"
+  fi
+done
+
 if [ $fail = 0 ]; then
   echo "PASS: every theme has one name, and every place that names it agrees"
 else

@@ -176,6 +176,22 @@ bzip2                           # assumption that leaves a hole.
 file                            # null-open dispatches on MIME type, read from
                                 # the bytes, not on a name a download can lose
 
+# --- documents ------------------------------------------------------------
+#
+# A machine somebody uses every day opens a spreadsheet somebody sent them.
+# Writer, Calc and Impress -- not the whole suite: Base wants a JRE, and Draw
+# and Math are not what anybody installs an office suite for.
+#
+# libreoffice-gtk3 IS THE POINT. Without a VCL plugin LibreOffice draws its own
+# widgets in its own colours and looks like nothing else on the machine; with
+# it, it resolves /usr/share/themes/nullLinux like every other GTK application
+# here. It is a weak dependency of the others, which means "usually installed"
+# and not "installed", and §9.1 is about not relying on usually.
+libreoffice-writer
+libreoffice-calc
+libreoffice-impress
+libreoffice-gtk3
+
 # --- firmware, because a laptop with no wifi cannot fix itself ------------
 #
 # ONE FAMILY IS MISSING, AND IT IS THE ONE THIS MACHINE NEEDS.

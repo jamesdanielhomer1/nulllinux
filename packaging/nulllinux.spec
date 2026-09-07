@@ -84,6 +84,10 @@ Requires:       iw
 Requires:       iwlwifi-dvm-firmware
 Requires:       iwlwifi-mld-firmware
 Requires:       iwlwifi-mvm-firmware
+Requires:       libreoffice-calc
+Requires:       libreoffice-gtk3
+Requires:       libreoffice-impress
+Requires:       libreoffice-writer
 Requires:       mpv
 Requires:       nano
 Requires:       nftables
