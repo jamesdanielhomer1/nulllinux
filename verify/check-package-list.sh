@@ -91,5 +91,52 @@ done < <(grep -oE 'verify/[a-z0-9-]+\.(sh|py)' "$SPEC" | sort -u)
 grep -q 'could not find the Requires block to regenerate' bin/null-package \
   || { note "bin/null-package no longer reports a failure to regenerate the Requires block"; fail=1; }
 
+# AND WHAT SHIPS IS WHAT THE GENERATOR WOULD WRITE TODAY.
+#
+# assets/prebuilt/ is generated, not committed, and it is what the RPM carries.
+# bake/make_boot_assets.py was changed to write `Font=Terminus 12` where it had
+# written Cantarell; system/plymouth-theme picked that up and
+# assets/prebuilt/boot/plymouth-theme -- the copy an installed machine actually
+# boots -- did not, because nobody re-ran the generator. Every installed
+# nullLinux declared a typeface this system does not ship, and
+# verify/check-one-typeface.sh passed throughout, because it read config/ and
+# system/ and never the artefact.
+#
+# REGENERATED AND COMPARED, not dated. The first version of this compared the
+# generator's commit time against the output's mtime and reported two files
+# stale whose contents were perfectly correct -- a regenerated file can easily
+# be older than the commit that regenerated it. Asking what the generator would
+# write today is the only question with a true answer.
+#
+# The TEXT outputs only. The images are a deterministic render whose
+# reproducibility the bake already checks, and comparing them here would mean
+# re-rendering 32 frames to answer a question about a config file.
+if [ -d assets/prebuilt/boot ] && command -v python3 >/dev/null 2>&1; then
+  gtmp=$(mktemp -d)
+  if python3 bake/make_boot_assets.py --out "$gtmp" >/dev/null 2>&1; then
+    drift=0
+    for rel in plymouth-theme/nullLinux.plymouth sddm-theme/Main.qml; do
+      [ -r "$gtmp/$rel" ] || continue
+      for where in system assets/prebuilt/boot; do
+        [ -r "$where/$rel" ] || continue
+        if ! cmp -s "$gtmp/$rel" "$where/$rel"; then
+          note "$where/$rel is not what bake/make_boot_assets.py writes now:"
+          diff "$where/$rel" "$gtmp/$rel" 2>/dev/null | head -6 | sed 's/^/        /'
+          drift=$((drift+1))
+        fi
+      done
+    done
+    if [ "$drift" -gt 0 ]; then
+      note "      run bin/null-prebake -- an installed machine boots the stale copy"
+      fail=1
+    else
+      note "ok    the shipped boot and greeter themes are what the generator writes"
+    fi
+  else
+    note "(the boot asset generator would not run here; the shipped themes are not compared)"
+  fi
+  rm -rf "$gtmp"
+fi
+
 [ $fail = 0 ] && echo "PASS: the package asks for exactly what the list declares"
 exit $fail

@@ -34,7 +34,23 @@ ALLOWED='Terminus|monospace|sans-serif|serif|inherit|initial|unset|none'
 # declarations of a typeface. A check that cries wolf six times is a check
 # people stop reading. Generators are handled separately below, by looking for
 # the literal lines they emit.
-FILES=$(find config system -type f \
+# assets/prebuilt IS SCANNED, because it is what actually ships.
+#
+# This read `config system` and nothing else. system/plymouth-theme was fixed
+# to say Terminus; assets/prebuilt/boot/plymouth-theme, which is the copy the
+# RPM carries and an installed machine boots, still said
+#
+#     Font=Cantarell 12
+#     TitleFont=Cantarell Light 30
+#
+# The two directories are otherwise byte-identical -- every throbber frame
+# matches -- so the prebuilt set was simply generated before the fix and never
+# regenerated. The check verified the SOURCE and never the ARTEFACT, which is
+# the difference between a system that is correct and one that ships correct.
+#
+# Found by asking an installed guest what its splash declared, not by reading
+# this tree.
+FILES=$(find config system assets/prebuilt -type f \
         \( -name '*.ini' -o -name '*.conf' -o -name '*.css' -o -name '*.qml' \
            -o -name '*.plymouth' -o -name 'dunstrc' -o -name 'zathurarc' \
            -o -name 'config' \) 2>/dev/null)
