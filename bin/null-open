@@ -65,7 +65,16 @@ case $role in
   # vi IS IN THIS LIST because vim-minimal, which @core installs, provides
   # /usr/bin/vi and no `vim` at all -- so a list without it would skip straight
   # past the editor the machine actually has.
-  editor) cmd=$(first "nvim" "vim" "vi" "nano") ;;
+  # NANO FIRST, and nano is the one that is declared.
+  #
+  # This read nvim, vim, vi, nano -- and nvim is not in packages/fedora/base.list,
+  # so on an installed machine `first` fell through to `vi` from @core: the least
+  # friendly of the four, modal, and the only everyday window in this system not
+  # drawn in its own colours. config/nano/nanorc is generated from the palette
+  # like every other surface, so this one is now.
+  #
+  # The others stay as fallbacks for a machine that has them and not nano.
+  editor) cmd=$(first "nano" "nvim" "vim" "vi") ;;
   image)  cmd=$(first "imv" "imv-wayland" "swayimg" "nsxiv" "feh") ;;
   pdf)    cmd=$(first "zathura" "mupdf" "evince" "okular") ;;
   video)  cmd=$(first "mpv" "vlc" "ffplay") ;;

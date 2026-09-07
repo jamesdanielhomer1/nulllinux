@@ -357,6 +357,8 @@ done
 #   imv      /etc/imv_config            (a FILE, and not even under a directory)
 #   zathura  /etc/zathurarc             (a FILE)
 #   btop     -- none. Seeded per user by bin/null-firstrun.
+#   nano     /etc/nanorc                (man 5 nanorc names it first, ahead of
+#                                        ~/.nanorc and the XDG path)
 #
 # Format: <config subdirectory>|<destination>. A destination ending in / is a
 # directory to fill; anything else is a single file to write.
@@ -369,6 +371,7 @@ for entry in \
     "swaynag/config|/etc/swaynag/config" \
     "systemd/10-null-lid.conf|/etc/systemd/logind.conf.d/10-null-lid.conf" \
     "vconsole/vtrgb|/etc/vconsole/vtrgb" \
+    "nano/nanorc|/etc/nanorc" \
   ; do
   from=${entry%%|*}; to=${entry##*|}
   src="$ROOT/config/$from"

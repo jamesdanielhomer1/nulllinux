@@ -34,6 +34,7 @@ declare -A CARRIED=(
   [mpv]="null-install:/etc/mpv:mpv|/etc/mpv/"
   [imv]="null-install:/etc/imv_config:imv/config|/etc/imv_config"
   [zathura]="null-install:/etc/zathurarc:zathura/zathurarc|/etc/zathurarc"
+  [nano]="null-install:/etc/nanorc:nano/nanorc|/etc/nanorc"
   [gtk-3.0]="null-install:/etc/xdg/gtk-3.0 and /usr/share/themes/nullLinux:gtk-\$v"
   [gtk-4.0]="null-install:/etc/xdg/gtk-4.0 and /usr/share/themes/nullLinux:gtk-\$v"
   [sway]="null-install:/etc/sway/config includes it from the checkout:/etc/sway/config"
