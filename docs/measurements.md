@@ -1,5 +1,14 @@
 # Measurements
 
+> **`nox` means two different machines in this file.** Every figure below was
+> measured when it was recorded, and none has been rewritten. The machine was
+> an i5-9300H with a GTX 1660 Ti and a 1920x1080 panel until the disk was moved
+> into a ThinkPad T480 — 1366x768, Intel graphics, no discrete GPU — which is
+> what `nox` is now. Where a measurement names the old hardware it is right
+> about the hardware it was taken on, and says nothing about the machine
+> nullLinux is going onto. The GPU figures in particular have no successor:
+> the T480 cannot run the bake, which is why the hero ships prebuilt.
+
 **Every number in this project is conditional on inputs that can change without
 anyone noticing** (NULL.md §10.7). This file is the register: what was measured,
 what it was measured *against*, when, and how to take it again.
@@ -478,7 +487,7 @@ That is the artefact worth keeping (§5.1) -- tone, colour and quantisation all
 re-run from it in about 80 seconds, so the curve is re-tunable without ever
 re-tracing.
 
-**THIS SETTLES A DESIGN QUESTION.** §0.5 assumed the bake might be too
+**THIS SETTLES A DESIGN QUESTION.** §5.7 assumes the bake is too
 expensive to run at install time and that shipping prebuilt assets in the
 package was therefore mandatory. At three and a half minutes it is not
 mandatory; it is a convenience. A machine with a working Vulkan GPU can bake
@@ -501,7 +510,7 @@ run's numbers. This bake chose `--black-pct 0 --white-pct 99.0 --gamma 1.0`:
 ## The bake without a GPU
 
 The guest has no graphics hardware at all -- no render node, only `card0` --
-and Mesa's software Vulkan, llvmpipe, on 4 vCPUs. That is the case §0.5 said
+and Mesa's software Vulkan, llvmpipe, on 4 vCPUs. That is the case §5.7 says
 prebuilt assets exist for, and it had never been measured.
 
 | | nox (GTX 1660 Ti, NVK) | guest (llvmpipe, 4 vCPU) | ratio |

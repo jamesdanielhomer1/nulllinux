@@ -1,11 +1,13 @@
-# nox — building a desktop from one baked asset
+# nullLinux — an operating system from one baked asset
 
 **A complete build specification.** This document is self-contained. Someone
-handed only this file, a Fedora 44 machine and the hardware described in §0.2
-should be able to build the system end to end without asking a further
-question. Where a decision is open, this document makes it and says why; where
-a number must be measured on the machine rather than assumed, it says that
-too, and gives the method.
+handed only this file and a Fedora 44 machine should be able to build the
+system end to end without asking a further question. §0.3 describes the machine
+every measurement here was taken on; it is a reference, not a requirement.
+
+Where a decision is open, this document makes it and says why; where a number
+must be measured on the machine rather than assumed, it says that too, and
+gives the method.
 
 It is a specification, not a tutorial. It states what must be true, how to
 verify that it is true, and in what order to make it true. It does not contain
@@ -19,20 +21,44 @@ not an input to it.
 
 ### 0.1 What is being built
 
-A desktop environment in which **every visible surface is a projection of one
-baked artefact**. A physical simulation is raytraced once, quantised to
-characters in a bitmap font, and every surface — wallpaper, screensaver, status
-bar, side column, menus, boot splash, login greeter, lock screen, virtual
-console, terminal chrome, and the interiors of third-party applications — is
-that same artefact resampled onto whatever cell grid that surface has.
+**nullLinux**: a Fedora 44 Remix, shipped as an installable ISO, in which every
+visible surface is a projection of **one baked artefact**. A physical simulation
+is raytraced once, quantised to characters in a bitmap font, and every surface —
+wallpaper, screensaver, status bar, side column, menus, boot splash, login
+greeter, lock screen, virtual console, terminal chrome, the editor, and the
+interiors of third-party applications — is that same artefact resampled onto
+whatever cell grid that surface has.
 
 The result is not a colour scheme applied consistently. It is one asset,
 rendered many ways.
 
-### 0.2 The target machine
+The name is not decoration. A null geodesic is the path light takes, and the
+hero is the object that bends them; the desktop is what is left where the light
+does not come back.
 
-This specification is written against a machine with the following properties.
-Where a property is load-bearing, the section that depends on it says so.
+**There is one hero and it is called `null`.** An earlier plan had two — `nox`
+here and `sol`, a star, on another machine. Per-machine heroes are a good idea
+for a desktop belonging to one person and a bad one for a distribution: they
+make the identity of the system depend on which box it was installed on, and
+they double every asset that has to be baked, shipped and verified. `sol` is
+cut, and `nox` is a hostname rather than a hero.
+
+### 0.2 The goal, and how it ends
+
+**To replace the system on `nox` and be the machine somebody uses every day.**
+
+Not a theme, not a configuration applied to somebody else's desktop: a
+distribution with its own installer, its own package, its own boot media, and
+its own answer for every ordinary thing a person does at a computer.
+
+It is finished when it is installed on real hardware and nothing about using it
+sends you back to a terminal to work around it.
+
+### 0.3 The reference machine, and every other machine
+
+`nox` is the machine every measurement in this document was taken on. It is the
+REFERENCE, not a requirement, and anything that reads this table as a guarantee
+about the hardware is wrong.
 
 | | |
 |---|---|
@@ -41,15 +67,19 @@ Where a property is load-bearing, the section that depends on it says so.
 | init and services | systemd |
 | initramfs | dracut |
 | bootloader | GRUB2 with Boot Loader Specification entries in `/boot/loader/entries/` |
-| CPU | Intel Core i5-9300H, 4 cores / 8 threads |
-| integrated GPU | Intel UHD Graphics 630 |
-| discrete GPU | NVIDIA GeForce GTX 1660 Ti Mobile (Turing) |
-| panel | 1920x1080 internal display |
+| model | ThinkPad T480 |
+| graphics | Intel, integrated; no discrete GPU |
+| panel | 1366x768 — a width that is 2 x 683, and 683 is prime |
+| firmware | UEFI, with secure boot enrolled |
 | root filesystem | **unencrypted** |
-| machine identity | the reference machine is `nox`; the hero is `null`, a Kerr black hole |
 
-**Verify each of these before starting.** Three of them change the plan
-materially if they are wrong:
+**Any panel, any number of monitors, any machine.** The profile in `machines/`
+is GENERATED from the detected output by `machine generate`, never written by
+hand, and `nulllinux-machine-sync` re-derives it on any boot where the recorded
+hardware and the real hardware disagree.
+
+Three properties change the plan materially if they are wrong, so verify them
+rather than assuming:
 
 ```
 rpm-ostree status        # must FAIL — an ostree variant needs a different §9
@@ -62,72 +92,29 @@ splash acquires a passphrase prompt and the initramfs acquires a
 password-agent requirement, and both must be designed before the splash is
 attempted. This document assumes no encryption throughout.
 
-### 0.3 What "complete" means
+### 0.4 What "complete" means
 
-The build is complete when all of the following hold simultaneously:
-
-1. Every acceptance gate in §11 has been met, in order, without skipping.
-2. Every verifier in §10 runs and passes.
-3. Every number quoted anywhere in the delivered work is either derived in
-   this document or was measured on this machine, and carries a record of the
-   inputs it was measured against (§10.7).
-4. The machine boots, unlocks, logs in, runs a working day and locks again
+1. Every verifier in §10 runs and passes — on an installed nullLinux, not only
+   on the machine that builds it. A check that has only ever run on the build
+   host is a check that has not run.
+2. Every number quoted anywhere is either derived in this document or was
+   measured on a machine, and carries a record of the inputs it was measured
+   against (§10.7).
+3. The machine boots, unlocks, logs in, runs a working day and locks again
    without any surface departing from §1.2.
+4. It is installed on real hardware. Everything before that is evidence about
+   a virtual machine, which is a different claim.
 
-### 0.5 nullLinux — from a desktop to a distribution
+### 0.5 What is ours, and what is Fedora's
 
-**Amended 2026-09-02, at James's direction.** What §0.1 describes is now the
-desktop of a distribution called **nullLinux**: a Fedora Remix, shipped as an
-installable ISO, rather than a configuration applied to one laptop.
-
-The name is not decoration. A null geodesic is the path light takes, and the
-hero is the object that bends them; the desktop is what is left where the light
-does not come back.
-
-**There is one hero and it is called `null`.** The plan had two -- `nox` here
-and `sol`, a star, on another machine -- and per-machine heroes were a good
-idea for a desktop belonging to one person and a bad one for a distribution:
-they make the identity of the system depend on which box it was installed on,
-and they double every asset that has to be baked, shipped and verified. `sol`
-is cut. `nox` becomes `null`, which is the machine's hostname's business and
-no longer the hero's.
-
-This changes four things, and each of them contradicts something written
-earlier in this document. They are set out here rather than edited in silently,
-because the earlier text was RIGHT for what it was written against.
-
-**One machine becomes any machine.** §0.2 is retitled in effect: it is the
-REFERENCE machine, the one every measurement in this document was taken on, and
-no longer the only machine. Anything that reads §0.2 as a guarantee about the
-hardware is now wrong. The profile in `machines/` is GENERATED from the
-detected output by `machine generate`, not written by hand; a machine with no
-profile used to be a machine on which nothing ran at all.
-
-**Exact division becomes best fit.** §2.1 requires both strikes to divide the
-output exactly. That is true of 1920x1080 and cannot be true of every panel:
-1366x768, one of the commonest laptop displays ever made, is divided exactly by
-none of Terminus's nine strikes, because 1366 = 2 x 683 and 683 is prime. The
-rule is now that the grid must FIT, that the strike is chosen for legibility
-first with exactness as a tiebreak, and that any unreached pixels are counted
-and reported. A dozen pixels behind the frame cost nothing; a rule no hardware
-can satisfy costs the installation.
-
-**Derived assets ship built.** §5.7 says derived files are never committed, and
-that stands for the repository. A distribution is not a repository: the ISO
-must contain a working desktop for hardware that may have no GPU to bake with
-and no reason to wait. The bake therefore runs ONCE on the build host, and its
-output ships inside the package. The rule is unchanged -- the artefacts are
-still derived, still rebuildable byte-identically, and still absent from git.
-
-**The line between our software and Fedora's is drawn explicitly.** The base
-system is Fedora's and stays that way: kernel, systemd, dracut, GRUB,
+The base system is Fedora's and stays that way: kernel, systemd, dracut, GRUB,
 NetworkManager, PipeWire and WirePlumber, BlueZ, Mesa, and the compositor.
 Rewriting those makes the system slower, buggier and less safe, and thins
-nothing -- `nmcli` and `wpctl` are thin clients to daemons that would have to
-be reimplemented wholesale behind them.
+nothing — `nmcli` and `wpctl` are thin clients to daemons that would have to be
+reimplemented wholesale behind them.
 
 Everything ABOVE that line is ours to write, and most of it already is. What
-remains to replace, with what it costs today:
+remains third-party, with what replacing it would buy:
 
 | replaced by us | today | why it is worth writing |
 |---|---|---|
@@ -145,10 +132,26 @@ remains to replace, with what it costs today:
 
 The measure of success is not the count. It is that the desktop starts fewer
 processes, holds less resident memory, and draws every surface from the same
-atlas -- which is what §1.1 asked for and what a dozen third-party front ends
+atlas — which is what §1.1 asked for and what a dozen third-party front ends
 quietly prevent.
 
-### 0.4 How to read this document
+Some things are deliberately NOT ours and never will be: the office suite, the
+browser engine, the mail client's protocol stack. Writing those is a different
+project.
+
+### 0.6 What is out of scope
+
+**Accessibility.** There is none — no screen reader, no magnifier, no sticky
+keys. This is a decision, not an oversight: AT-SPI, which every Linux screen
+reader is built on, has no working path on a wlroots compositor, so providing it
+would mean either changing compositor or shipping a checkbox that does nothing.
+Recorded at James's direction, 2026-09-07.
+
+**Third-party application interiors.** A flatpak is sandboxed and does not see
+`/usr/share/themes`, so it arrives in its own colours. §8.10 treats application
+interiors as their own tier; this system styles the windows it owns.
+
+### 0.7 How to read this document
 
 Sections §1–§8 are **specification**: what must be true of the finished system.
 Section §9 is **integration**: what must be done to Fedora specifically.
@@ -276,12 +279,24 @@ At 1920x1080 and scale 1.0, the resulting grids are:
 | ter-u22n | 11 x 22 | 174 x 49 |
 | ter-u24n | 12 x 24 | 160 x 45 |
 
-**Use 10x18 (`ter-u18n`) as the interface strike.** It divides 1920 exactly,
-gives a 192-column grid with room for a dense status line, and is the largest
-strike that still leaves a 30-cell side column under 16% of the display width.
-If it reads too small on this panel, move to 12x24 and re-derive everything in
-§2.4 — the strike is a parameter of the build, but only one strike is the
-interface strike.
+**THE GRID MUST FIT. IT DOES NOT HAVE TO DIVIDE.**
+
+An earlier version of this section required both strikes to divide the output
+exactly. That is true of 1920x1080 and cannot be true of every panel: 1366x768,
+one of the commonest laptop displays ever made, is divided exactly by none of
+Terminus's nine strikes, because 1366 = 2 x 683 and 683 is prime. A rule no
+hardware can satisfy costs the installation; a dozen pixels behind the frame
+cost nothing.
+
+So: the strike is chosen for **legibility first**, with exact division as a
+tiebreak, any unreached pixels are **counted and reported**, and `machine
+check-grid` asserts the grid fits rather than that it divides. On the reference
+panel that is `ter-u16n` at 8x16 — 170 x 48 cells, 6 px unreached.
+
+The strike is not chosen here at all. It is chosen by `machine choose-interface`
+from the panel the machine actually has, and re-chosen whenever the hardware
+disagrees with the recorded profile. Only one strike is the interface strike on
+any given machine.
 
 **A second, smaller strike is used for the bake** (§2.2). These are different
 fonts for every purpose in this document.
@@ -1147,9 +1162,18 @@ than its source**. Rebuilding only when missing is a defect: after a re-bake
 every derived file is present and stale, which is exactly the drift this rule
 exists to prevent.
 
-One deliberate exception is permitted: a small derived asset may be committed
-if it is the only way to rebuild the system on a machine with no GPU. Mark such
-a file explicitly and justify it in place.
+**A DISTRIBUTION SHIPS THEM ANYWAY.** The rule above is about history, not
+about what reaches a user's disk. The ISO must contain a working desktop for
+hardware that may have no GPU to bake with and no reason to wait, so the bake
+runs ONCE on the build host and its output travels inside the package as
+`Source1`. Those artefacts are still derived, still rebuildable
+byte-identically, and still absent from git — which is the whole of the rule.
+
+`.gitignore` carries the list, and says why for each entry. The prebuilt hero
+for nine strikes is 13 MB; an RPM that reached git once was 8.9 MB, larger than
+every source file in this repository put together; and 88 MB of lorax solver
+output reached it another time. A built artefact in history is the same mistake
+at three different sizes.
 
 ---
 
