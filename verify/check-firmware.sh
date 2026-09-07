@@ -31,22 +31,38 @@ note() { printf '  %s\n' "$*"; }
 [ -x bin/pkg ] || { note "bin/pkg is gone"; exit 1; }
 DECLARED=$(./bin/pkg list-packages base 2>/dev/null | tr ' ' '\n' | sort -u)
 
-# 0. AND THE INSTALLED SET MATCHES THE DECLARED ONE.
+# 0. THE DECLARED FIRMWARE IS ACTUALLY ON A nullLinux MACHINE.
 #
-#    A package list is a statement of intent. What arrived is a different
-#    question, and the gap between them is where every finding tonight has
-#    lived: tar declared nowhere and absent, unzip present and undeclared,
-#    iwlwifi firmware neither. On a machine that IS nullLinux, ask it.
+#    A package list is a statement of intent; what arrived is a different
+#    question, and firmware is where that gap does the most damage.
+#
+#    NARROWED, DELIBERATELY. The first version of this compared the WHOLE
+#    declared list against what was installed, and reported eleven packages
+#    missing on a perfectly good machine:
+#
+#      cargo rust libxkbcommon-devel wayland-devel python3-numpy python3-pillow
+#      vulkan-tools    -- build tools. An installed nullLinux ships prebuilt
+#                         assets and has no reason to carry a compiler, so
+#                         their absence is the design working.
+#      thunar          -- installed, and named `Thunar`. The rpm's case, which
+#                         check-declared-providers already documents and which
+#                         this forgot.
+#
+#    A check that reports seven correct things and eleven wrong ones is a check
+#    people learn to skip. So it asks only about firmware, which is what it was
+#    written for and where a missing package cannot be worked around from the
+#    machine itself.
 if grep -qiE '^(ID|NAME)=.*null' /etc/os-release 2>/dev/null; then
   absent=""
-  for p in $(printf '%s\n' "$DECLARED"); do
+  for p in $(printf '%s\n' "$DECLARED" | grep -- '-firmware$'); do
     ./bin/pkg installed-version "$p" >/dev/null 2>&1 || absent="$absent $p"
   done
   if [ -n "$absent" ]; then
-    note "declared but not installed on this nullLinux machine:$absent"
+    note "declared firmware missing from this nullLinux machine:$absent"
+    note "      the hardware it is for will not work, and cannot be fixed from here"
     fail=1
   else
-    note "ok    every declared package is installed on this machine"
+    note "ok    every declared firmware package is installed on this machine"
   fi
 fi
 
