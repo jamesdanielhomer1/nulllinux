@@ -40,9 +40,19 @@ BuildRequires:  rust
 BuildRequires:  cargo
 BuildRequires:  systemd-rpm-macros
 
-# Runtime. Kept in step with packages/fedora/base.list by
-# verify/check-package-list.sh, so the two cannot drift.
+# Runtime. GENERATED from packages/fedora/base.list by bin/null-package, and
+# checked by verify/check-package-list.sh.
+#
+# This comment used to claim the checker alone kept them in step, and there was
+# no such file: a comment describing an intention, which is the most expensive
+# kind. They drifted -- cava was in the list and not here, and an ISO booted
+# into a desktop whose spectrum said "cava did not start". The generator is the
+# fix; the checker exists now too, because between an edit to the list and the
+# next package build this block says something false, and that is what a reader
+# and a distribution packager see.
 Requires:       NetworkManager-tui
+Requires:       amd-gpu-firmware
+Requires:       atheros-firmware
 Requires:       ax86-terminus-ttf-fonts
 Requires:       bc
 Requires:       bluez
@@ -71,6 +81,9 @@ Requires:       gvfs-mtp
 Requires:       gzip
 Requires:       imv
 Requires:       iw
+Requires:       iwlwifi-dvm-firmware
+Requires:       iwlwifi-mld-firmware
+Requires:       iwlwifi-mvm-firmware
 Requires:       mpv
 Requires:       nano
 Requires:       nftables
@@ -80,6 +93,8 @@ Requires:       pipewire-pulseaudio
 Requires:       playerctl
 Requires:       plymouth-plugin-two-step
 Requires:       polkit
+Requires:       qcom-firmware
+Requires:       realtek-firmware
 Requires:       sddm
 Requires:       slurp
 Requires:       sway

@@ -63,6 +63,7 @@ run "tests stay off the host"        ./verify/check-tests-stay-off-the-host.sh
 run "accounts, and their refusals"   ./verify/check-users.sh
 run "archives actually open"         ./verify/check-archives.sh
 run "firmware nothing went without" ./verify/check-firmware.sh
+run "the list and the package agree" ./verify/check-package-list.sh
 run "every tool has a caller (§10.1)"     ./verify/check-callers.sh
 run "themes have one name (§8.10)"       ./verify/check-theme-names.sh
 run "the splash is complete (§9.6)"      ./verify/check-splash-complete.sh
