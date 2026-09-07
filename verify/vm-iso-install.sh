@@ -258,10 +258,36 @@ fi
   # numpy would not import, so the machine could not derive its own hero, and
   # the failure looked like a defect in this project rather than in the harness.
   # Any machine this decade is v2 or better; the VM should not be the exception.
+
+  # THE PANEL IS A PARAMETER, because "any panel" is the promise and every guest
+  # this harness has ever booted was qemu's default 1280x800.
+  #
+  #   NULL_VM_XRES=1366 NULL_VM_YRES=768 verify/vm-iso-install.sh install
+  #
+  # 1366x768 is nox, the machine this is going onto: a width that is not a
+  # multiple of four, which is exactly the kind of panel a grid derived from
+  # cell sizes can be wrong about. Nothing here had ever booted at one.
+  #
+  # A CAUTION FOR ANYONE READING A SCREENSHOT OF ONE. qemu's own `screendump`
+  # misreads a framebuffer whose width is not 4-aligned: at 1366 it returns an
+  # image sheared diagonally with the colour channels separated, which looks
+  # exactly like a serious rendering fault and is not. Take the picture from
+  # INSIDE the compositor instead --
+  #
+  #   verify/vm-iso-install.sh ssh 'sudo -u null XDG_RUNTIME_DIR=/run/user/1000 \
+  #     WAYLAND_DISPLAY=wayland-1 grim /tmp/shot.png'
+  #
+  # -- which showed the same desktop drawn perfectly.
+  DISPLAYARGS=()
+  if [ -n "${NULL_VM_XRES:-}" ] && [ -n "${NULL_VM_YRES:-}" ]; then
+    DISPLAYARGS=(-vga none -device "virtio-vga,xres=$NULL_VM_XRES,yres=$NULL_VM_YRES,id=vga0")
+    echo "  panel: ${NULL_VM_XRES}x${NULL_VM_YRES}"
+  fi
 setsid qemu-system-x86_64 -enable-kvm -cpu host -m "$MEM" -smp 4 \
   "${BOOTARGS[@]}" \
   -netdev user,id=n0,hostfwd=tcp::"$PORT"-:22 -device virtio-net-pci,netdev=n0 \
   -audiodev none,id=snd0 -device ich9-intel-hda -device hda-output,audiodev=snd0 \
+  "${DISPLAYARGS[@]}" \
   -display none -serial file:"$WORK/install-console.log" \
   -monitor unix:"$WORK/install-monitor",server,nowait \
   >"$WORK/qemu.log" 2>&1 &
