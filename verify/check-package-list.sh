@@ -138,5 +138,36 @@ if [ -d assets/prebuilt/boot ] && command -v python3 >/dev/null 2>&1; then
   rm -rf "$gtmp"
 fi
 
+# AND THE PACKAGE CAN COPY EVERY PATH IT NAMES.
+#
+# %install does `cp -a bin lib bake config machines packages verify docs assets
+# ...` out of a tarball made by `git archive HEAD`. Git does not track empty
+# directories -- so removing the last file from one removes the DIRECTORY from
+# the archive, and the build dies:
+#
+#     cp: cannot stat 'machines': No such file or directory
+#
+# That is exactly what happened when the build host's machine profile was
+# untracked, correctly, for being a derived file about one panel. Every check
+# in this suite passed; the package build was the only thing that noticed.
+#
+# `git ls-tree` rather than unpacking the archive: the spec copies top-level
+# paths, and that is the cheap question with the same answer.
+if [ -d .git ] && command -v git >/dev/null 2>&1; then
+  intree=$(git ls-tree HEAD --name-only 2>/dev/null)
+  missing=""
+  for pth in $(grep -oE '^cp -a [a-zA-Z0-9 ._-]+' "$SPEC" | sed 's/^cp -a //'); do
+    printf '%s\n' "$intree" | grep -qxF "$pth" || missing="$missing $pth"
+  done
+  if [ -n "$missing" ]; then
+    note "the spec copies paths git does not carry:$missing"
+    note "      %install would die on the first one. A directory with no tracked"
+    note "      file in it is not in the archive at all."
+    fail=1
+  else
+    note "ok    every path the spec copies is in the tree git ships"
+  fi
+fi
+
 [ $fail = 0 ] && echo "PASS: the package asks for exactly what the list declares"
 exit $fail
