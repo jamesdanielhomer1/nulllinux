@@ -987,6 +987,30 @@ the ESP on an EFI one without being told.
 `verify/check-kickstart-portable.sh` refuses any kickstart that names something
 only one firmware has.
 
+**Confirmed by reinstalling.** Same nine answers, same firmware, secure boot
+on, read off the resulting disk:
+
+```
+ok    hostname               nulluefi
+ok    user                   james
+ok    timezone               Europe/London
+ok    keymap                 gb
+root locked (rootpw --lock)  yes
+james in wheel               yes
+the ESP                      /dev/nbd0p1 600M
+```
+
+Every one of those was absent from the previous UEFI install, which had the
+same answers and one extra option on one line. The generated fragment came out
+15 bytes shorter — exactly `--location=mbr `.
+
+**And the installer will no longer offer the stick it is running from.** In a
+VM the medium is a virtual CD and `sr0` is filtered out; on real hardware it is
+a USB stick, which is a disk like any other. On nox the list would have shown
+the stick beside the NVMe, told apart by size and model alone, and choosing it
+means erasing the installer while it runs. The disk behind
+`/run/install/repo` is now excluded, and said to be excluded.
+
 **Two mis-diagnoses on the way, both confident.** `enforcing=0` made the
 machine boot, so SELinux looked like the cause — it was not; permissive mode
 only let a half-configured machine limp far enough to draw a login box. And an
