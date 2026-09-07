@@ -27,9 +27,12 @@ box it was installed on, and doubled everything that must be baked and shipped.
 
 ## Verification
 
-`./verify/run.sh` — **51 checks**. It was 24 when this line was written; the
-difference is one night's work, and most of the new ones exist because
-something they now catch had already gone wrong once. Menu coverage derives its topics from the menu
+`./verify/run.sh` — **57 checks**, and `verify/in-guest.sh` runs the same suite
+inside a real nullLinux machine, which is where it belongs. It was 24 when this
+line was written. Almost every one added since exists because something it now
+catches had already shipped: a splash that had never drawn, an archive tool
+with no `tar` to call, a laptop with no wifi firmware, a boot menu that counted
+to sixty, a kickstart that stopped being read halfway through on EFI. Menu coverage derives its topics from the menu
 itself: **28 topics, 27 drawing clean**, the 28th recorded with its reason.
 
 ## Since the plan: Omarchy alignment
