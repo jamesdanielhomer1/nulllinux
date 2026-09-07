@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Install this system's chrome into the mail profile (NULL.md §8.10, §9.8).
+#
+# WHY A MAIL CLIENT AT ALL, and why this one. James asked for an inbox that is
+# "secure and usable with any email provider or self hosted". That rules out
+# anything tied to one provider's API and anything that is a web page in a
+# window:
+#
+#   IMAP and SMTP, so it speaks to any server that exists, including one in the
+#     next room. Autoconfig for the providers that publish it, and manual host,
+#     port and TLS entry for the ones that do not.
+#   OpenPGP built in since 78, so encryption is not an add-on that breaks on
+#     upgrade.
+#   TLS enforced by user.js rather than left to a per-account checkbox, because
+#     a setting nobody sets is a setting that is off.
+#
+# AND IT IS GECKO, which is the reason it can be OURS rather than merely
+# adjacent. Thunderbird reads the same userChrome.css that Firefox does, from
+# the same place in the same shape of profile, so the chrome bake/make_web.py
+# already writes from assets/palette.json applies to it unchanged. A mail client
+# in this system's colours is otherwise a thing you cannot have.
+#
+# The work is in lib/gecko.sh, shared with bin/null-firefox.
+#
+# Report-first: with no --apply, nothing is written.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/gecko.sh"
+
+APPLY=0
+case "${1:-}" in
+  --apply)      APPLY=1 ;;
+  ''|--dry-run) ;;
+  -h|--help)    echo "usage: null-thunderbird [--apply]"; exit 0 ;;
+  *) echo "null-thunderbird: unknown argument '$1'" >&2; exit 2 ;;
+esac
+
+# ~/.thunderbird, not ~/.mozilla/thunderbird. It moved years ago and the old
+# path still exists on machines upgraded from before that, which is exactly the
+# kind of thing to look up rather than remember.
+null_gecko_apply thunderbird "$ROOT/config/thunderbird" "$HOME/.thunderbird" thunderbird "$APPLY"

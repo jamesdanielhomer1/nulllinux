@@ -111,6 +111,7 @@ Requires:       terminus-fonts-console
 Requires:       thunar
 Requires:       thunar-archive-plugin
 Requires:       thunar-volman
+Requires:       thunderbird
 Requires:       udisks2
 Requires:       unzip
 Requires:       webkit2gtk4.1

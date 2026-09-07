@@ -491,5 +491,6 @@ else
   echo "The one thing that is still per-user is the browser chrome, because"
   echo "Firefox reads userChrome.css only from inside a profile. Run"
   echo "  $ROOT/bin/null-firefox --apply"
+  echo "  $ROOT/bin/null-thunderbird --apply"
   echo "as that user, or skip it and the browser is simply untouched."
 fi

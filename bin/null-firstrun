@@ -154,8 +154,16 @@ for pair in "btop|btop.conf"; do
 done
 
 echo
-echo "== browser chrome (the one per-user piece)"
+echo "== browser and mail chrome (the per-user pieces)"
+# BOTH GECKO PROFILES. Each lives under the person's own home, which is why
+# these cannot be done by null-install at all: there is no profile until
+# somebody has one (§9.8).
 "$ROOT/bin/null-firefox" --apply || echo "  skipped"
+if command -v thunderbird >/dev/null 2>&1; then
+  "$ROOT/bin/null-thunderbird" --apply || echo "  skipped"
+else
+  echo "  thunderbird is not installed; nothing to theme"
+fi
 
 echo
 echo "== audio, which is why the session is not root"

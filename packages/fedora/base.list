@@ -176,6 +176,19 @@ bzip2                           # assumption that leaves a hole.
 file                            # null-open dispatches on MIME type, read from
                                 # the bytes, not on a name a download can lose
 
+# --- mail -----------------------------------------------------------------
+#
+# IMAP and SMTP, so it speaks to any server that exists -- a provider, or one
+# in the next room. Autoconfig for the providers that publish it and manual
+# host/port/TLS entry for the ones that do not. OpenPGP built in since 78, so
+# encryption is not an add-on that breaks on upgrade.
+#
+# AND IT IS GECKO, which is why it can be OURS rather than merely adjacent: it
+# reads the same userChrome.css Firefox does, from the same shape of profile,
+# so bake/make_web.py writes its chrome from the same palette. A mail client in
+# this system's colours is otherwise a thing you cannot have.
+thunderbird
+
 # --- documents ------------------------------------------------------------
 #
 # A machine somebody uses every day opens a spreadsheet somebody sent them.

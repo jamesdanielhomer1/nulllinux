@@ -42,6 +42,7 @@ declare -A CARRIED=(
   [swaylock]="null-lock:passed with -C, so it needs no install:config/swaylock/config"
   [btop]="null-firstrun:seeded per user; btop has no system-wide path:btop|btop.conf"
   [firefox]="null-firefox:userChrome lives inside a profile, which is per-user:config/firefox"
+  [thunderbird]="null-thunderbird:userChrome lives inside a profile, which is per-user:config/thunderbird"
   [git]="null-join:joined into the user's own gitconfig:git"
   [shell]="null-join:joined into the user's own shell files:shell"
   [fzf]="ORPHAN"

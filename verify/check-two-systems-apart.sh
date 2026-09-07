@@ -102,5 +102,20 @@ else
   note "ok    one hero for the distribution, not one per machine"
 fi
 
+# 6. AND A TOOL THAT WRITES INTO A PERSON'S HOME REFUSES TO DO IT ON THE
+#    OTHER SYSTEM.
+#
+#    Run on the development machine, `null-firefox --apply` found
+#    /root/.mozilla/firefox/rice -- the browser profile of the system nullLinux
+#    replaces -- and would have written this distribution's chrome into it. The
+#    tool is not wrong to act on the machine it runs on. It is wrong to do that
+#    to a machine that is a different system.
+if [ -r lib/gecko.sh ]; then
+  grep -q 'null_is_nulllinux' lib/gecko.sh \
+    && note "ok    the profile appliers refuse a machine that is not this system" \
+    || { note "lib/gecko.sh writes into a Gecko profile without asking whose machine it is"
+         fail=1; }
+fi
+
 [ $fail = 0 ] && echo "PASS: the rice and the distribution stay separate"
 exit $fail
