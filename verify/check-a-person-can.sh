@@ -97,6 +97,42 @@ can "be asked for a password by something that needs root" \
     "every privileged action fails with no prompt at all" \
     polkit
 
+# Bluetooth audio needs a SPA plugin, not just BlueZ: libspa-bluez5.so provides
+# the A2DP path and lives in pipewire-libs, which `pipewire` pulls in. Checked
+# with `pkg owner-name` rather than assumed -- the same question that found tar
+# behind xarchiver, asked of a headset.
+can "pair bluetooth headphones and hear them" \
+    "the device pairs and then has no audio profile at all" \
+    bluez pipewire wireplumber
+
+can "watch a video with sound" \
+    "there is no player, or one that cannot reach the audio daemon" \
+    mpv pipewire-pulseaudio
+
+can "read a PDF" \
+    "a PDF opens in nothing, or in a browser tab" \
+    zathura zathura-pdf-mupdf
+
+can "look at a photograph" \
+    "an image file has no viewer" \
+    imv
+
+can "browse the web" \
+    "there is no browser" \
+    firefox
+
+can "find a file by name" \
+    "search falls back to whatever the shell can do" \
+    fd-find
+
+can "see what is using the machine" \
+    "no system monitor, and the column's figures have nothing to compare against" \
+    btop
+
+can "install and update software" \
+    "the machine cannot be changed after it is installed" \
+    flatpak
+
 can "take a screenshot" \
     "the key binding runs a program that is not there" \
     grim slurp wl-clipboard

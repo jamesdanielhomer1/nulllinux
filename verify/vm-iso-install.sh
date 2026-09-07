@@ -45,8 +45,8 @@ sshg() { ssh -i "$KEY" -p "$PORT" -o StrictHostKeyChecking=no \
              -o UserKnownHostsFile=/dev/null -o ConnectTimeout=4 root@127.0.0.1 "$@"; }
 
 case "${1:-install}" in
-  install|boot|ssh|down|check) ;;
-  *) die "usage: vm-iso-install.sh [install|boot|ssh [cmd]|down|check]" ;;
+  install|boot|ssh|down|check|wait) ;;
+  *) die "usage: vm-iso-install.sh [install|boot|ssh [cmd]|down|check|wait]" ;;
 esac
 # NOT `exec sshg` -- sshg is a shell function, and exec cannot exec a function.
 # It failed with "exec: sshg: not found" every time the verb was used, which is
@@ -58,6 +58,70 @@ esac
 # initramfs that could not boot on other hardware survived every install test
 # the project ever ran. Nobody asked it.
 [ "${1:-install}" = check ] && exec "$ROOT/verify/vm-post-install.sh"
+
+# `wait` IS THE VERB THAT MAKES "DONE" MEAN DONE.
+#
+# `install` returned as soon as qemu was running, and the build chain printed
+# "=== done" -- which read, to me and to anything watching the log, as "the
+# machine is installed". It meant "a process was launched". Twice I started a
+# second chain on the strength of that word; the second one's install stage
+# stopped the first one's guest, in one line of log, and an hour of install
+# went in the bin with a 192K disk left behind to show for it.
+#
+# The console log is not a completion signal either: anaconda's last words look
+# much the same whether it finished or hit a traceback.
+#
+# So ask the machine. And distinguish the two systems that answer on this port:
+# `inst.sshd` means the INSTALLER has sshd too, so "ssh connects" is true
+# minutes before the install is done. The installed system is the one with no
+# /run/install/repo and the nulllinux package on it.
+null_vm_wait() {
+  local limit=${NULL_VM_WAIT_MINS:-60} t0 waited=0 lastsize=0 stalled=0
+  echo "  waiting for the installed machine to answer on :$PORT (up to ${limit}m)"
+  while [ "$waited" -lt $((limit * 60)) ]; do
+    if ! pgrep -x qemu-system-x86_64 >/dev/null 2>&1; then
+      echo >&2
+      echo "vm-iso-install: qemu is gone and nothing is installed." >&2
+      echo "  last of $WORK/install-console.log:" >&2
+      tail -25 "$WORK/install-console.log" 2>/dev/null | tr -d '\r' | sed 's/^/    /' >&2
+      return 1
+    fi
+    if sshg -o ConnectTimeout=5 \
+         'test ! -d /run/install/repo && rpm -q nulllinux' >/dev/null 2>&1; then
+      echo "  the installed system is up and has the nulllinux package"
+      return 0
+    fi
+    # A console log that has stopped growing for fifteen minutes is a hang, not
+    # a slow install -- that is what the switch-root wedge looked like.
+    local size; size=$(stat -c %s "$WORK/install-console.log" 2>/dev/null || echo 0)
+    if [ "$size" = "$lastsize" ]; then stalled=$((stalled + 15)); else stalled=0; fi
+    lastsize=$size
+    if [ "$stalled" -ge 900 ]; then
+      echo >&2
+      echo "vm-iso-install: the console has not moved in 15 minutes -- wedged." >&2
+      tail -25 "$WORK/install-console.log" 2>/dev/null | tr -d '\r' | sed 's/^/    /' >&2
+      return 1
+    fi
+    sleep 15; waited=$((waited + 15))
+    case $waited in 300|900|1800|2700) echo "    still installing ($((waited / 60))m)" ;; esac
+  done
+  echo "vm-iso-install: gave up after ${limit}m" >&2
+  return 1
+}
+[ "${1:-install}" = wait ] && { null_vm_wait; exit $?; }
+
+# AND ONE CHAIN AT A TIME.
+#
+# Nothing stopped a second build chain from starting while the first was mid
+# install; the newcomer stopped the incumbent's guest and both reported done.
+# A lock, taken for the whole install, so the second one says so and stops.
+if [ "${1:-install}" = install ] || [ "${1:-install}" = boot ]; then
+  exec 9>"$WORK/.install.lock"
+  if ! flock -n 9; then
+    die "another install is already running (lock: $WORK/.install.lock).
+  verify/vm-iso-install.sh down   stops it, if you mean to replace it."
+  fi
+fi
 # STOPPING THE GUEST, MATCHED ON THE EXECUTABLE, NOT THE COMMAND LINE.
 #
 # bin/null-column says this in §8.6 and I fell into it anyway, three times in
@@ -315,5 +379,7 @@ fi
 echo "  qemu started (pid $qpid); the install is unattended and reboots when it finishes"
 if [ "${1:-install}" = install ]; then
   echo
-  echo "  when it comes up:  verify/vm-iso-install.sh check"
+  null_vm_wait || exit 1
+  echo
+  echo "  now:  verify/vm-iso-install.sh check"
 fi
