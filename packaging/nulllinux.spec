@@ -48,6 +48,7 @@ Requires:       bc
 Requires:       bluez
 Requires:       brightnessctl
 Requires:       btop
+Requires:       bzip2
 Requires:       cava
 Requires:       cliphist
 Requires:       cups
@@ -67,6 +68,7 @@ Requires:       git
 Requires:       grim
 Requires:       gvfs
 Requires:       gvfs-mtp
+Requires:       gzip
 Requires:       imv
 Requires:       iw
 Requires:       mpv
@@ -84,12 +86,14 @@ Requires:       sway
 Requires:       swayidle
 Requires:       swaylock
 Requires:       system-config-printer
+Requires:       tar
 Requires:       terminus-fonts
 Requires:       terminus-fonts-console
 Requires:       thunar
 Requires:       thunar-archive-plugin
 Requires:       thunar-volman
 Requires:       udisks2
+Requires:       unzip
 Requires:       webkit2gtk4.1
 Requires:       wf-recorder
 Requires:       wiremix
@@ -101,8 +105,10 @@ Requires:       xdg-desktop-portal-gtk
 Requires:       xdg-desktop-portal-wlr
 Requires:       xfce-polkit
 Requires:       xfconf
+Requires:       xz
 Requires:       zathura
 Requires:       zathura-pdf-mupdf
+Requires:       zip
 
 %description
 nullLinux is a Fedora Remix whose desktop is not a colour scheme but a

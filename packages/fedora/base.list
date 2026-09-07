@@ -176,6 +176,34 @@ bzip2                           # assumption that leaves a hole.
 file                            # null-open dispatches on MIME type, read from
                                 # the bytes, not on a name a download can lose
 
+# --- firmware, because a laptop with no wifi cannot fix itself ------------
+#
+# Fedora SPLIT the wifi firmware out of linux-firmware, and linux-firmware does
+# not pull it back in. An install here had 345 firmware files and ZERO
+# iwlwifi ones -- so on a ThinkPad T480, which is the machine this is going
+# onto, the wireless card would come up and find no firmware to load.
+#
+# That is the worst shape a missing package can take: the thing you need to
+# download the fix is the thing that is missing.
+#
+# Found by asking a running guest what it had. `ls /lib/firmware/iwlwifi* |
+# wc -l` -> 0. Not visible from here, and not visible from the kickstart, which
+# says @core + kernel + nulllinux and looks complete.
+#
+# THE WIFI FAMILIES, not every blob on earth. Intel, Atheros, Realtek and
+# Qualcomm are what laptops have; each is a separate package precisely because
+# Fedora expects a distribution to choose.
+iwlwifi-mvm-firmware            # Intel 7260..AX200 -- the T480's 8265, and most
+                                # Intel wifi of the last decade
+iwlwifi-dvm-firmware            # Intel 4965..6300, older ThinkPads
+iwlwifi-mld-firmware            # Intel BE200 and later
+atheros-firmware                # ath9k/ath10k/ath11k
+realtek-firmware                # rtw88/rtw89, and Realtek bluetooth
+qcom-firmware                   # Qualcomm, including many ARM laptops
+amd-gpu-firmware                # an AMD GPU with no firmware does not modeset,
+                                # which is a black screen rather than slow
+                                # graphics
+
 # --- the desktop's own plumbing ------------------------------------------
 #
 # THE FILE CHOOSER IS A WINDOW TOO. Without a portal backend, any application
