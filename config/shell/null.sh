@@ -65,9 +65,17 @@ export LESS_TERMCAP_se=$'\e[0m'
 #
 # Set everywhere, so the version-control system, the privileged-edit wrapper
 # and anything reading the environment all agree (§8.8).
-if command -v nvim >/dev/null 2>&1; then export EDITOR=nvim
+# nano FIRST, deliberately. James prefers it (§ the mail/office/editor choices),
+# and it is the only one themed from the palette (config/nano/nanorc via
+# bake/export_theme.py). The order used to be nvim, vim, nano -- which held only
+# because @core's vim-minimal provides `vi`, not `vim`; the day anything pulled in
+# vim-enhanced or a user added nvim, EDITOR flipped to an UNthemed editor against
+# a stated preference. nano is a declared package, so this resolves to nano; the
+# rest are a fallback for a machine that somehow has none.
+if command -v nano >/dev/null 2>&1; then export EDITOR=nano
 elif command -v vim >/dev/null 2>&1; then export EDITOR=vim
-else export EDITOR=nano; fi
+elif command -v nvim >/dev/null 2>&1; then export EDITOR=nvim
+else export EDITOR=vi; fi
 export VISUAL="$EDITOR"
 export SUDO_EDITOR="$EDITOR"
 
