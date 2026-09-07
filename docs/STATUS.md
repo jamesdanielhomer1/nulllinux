@@ -49,9 +49,8 @@ proven on metal.**
 | | |
 |---|---|
 | **metal** | the largest unknown by far. Real firmware, a real panel's EDID, wifi *association* rather than firmware merely being present, the dock, the trackpoint, two batteries with one removable while the machine runs |
-| **an off-machine copy** | no git remote, and the only copy of this repository is on the disk the install erases. A precondition, not a task — see below |
-| **a mail client** | Thunderbird, styled through the same Gecko chrome mechanism Firefox already uses |
-| **an office suite** | LibreOffice, which resolves the GTK theme |
+| **an off-machine copy** | still nothing off this disk. `null-backup` now carries the repository as well as the master, and both halves were proven by restoring them — but no drive is attached and there is no remote, so the copy does not exist. A precondition, not a task — see below |
+| **mail and office ON A MACHINE** | Thunderbird and LibreOffice are declared, styled and checked — on the host. Neither has been seen on an installed machine, and both are things that can only finally be judged by eye |
 | **the bake end to end, and its cost** | it runs; the whole-pipeline figure has not been retaken since the machine became a T480, which cannot run it at all |
 
 ## Deliberately not in scope

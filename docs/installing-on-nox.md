@@ -33,14 +33,29 @@ wipe, along with `assets/prebuilt/` (generated, not committed) and
 
     git remote add origin <somewhere> && git push -u origin main
 
-and, for the parts git does not carry:
+If there is no remote to push to, one drive is enough for both halves:
 
-    bin/null-backup                      # reports; copies nothing
-    bin/null-backup /run/media/<drive>   # copies, then checksums the COPY
+      bin/null-backup                      # reports; copies nothing
+      bin/null-backup /run/media/<drive>   # the master AND a bundle of the repo
+
+`null-backup` carries two things: the 423 MB HDR master, which cannot be
+regenerated on a T480 at all, and a `git bundle` of the whole history -- because
+"everything else is derivable" is only true while the source still exists, and
+the source is on the disk being erased. Both are verified after writing,
+`sha256sum -c` against the manifest and `git bundle verify`.
+
+**Commit first.** A bundle carries commits, so anything uncommitted is not in
+it. The tool says so when the tree is dirty; believe it.
+
+Restoring is:
+
+      git clone <drive>/nulllinux-<hash>.bundle nulllinux
 
 `null-backup` refuses a destination on this machine's own disk. That is the
 right refusal and also why it has never run: nothing removable has been
-attached.
+attached. Both paths -- the refusal, and a real copy across a device boundary
+that was then restored and re-checked -- were exercised against a loopback
+filesystem.
 
 **2. Write the medium, and check it against what built it.**
 
