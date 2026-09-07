@@ -86,8 +86,21 @@ Three defects only a real run could show, each fixed:
 
 ## The two open gates
 
-**1. Reboot (Phase 10).** Nothing in this build has ever been verified across a
-reboot; everything was checked inside one long-lived session.
+**1. Reboot (Phase 10).** Nothing had ever been verified across a reboot;
+everything was checked inside one long-lived session. **Being closed in the
+guest, 2026-09-07:**
+
+- the ISO **boots under UEFI**, and under UEFI with secure boot enrolled, which
+  is how nox boots and which nothing here had ever tried
+- a fresh install boots, derives its profile from a panel it has never seen
+  (1366x768), and reaches the desktop
+- the **rescue entry boots to a full running system** — `systemctl
+  is-system-running` says `running`, its title is `nullLinux (0-rescue-…)`, and
+  the console palette is on its command line too
+
+The splash is the one step that can leave a machine unbootable, which is why it
+refuses to install until the fallback above has been confirmed. On metal that
+confirmation is still owed.
 
 ```
   reboot into the rescue entry once, confirm it reaches a shell
