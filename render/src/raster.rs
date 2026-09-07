@@ -38,7 +38,11 @@ pub fn blit_frame(c: &Cells, a: &Atlas, frame: usize, buf: &mut [u8], stride_px:
             }
             touched += 1;
             let ch = *c.ramp.get(g[i] as usize).unwrap_or(&' ');
-            let rgb = c.palette[col[i] as usize];
+            // Guarded like the ramp above it: col[i] is a byte from the cells
+            // file, and a corrupt frame whose index exceeds the palette must not
+            // panic the wallpaper mid-draw. A wrong pixel is cosmetic; a crash
+            // loop is not.
+            let rgb = c.palette.get(col[i] as usize).copied().unwrap_or([0, 0, 0]);
             let bits = a.glyph(ch as u32);
             let x0 = x * a.cell_w;
             let y0 = row * a.cell_h;
