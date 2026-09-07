@@ -63,7 +63,7 @@ path has been tested against secure boot.
 The menu waits five seconds and defaults to **Install nullLinux**. The other
 entry verifies the medium first, which reads 1.2 GB before starting.
 
-Then nine questions, on a console, in this system's colours:
+Then ten answers, on a console, in this system's colours:
 
     disk        the list excludes the stick you booted from, anything 0B, and
                 anything not a disk. On nox it should show one 476.9G NVMe.
@@ -73,6 +73,7 @@ Then nine questions, on a console, in this system's colours:
     password    twice
     timezone    598 of them: type part of a name, or enter for the default
     keyboard    gb
+    locale      defaulted from the keyboard answer — gb gives en_GB.UTF-8
     confirm     type the disk's name in full
 
 Nothing is written until that last answer. Anything other than the disk's exact
