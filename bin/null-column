@@ -6,6 +6,27 @@
 # the name, including the one doing the matching (§8.6).
 set -euo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+
+# THIS TAKES NO ARGUMENTS, AND SAYS SO.
+#
+# It used to take any and ignore all of them. `null-column --help` therefore did
+# not print help: it displaced the running component and supervised for ever,
+# so asking a question restarted a piece of the desktop and then hung. A typo'd
+# flag did the same thing in silence, which is the failure this project keeps
+# finding in other clothes.
+case "${1:-}" in
+  '') ;;
+  -h|--help)
+    echo "usage: null-column"
+    echo
+    echo "  the column, on every output. Takes no arguments."
+    echo "  The compositor starts it (config/sway/config); starting it again"
+    echo "  displaces the copy that is already running."
+    exit 0 ;;
+  *)
+    echo "null-column: unknown argument '$1' -- this command takes none" >&2
+    exit 2 ;;
+esac
 BIN="$ROOT/render/target/release/column"
 [ -x "$BIN" ] || { echo "null-column: $BIN not built" >&2; exit 1; }
 SELF=$(readlink -f "$BIN")

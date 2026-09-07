@@ -17,6 +17,30 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 BIN="$ROOT/render/target/release/bar"
 RENDER="$ROOT/render/target/release/render"
 TAG=null-bar
+
+# THIS TAKES NO ARGUMENTS, AND SAYS SO.
+#
+# It used to take any and ignore all of them. `null-bar --help` therefore did
+# not print help: it displaced the running component and supervised for ever,
+# so asking a question restarted a piece of the desktop and then hung. A typo'd
+# flag did the same thing in silence, which is the failure this project keeps
+# finding in other clothes.
+case "${1:-}" in
+  '') ;;
+  -h|--help)
+    echo "usage: null-bar"
+    echo
+    echo "  the bar, on every output."
+    echo "#   Supervises one bar process per connected output, restarting
+#   any that dies and following screens as they are plugged in." | sed 's/^#   //'
+    echo
+    echo "  Takes no arguments. The compositor starts it (config/sway/config),"
+    echo "  and starting it again displaces the copy that is running."
+    exit 0 ;;
+  *)
+    echo "null-bar: unknown argument '$1' -- this command takes none" >&2
+    exit 2 ;;
+esac
 [ -x "$BIN" ] || { echo "$TAG: $BIN not built" >&2; exit 1; }
 
 SELF=$(readlink -f "$BIN")
