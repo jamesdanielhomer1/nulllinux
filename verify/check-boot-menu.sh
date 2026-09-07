@@ -70,5 +70,56 @@ grep -q "set default=" bin/null-installer-iso \
 grep -q "'set default=\"0\"'" bin/null-installer-iso \
   || { note "bin/null-installer-iso does not select entry 0 (Install)"; fail=1; }
 
+# 7. AND THE MEDIUM'S OWN MENU, which is a different menu nobody had looked at.
+#
+#    Everything above is about the menu an INSTALLED machine draws. The ISO has
+#    its own, three copies of it in fact -- /boot/grub2/grub.cfg for BIOS,
+#    /EFI/BOOT/grub.cfg and /EFI/BOOT/BOOT.conf for UEFI -- and lorax writes
+#    `set timeout=60` into all of them.
+#
+#    Sixty seconds of countdown, watched, before an install begins. Seen on the
+#    first UEFI boot this project ever did:
+#
+#        The highlighted entry will be executed automatically in 46s.
+#
+#    The same judgement this file already applies to the installed system, not
+#    applied to the medium that installs it.
+grep -q "set timeout=60' 'set timeout=5'" bin/null-installer-iso \
+  || { note "bin/null-installer-iso does not shorten the medium's own 60s menu"; fail=1; }
+
+#    MEASURED ON THE ARTEFACT, where there is one. -R claims to rewrite every
+#    grub.cfg on the medium; this reads them back rather than believing it.
+iso=$(ls -t /var/lib/nulllinux-iso/nulllinux-installer-*.iso 2>/dev/null | head -1)
+if [ -n "$iso" ] && [ "$(id -u)" = 0 ] && command -v mount >/dev/null 2>&1; then
+  m=$(mktemp -d)
+  # A TRAP, because a check that leaves a mount behind has changed the machine
+  # it ran on (verify/check-tests-stay-off-the-host.sh).
+  trap 'umount "$m" 2>/dev/null; rmdir "$m" 2>/dev/null' EXIT
+  if mount -o loop,ro "$iso" "$m" 2>/dev/null; then
+    n=0 bad=0
+    while IFS= read -r cfg; do
+      n=$((n+1))
+      t=$(sed -n 's/^[[:space:]]*set timeout=\([0-9]*\).*/\1/p' "$cfg" | head -1)
+      d=$(sed -n 's/^[[:space:]]*set default="\([0-9]*\)".*/\1/p' "$cfg" | head -1)
+      [ "${t:-99}" -le 5 ] 2>/dev/null || { note "${cfg#$m} waits ${t}s"; bad=1; }
+      [ "${d:-9}" = 0 ] || { note "${cfg#$m} defaults to entry ${d} rather than Install"; bad=1; }
+    done < <(find "$m" \( -iname 'grub.cfg' -o -iname 'BOOT.conf' \) 2>/dev/null)
+    if [ "$n" = 0 ]; then
+      note "(no grub config found on $iso)"
+    elif [ "$bad" = 0 ]; then
+      note "ok    all $n boot config(s) on the medium: entry 0, 5s or less"
+    else
+      fail=1
+    fi
+    umount "$m" 2>/dev/null
+  else
+    note "(could not mount $iso; the medium's own menu is not measured)"
+  fi
+  rmdir "$m" 2>/dev/null
+  trap - EXIT
+else
+  note "(no built ISO, or not root; the medium's own menu is not measured)"
+fi
+
 [ $fail = 0 ] && echo "PASS: the boot menu is quiet, and says how to summon it"
 exit $fail
