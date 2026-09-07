@@ -176,6 +176,33 @@ bzip2                           # assumption that leaves a hole.
 file                            # null-open dispatches on MIME type, read from
                                 # the bytes, not on a name a download can lose
 
+# --- fonts for CONTENT, which is not the same as fonts for chrome ----------
+#
+# Everything this system DRAWS is Terminus at two strikes, and that does not
+# change. But a document somebody sends you, and an email somebody writes you,
+# are content -- §8.10's own tier -- and until now the only fonts on the machine
+# were Terminus. A .docx in Times New Roman rendered in whatever fontconfig
+# could find, which reflows a document and changes its page count; an email in
+# Greek or Cyrillic rendered as tofu.
+#
+# Liberation is METRIC-COMPATIBLE with Times New Roman, Arial and Courier New,
+# which is the whole reason it exists and exactly what a document from
+# somewhere else needs. Noto covers the scripts Liberation does not.
+#
+# The same shape as the two findings before it: the application was declared
+# and the thing it needs to do its job was not. LibreOffice happens to pull
+# Liberation in today, and §9.1 is about not relying on happens-to.
+liberation-serif-fonts          # Times New Roman metrics
+liberation-sans-fonts           # Arial metrics
+liberation-mono-fonts           # Courier New metrics
+google-noto-sans-fonts          # the scripts Liberation has no glyphs for
+google-noto-serif-fonts
+google-noto-emoji-fonts         # a subject line is not a row of boxes
+
+# CJK IS NOT HERE, deliberately: google-noto-sans-cjk-fonts is a few hundred
+# megabytes and most installations will never render a character of it. One
+# command when somebody needs it, which §9.1 calls a recorded decision.
+
 # --- mail -----------------------------------------------------------------
 #
 # IMAP and SMTP, so it speaks to any server that exists -- a provider, or one

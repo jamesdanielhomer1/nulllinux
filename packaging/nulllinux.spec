@@ -75,6 +75,9 @@ Requires:       foot
 Requires:       fwupd
 Requires:       fzf
 Requires:       git
+Requires:       google-noto-emoji-fonts
+Requires:       google-noto-sans-fonts
+Requires:       google-noto-serif-fonts
 Requires:       grim
 Requires:       gvfs
 Requires:       gvfs-mtp
@@ -84,6 +87,9 @@ Requires:       iw
 Requires:       iwlwifi-dvm-firmware
 Requires:       iwlwifi-mld-firmware
 Requires:       iwlwifi-mvm-firmware
+Requires:       liberation-mono-fonts
+Requires:       liberation-sans-fonts
+Requires:       liberation-serif-fonts
 Requires:       libreoffice-calc
 Requires:       libreoffice-gtk3
 Requires:       libreoffice-impress
