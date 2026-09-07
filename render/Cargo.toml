@@ -33,3 +33,12 @@ libc = "0.2"
 [profile.release]
 opt-level = 3
 lto = true
+# codegen-units = 1 gives the optimiser the whole crate at once -- a little more
+# speed on top of LTO, at the cost of a slower build (paid once, on the build
+# host, never on the machine). panic = "abort" drops the unwinding tables: these
+# are supervised daemons (lib/supervise.sh restarts a died renderer) with no
+# catch_unwind anywhere, so a panic should end the process cleanly and be
+# respawned, not unwind through a half-committed Wayland surface. Smaller
+# binaries too, which a potato's disk and page cache both prefer.
+codegen-units = 1
+panic = "abort"
