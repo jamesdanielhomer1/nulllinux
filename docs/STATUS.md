@@ -900,9 +900,23 @@ a long operation, and replacing it would mean reimplementing progress
 reporting for a transaction this project does not own. See "nullLinux installs
 itself".
 
-**A VM is not metal.** Real firmware, secure boot, a wifi chipset, suspend and
-resume, and a panel whose EDID is not qemu's are all untested by anything in
-this repository. This matters more than it did: nox is the machine nullLinux is
-going onto once it is finished — a ThinkPad T480, 1366x768, Intel graphics, two
-batteries — so "any hardware" has one specific piece of hardware to be right
-about first.
+**A VM is not metal.** nox is the machine nullLinux is going onto once it is
+finished — a ThinkPad T480, 1366x768, Intel graphics, two batteries — so "any
+hardware" has one specific piece of hardware to be right about first. What is
+now known about it, and what is not:
+
+| | state |
+|---|---|
+| 1366x768, a width that is not 4-aligned | **verified in a VM** — profile derives, grid fits with 6 px unreached, desktop draws clean |
+| Intel wifi (`wlp3s0`, `iwlwifi`) | firmware **now declared**; it was absent and would have left the card dead |
+| UEFI boot | nox boots UEFI **with secure boot enrolled**; the ISO had only ever been booted under SeaBIOS. Being tested against OVMF |
+| suspend and resume | untested. `before-sleep` locks, which is the part that can be got wrong silently |
+| a panel whose EDID is not qemu's | untested |
+| the trackpoint, the dock, the fingerprint reader | untested |
+
+**A screenshot taken by the host is not what a person sees.** qemu's
+`screendump` misreads a framebuffer whose width is not 4-aligned: at 1366 it
+returns the desktop sheared, colour-separated and with rows dropped, which
+looks exactly like a broken renderer. `grim`, from inside the compositor,
+showed the same desktop perfect. When the two disagree, the compositor is
+right.
