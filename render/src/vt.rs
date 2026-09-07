@@ -287,12 +287,16 @@ impl Vt {
                 self.param_acc = Some(v.min(65535));
                 return;
             }
-            b';' => { self.params.push(self.param_acc.take().unwrap_or(0)); return }
+            // Capped: a program emitting an endless run of ';' or intermediate
+            // bytes stays in this state, and an uncapped push would grow without
+            // bound on untrusted output. 32 params covers every real sequence.
+            b';' => { let v = self.param_acc.take().unwrap_or(0);
+                      if self.params.len() < 32 { self.params.push(v) } return }
             b'?' | b'<' | b'=' | b'>' => { self.private = Some(b); return }
-            0x20..=0x2f => { self.intermediates.push(b); return }
+            0x20..=0x2f => { if self.intermediates.len() < 8 { self.intermediates.push(b) } return }
             _ => {}
         }
-        if let Some(v) = self.param_acc.take() { self.params.push(v) }
+        if let Some(v) = self.param_acc.take() { if self.params.len() < 32 { self.params.push(v) } }
         let p = |i: usize, d: u32| *self.params.get(i).unwrap_or(&0) as u32 * 0 + self.params.get(i).copied().filter(|v| *v != 0).unwrap_or(d);
         let p0 = p(0, 1) as usize;
 
@@ -357,8 +361,8 @@ impl Vt {
             }
             (_, b'm') => self.sgr(),
             (_, b'r') => {
-                self.scroll_top = (p(0, 1) as usize - 1).min(self.rows - 1);
-                self.scroll_bot = (p(1, self.rows as u32) as usize - 1).min(self.rows - 1);
+                self.scroll_top = (p(0, 1) as usize - 1).min(self.rows.saturating_sub(1));
+                self.scroll_bot = (p(1, self.rows as u32) as usize - 1).min(self.rows.saturating_sub(1));
             }
             (_, b'S') => { let n = p0; self.scroll_up(n) }
             _ => {}                                   // skip whole
@@ -480,7 +484,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn charset_designation_is_swallowed_whole() {
         // ncurses emits ESC ( B constantly. The escape handler used to consume
         // only the '(', so the 'B' was printed -- hosted programs came out
@@ -494,6 +497,7 @@ mod tests {
         assert_eq!(line(&v, 0), "ok", "every designator form is swallowed whole");
     }
 
+    #[test]
     fn alternate_screen_restores_what_was_under_it() {
         let mut v = Vt::new(6, 2);
         v.feed(b"under");
@@ -529,6 +533,21 @@ mod tests {
         v.feed(b"abcdefghij");
         v.resize(5, 3);
         assert_eq!(line(&v, 0), "abcde");
+    }
+
+    #[test]
+    fn a_pathological_csi_does_not_grow_without_bound() {
+        // A hosted program emitting an endless run of ';' stays in the CSI state.
+        // Without a cap, params grows one entry per ';' -- unbounded memory off
+        // untrusted output. Feed a long run and require the terminator still lands
+        // in Ground with the grid intact and params bounded.
+        let mut v = Vt::new(6, 1);
+        let mut junk = vec![0x1b, b'['];
+        junk.extend(std::iter::repeat(b';').take(100_000));
+        junk.extend_from_slice(b"m");          // a valid SGR terminator
+        v.feed(&junk);
+        v.feed(b"ok");
+        assert_eq!(line(&v, 0), "ok", "recovers to Ground and keeps drawing");
     }
 
     #[test]
