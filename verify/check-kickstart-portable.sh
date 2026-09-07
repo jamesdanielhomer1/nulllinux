@@ -64,7 +64,7 @@ if [ -x bin/null-installer ]; then
          | grep -vE '^/dev/(zram|nbd|loop|ram|sr|fd)[0-9]' \
          | grep -vE ' 0B( |$)' | awk '{print $1; exit}')
   if [ -n "$disk" ]; then
-    printf '1\nh\nu\nU\npw\npw\nEurope/London\ngb\n%s\n' "$disk" \
+    printf '1\nh\nu\nU\npw\npw\nEurope/London\ngb\n\n%s\n' "$disk" \
       | "./bin/null-installer" --generate "$out" --dry-run >/dev/null 2>&1
     if grep -qE '^bootloader .*--boot-drive=' "$out" 2>/dev/null; then
       note "ok    the fragment names a boot drive and no firmware-specific location"

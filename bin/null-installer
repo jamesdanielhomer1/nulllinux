@@ -208,7 +208,14 @@ ask_secret() {  # <prompt> -> stdout, twice, matching
 # claimed.
 booted_from() {
   local src disk
-  for m in /run/install/repo /run/install/sources/mount-0000-cdrom /; do
+  # THE INSTALLER'S OWN MOUNTS, AND NOT `/`.
+  #
+  # The first version fell through to `/` when neither was present -- and on any
+  # ordinary machine `/` is the system disk, so `disks()` excluded the only disk
+  # there was and the installer said "no disks found -- there is nothing here to
+  # install onto". The comment already said nothing would be claimed without
+  # those mounts; the code disagreed with it.
+  for m in /run/install/repo /run/install/sources/mount-0000-cdrom; do
     src=$(findmnt -no SOURCE --target "$m" 2>/dev/null | head -1) || continue
     [ -b "$src" ] || continue
     disk=$(lsblk -ndo PKNAME "$src" 2>/dev/null)
@@ -270,6 +277,44 @@ fi
 TIMEZONE=${TIMEZONE:-$TZ_DEFAULT}
 KEYMAP=$(ask "keyboard layout" "gb")
 
+# THE LOCALE, WHICH WAS NOT ASKED AND WAS NOT NEUTRAL EITHER.
+#
+# packaging/nulllinux-install.ks says `lang en_GB.UTF-8`, and the interactive
+# kickstart kept that line -- so this installer asked a person for their
+# timezone and their keyboard and then gave them a British locale whatever they
+# answered. Dates, numbers, the first day of the week and the default paper
+# size all come from it.
+#
+# A TEXT QUESTION WITH A DERIVED DEFAULT, not a list. In anaconda's runtime
+# `locale -a` reports what the INSTALLER image carries, which is not what the
+# installed system will have, so a picker built from it would offer a list
+# wrong in both directions. The keyboard answer is the best evidence available
+# of where somebody is, and they can type anything else.
+case $KEYMAP in
+  gb)        LOCALE_DEFAULT=en_GB.UTF-8 ;;
+  us)        LOCALE_DEFAULT=en_US.UTF-8 ;;
+  de|de-*)   LOCALE_DEFAULT=de_DE.UTF-8 ;;
+  fr|fr-*)   LOCALE_DEFAULT=fr_FR.UTF-8 ;;
+  es|es-*)   LOCALE_DEFAULT=es_ES.UTF-8 ;;
+  it|it-*)   LOCALE_DEFAULT=it_IT.UTF-8 ;;
+  pt)        LOCALE_DEFAULT=pt_PT.UTF-8 ;;
+  br)        LOCALE_DEFAULT=pt_BR.UTF-8 ;;
+  se)        LOCALE_DEFAULT=sv_SE.UTF-8 ;;
+  no)        LOCALE_DEFAULT=nb_NO.UTF-8 ;;
+  dk)        LOCALE_DEFAULT=da_DK.UTF-8 ;;
+  fi)        LOCALE_DEFAULT=fi_FI.UTF-8 ;;
+  nl)        LOCALE_DEFAULT=nl_NL.UTF-8 ;;
+  pl)        LOCALE_DEFAULT=pl_PL.UTF-8 ;;
+  ca)        LOCALE_DEFAULT=en_CA.UTF-8 ;;
+  *)         LOCALE_DEFAULT=en_US.UTF-8 ;;
+esac
+hint "nullLinux's own text is English; a locale sets dates, numbers and paper size"
+LOCALE=$(ask "locale" "$LOCALE_DEFAULT")
+case $LOCALE in
+  *_*.*) ;;
+  *) oops "a locale looks like en_GB.UTF-8"; exit 1 ;;
+esac
+
 # --- 4. the one that cannot be undone --------------------------------------
 title "This erases the disk"
 say "disk      $DISK_DESC"
@@ -277,6 +322,7 @@ say "hostname  $HOSTNAME"
 say "user      $USERNAME ($FULLNAME)"
 say "timezone  $TIMEZONE"
 say "keyboard  $KEYMAP"
+say "locale    $LOCALE"
 echo
 oops "Everything currently on $DISK will be destroyed."
 hint "Type the disk's name to confirm, or anything else to stop."
@@ -327,6 +373,7 @@ umask 077
   echo "network --bootproto=dhcp --device=link --activate --hostname=$HOSTNAME"
   echo "timezone $TIMEZONE --utc"
   echo "keyboard --vckeymap=$KEYMAP --xlayouts='$KEYMAP'"
+  echo "lang $LOCALE"
   echo
   # ROOT IS LOCKED, not given a password nobody will remember. The user is in
   # wheel, so `sudo` is the way in, and there is one fewer credential on the

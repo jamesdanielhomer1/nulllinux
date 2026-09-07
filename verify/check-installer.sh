@@ -51,9 +51,11 @@ disk=$(lsblk -dnpo NAME,SIZE,MODEL,TYPE 2>/dev/null \
        | grep -vE ' 0B( |$)' | awk '{print $1; exit}')
 if [ -n "$disk" ]; then
   out=$(mktemp)
-  printf '1\ntesthost\ntester\nTest Person\npw\npw\nEurope/London\ngb\n%s\n' "$disk" \
+  printf '1\ntesthost\ntester\nTest Person\npw\npw\nEurope/London\ngb\n\n%s\n' "$disk" \
     | "./$I" --generate "$out" --dry-run >/dev/null 2>&1
-  for want in '^clearpart ' '^autopart ' '^bootloader ' '^user --name=tester' '^rootpw --lock' '^network .*--hostname=testhost'; do
+  # `lang` is here because the installer used not to ask: the kickstart said
+  # en_GB.UTF-8 and everybody got it whatever they answered.
+  for want in '^clearpart ' '^autopart ' '^bootloader ' '^user --name=tester' '^rootpw --lock' '^network .*--hostname=testhost' '^lang [a-z][a-z]_'; do
     grep -qE "$want" "$out" 2>/dev/null || { note "the fragment has no line matching $want"; fail=1; }
   done
   # ROOT IS LOCKED. An installer that sets a root password creates a credential
@@ -82,7 +84,7 @@ if [ -n "$disk" ]; then
   #     Measured, not asserted about the source: run the thing and count what
   #     it put on the screen.
   out=$(mktemp); screen=$(mktemp)
-  printf '1\ntesthost\ntester\nTest Person\npw\npw\nEurope/London\ngb\n%s\n' "$disk" \
+  printf '1\ntesthost\ntester\nTest Person\npw\npw\nEurope/London\ngb\n\n%s\n' "$disk" \
     | "./$I" --generate "$out" --dry-run >"$screen" 2>&1
   lines=$(wc -l <"$screen")
   if [ "$lines" -gt 120 ]; then

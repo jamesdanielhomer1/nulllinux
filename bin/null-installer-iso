@@ -297,7 +297,11 @@ s = open(p).read()
 # no business on media somebody boots.
 for pat in (r'^ignoredisk .*$', r'^zerombr$', r'^clearpart .*$', r'^autopart .*$',
             r'^bootloader .*$', r'^network .*$', r'^timezone .*$', r'^keyboard .*$',
-            r'^rootpw .*$', r'^user --name.*$', r'^sshpw .*$'):
+            r'^rootpw .*$', r'^user --name.*$', r'^sshpw .*$',
+            # `lang` too, now that the installer asks for it: leaving both
+            # would put two in one kickstart, and the one that wins is
+            # whichever anaconda reads last.
+            r'^lang .*$'):
     s = re.sub(pat, '', s, flags=re.M)
 
 pre = (
