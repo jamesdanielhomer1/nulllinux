@@ -42,6 +42,11 @@ It compresses about ninefold:
 /var/lib/nulllinux-iso/null-master-0.1.0.tar.gz.sha256
 ```
 
+The checksum file names the tarball RELATIVELY, which is not a detail. The first
+one published recorded the absolute path it was built at, so `sha256sum -c` on a
+restoring machine went looking for a directory that only existed on the machine
+being replaced -- a checksum that can only be verified where it is not needed.
+
 Attach that to a GitHub release. The per-file limit there is 2 GB, it does not
 enter the repository, and it does not touch the Git LFS quota -- which at 1 GB
 of storage and 1 GB of transfer a month would allow roughly one clone.
@@ -68,6 +73,11 @@ bin/null-build                        # regenerates system/plymouth-theme/ etc.
 `null-prebake` runs Python against the master and needs no GPU: the expensive
 part is producing the master, and that is the part being restored. Everything
 downstream of it re-runs in about a minute.
+
+PROVEN FROM GITHUB ALONE. A clone into an empty directory, `gh release
+download`, checksum, untar, manifest: 183 commits with the same HEAD tree hash as
+this machine, 240 frames verifying, and the master byte-for-byte identical to the
+original.
 
 PROVEN, not assumed. The tarball was extracted to a scratch directory, checked
 against `MANIFEST.sha256` -- all 240 frames -- and diffed against the original:
