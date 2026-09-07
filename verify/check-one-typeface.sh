@@ -16,6 +16,17 @@
 # file, said Cantarell too. Fixing the output alone would have lasted until the
 # next bake. Exactly the shape of the gtk-theme-name bug found the same night,
 # so this checks generators as well as their products.
+#
+# WHAT THIS RULE IS NOT ABOUT: fonts for CONTENT. Liberation and Noto are
+# declared packages here, and that is not a violation -- §8.10 puts application
+# interiors and their content on a different tier from the system's own
+# surfaces. A document somebody sends you is in Times New Roman whether this
+# system approves or not, and rendering it in Terminus would not be consistency,
+# it would be reflowing somebody else's page. The rule is about what nullLinux
+# DRAWS; it has no opinion about what nullLinux is asked to display.
+#
+# So this reads font DECLARATIONS in configuration, not the package list. Every
+# one of those still says Terminus.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 fail=0
