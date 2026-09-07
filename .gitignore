@@ -57,3 +57,12 @@ __pycache__/
 # now runs it from a work directory so this cannot happen again, but 88 MB of
 # solver output did reach git once, which is why the rule is also written down.
 /debugdata/
+
+# livemedia-creator does the same thing: it writes its own two logs into
+# whatever directory it was started from, and both reached git. Same shape as
+# the 88 MB above and the same rule -- a build tool's scratch output is not
+# source, wherever the tool decides to put it.
+/livemedia.log
+/program.log
+/anaconda.log
+/dnf.log

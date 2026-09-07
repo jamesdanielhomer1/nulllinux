@@ -112,6 +112,18 @@ fallback first, on the metal, and only then:
 `--apply` reads the rebuilt image back and puts the old theme back if the new
 one is not in it.
 
+## And afterwards it is portable
+
+The disk this produces is meant to boot in a different machine, which is not an
+incidental property — it is how nox came to be a T480 in the first place.
+
+| | |
+|---|---|
+| initramfs | **generic**, not host-only. Fedora's `01-dist.conf` sets `hostonly="yes"`; `dracut-config-generic` is declared to undo it, and `verify/check-portable-initramfs.sh` asserts the drivers a different machine would need are in the image |
+| `/etc/fstab` | every entry is a UUID. Nothing names a device node |
+| secure boot | `/boot/efi/EFI/BOOT/BOOTX64.EFI` is shim, so a new board finds it with no NVRAM entry and secure boot can stay on |
+| the profile | derived on the first boot that has a display, so a new panel is picked up rather than inherited. `nulllinux-machine-sync` reports `MISMATCH` and re-selects every surface |
+
 ## What a VM could not tell us
 
 Real firmware and a real secure boot chain. A panel whose EDID is not qemu's.
