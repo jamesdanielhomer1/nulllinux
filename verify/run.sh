@@ -64,6 +64,7 @@ run "tests stay off the host"        ./verify/check-tests-stay-off-the-host.sh
 run "the rice and this are apart"    ./verify/check-two-systems-apart.sh
 run "accounts, and their refusals"   ./verify/check-users.sh
 run "archives actually open"         ./verify/check-archives.sh
+run "a person can actually do it"    ./verify/check-a-person-can.sh
 run "firmware nothing went without" ./verify/check-firmware.sh
 run "the list and the package agree" ./verify/check-package-list.sh
 run "every tool has a caller (§10.1)"     ./verify/check-callers.sh
