@@ -135,7 +135,14 @@ impl Ramp {
         if coverage.windows(2).any(|w| w[1] <= w[0]) {
             return Err(format!("{}: ramp is not monotonic in measured coverage (§2.3)", path.display()));
         }
-        let peak = *coverage.last().unwrap();
+        // An empty ramp passes the length check above (0 coverages for 0 glyphs)
+        // and the monotonic check (no windows), then reaches here. Err, not a
+        // last().unwrap() panic -- first-boot derivation reads this file, and it
+        // already fails gracefully on every other malformed ramp.
+        let peak = match coverage.last() {
+            Some(&p) => p,
+            None => return Err(format!("{}: ramp is empty", path.display())),
+        };
         let bounds: Vec<f32> = coverage.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect();
         let steps: Vec<f32> = coverage.windows(2).map(|w| w[1] - w[0]).collect();
         let n_glyphs = chars.chars().count();
