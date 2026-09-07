@@ -31,6 +31,25 @@ note() { printf '  %s\n' "$*"; }
 [ -x bin/pkg ] || { note "bin/pkg is gone"; exit 1; }
 DECLARED=$(./bin/pkg list-packages base 2>/dev/null | tr ' ' '\n' | sort -u)
 
+# 0. AND THE INSTALLED SET MATCHES THE DECLARED ONE.
+#
+#    A package list is a statement of intent. What arrived is a different
+#    question, and the gap between them is where every finding tonight has
+#    lived: tar declared nowhere and absent, unzip present and undeclared,
+#    iwlwifi firmware neither. On a machine that IS nullLinux, ask it.
+if grep -qiE '^(ID|NAME)=.*null' /etc/os-release 2>/dev/null; then
+  absent=""
+  for p in $(printf '%s\n' "$DECLARED"); do
+    ./bin/pkg installed-version "$p" >/dev/null 2>&1 || absent="$absent $p"
+  done
+  if [ -n "$absent" ]; then
+    note "declared but not installed on this nullLinux machine:$absent"
+    fail=1
+  else
+    note "ok    every declared package is installed on this machine"
+  fi
+fi
+
 # 1. THE WIFI FAMILIES A LAPTOP ACTUALLY HAS. Each is a separate package
 #    precisely because Fedora expects a distribution to choose, and choosing
 #    nothing is a choice that shows up as a card with no driver firmware.
