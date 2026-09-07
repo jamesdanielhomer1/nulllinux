@@ -23,6 +23,23 @@
 # and every ancestor up to init, are the processes that must survive, because
 # our parent is the shell the compositor is holding open on our behalf.
 #
+# WHERE THE HAZARD ACTUALLY LIVES, established the hard way.
+#
+# A pattern can only match a process whose command line CONTAINS it, so the
+# risk is confined to shells invoked with -c, where the pattern is written as
+# an argument:
+#
+#     sh -c "pgrep -f 'thing'; ..."      <- the shell's own cmdline has 'thing'
+#
+# The same pgrep inside a script FILE is safe: the command line is
+# `bash ./script.sh`, and the pattern never appears in it. bin/null-clipboard
+# does it that way and is correct -- when its pgrep matches, it has found real
+# wl-paste watchers, not itself.
+#
+# This matters because the safe-looking form is the one people copy into a
+# throwaway `while pgrep -f ...; do sleep; done` gate, which then matches the
+# very shell run to ask why the gate has not cleared.
+#
 # NULL.md 8.6 already records `pkill -f` matching its own invoker. It is quoted
 # in this repository's history by somebody who then made the mistake anyway,
 # which is the argument for a helper rather than a rule.
