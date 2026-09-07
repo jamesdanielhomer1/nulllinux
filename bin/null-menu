@@ -47,23 +47,26 @@ go()   { [ -n "$1" ] && exec "$0" "$1" || exit 0; }
 case $topic in
 
   main)
-    go "$(choose menu 'one picker, one topic' \
-      "apps       launch an installed application" \
-      "files      browse, here or in a window" \
-      "clipboard  history, and copy it back" \
-      "player     what is playing, and its transport" \
-      "calendar   the month, and anything with a date attached" \
-      "learn      the bindings, and this system's own documentation" \
-      "settings   brightness, power plan, idle timers, radios" \
-      "netconfig  NetworkManager's own editor -- static IPs, VPNs" \
-      "mixer      the PipeWire mixer -- per-stream volume and routing" \
+    # THE NAME CARRIES THE ROW (docs/design-language.md). A cue follows only
+    # where the name is this system's own vocabulary; nothing here explains
+    # implementation, and nothing a person reads cites a spec section.
+    go "$(choose menu '' \
+      "apps" \
+      "files" \
+      "clipboard" \
+      "player" \
+      "calendar" \
+      "learn      keys and docs" \
+      "settings   brightness, power, idle, radios" \
+      "netconfig  IPs and VPNs" \
+      "mixer" \
       "trigger    capture, toggles, hardware" \
       "setup      audio, network, displays, storage, input" \
-      "install    add software" \
-      "remove     take software away" \
-      "update     every update channel, and their state" \
-      "about      what this machine is" \
-      "system     the session verbs")" ;;
+      "install" \
+      "remove" \
+      "update" \
+      "about" \
+      "system     lock, exit, power")" ;;
 
   # §8.4 calls this component `run`; Omarchy's menu calls it `apps`. Both
   # names reach it, because the specification and the muscle memory disagree
@@ -77,10 +80,10 @@ case $topic in
     # BOTH halves, because they are different jobs (§8.7). The column one is
     # for getting somewhere; the window one is for doing everything, and a
     # 63-column strip cannot be the second no matter how it is dressed.
-    sel=$(choose files 'the column one navigates; the window one does the work' \
-      "sidebar    browse in the column" \
-      "window     the full file manager" \
-      "storage    map and unmap network drives")
+    sel=$(choose files '' \
+      "sidebar    in the column" \
+      "window     the file manager" \
+      "storage    network drives")
     case $sel in
       sidebar) exec "$COLUMN" --send open browse ;;
       window)  exec "$B/null-filemanager" open ;;
@@ -93,10 +96,10 @@ case $topic in
   settings-*) exec "$B/null-settings" "${topic#settings-}" ;;
 
   learn)
-    go "$(choose learn 'what this system can tell you about itself' \
-      "keys       every binding, read live" \
-      "about      what this machine is" \
-      "plan       the specification this was built from")" ;;
+    go "$(choose learn '' \
+      "keys       every binding" \
+      "about" \
+      "plan       the specification")" ;;
 
   plan)
     [ -r "$ROOT/NULL.md" ] || { say "no NULL.md in $ROOT"; exit 0; }
@@ -110,18 +113,18 @@ case $topic in
 
   # --------------------------------------------------------------- trigger
   trigger)
-    go "$(choose trigger 'things that happen when you ask' \
+    go "$(choose trigger '' \
       "capture    stills and recordings" \
-      "toggle     the switches" \
-      "hardware   the machine's own devices")" ;;
+      "toggle     switches" \
+      "hardware")" ;;
 
   capture)
-    sel=$(choose capture 'stills and recordings' \
+    sel=$(choose capture '' \
       "screenshot   the whole screen" \
       "region       a rectangle you draw" \
       "window       the focused window" \
-      "record       a recording, with or without sound" \
-      "colour       the colour under the pointer")
+      "record       video" \
+      "colour       under the pointer")
     [ -n "$sel" ] || exit 0
     case $sel in
       record) go record ;;
@@ -132,12 +135,12 @@ case $topic in
     sel=$(choose record 'a recording stops with the same key that started it' \
       "silent     no audio" \
       "desktop    desktop audio" \
-      "both       desktop audio and the microphone")
+      "both       desktop and microphone")
     [ -n "$sel" ] || exit 0
     exec "$B/null-capture" record "$sel" ;;
 
   toggle)
-    sel=$(choose toggle 'reads the live state, never a remembered one' \
+    sel=$(choose toggle '' \
       "$(null_row 'screensaver'   "$("$B/null-screensaver" state 2>/dev/null || echo "$NULL_UNMEASURED")")" \
       "$(null_row 'nightlight'    "$("$B/null-nightlight" state 2>/dev/null || echo "$NULL_UNMEASURED")")" \
       "$(null_row 'idle-lock'     "$("$B/null-idle" state 2>/dev/null || echo "$NULL_UNMEASURED")")" \
@@ -152,12 +155,20 @@ case $topic in
     esac ;;
 
   hardware)
-    sel=$(choose hardware 'a device that is absent is not offered (§8.4)' \
-      $( "$B/machine" probe backlight 2>/dev/null && echo "backlight  the screen's own brightness" ) \
-      $( "$B/machine" probe wireless 2>/dev/null && echo "wireless   the radio" ) \
-      $( "$B/machine" probe bluetooth 2>/dev/null && echo "bluetooth  the radio" ) \
-      $( "$B/machine" probe discrete-gpu 2>/dev/null && echo "gpu        the discrete adapter" ) \
-      "displays   what is connected, and how")
+    # AN ARRAY, NOT WORD-SPLIT SUBSTITUTIONS. The probed rows used to arrive as
+    # unquoted $( ... && echo "backlight  the screen's own brightness" ), and
+    # unquoted substitution splits on spaces -- so every laptop saw the
+    # description shattered into rows ("the", "screen's", "own", "brightness"),
+    # each selectable, none doing anything. menu-coverage counts glyphs, not
+    # rows, so it never caught it.
+    hw=()
+    "$B/machine" probe backlight    2>/dev/null && hw+=("backlight  brightness")
+    "$B/machine" probe wireless     2>/dev/null && hw+=("wireless")
+    "$B/machine" probe bluetooth    2>/dev/null && hw+=("bluetooth")
+    "$B/machine" probe discrete-gpu 2>/dev/null && hw+=("gpu        discrete")
+    sel=$(choose hardware 'absent devices are not listed' \
+      "${hw[@]}" \
+      "displays   arrangement")
     [ -n "$sel" ] || exit 0
     case $sel in
       wireless)  go network ;;
@@ -169,14 +180,14 @@ case $topic in
 
   # ----------------------------------------------------------------- setup
   setup)
-    go "$(choose setup 'the scattered knobs' \
-      "settings   brightness, power, timers, notifications, radios" \
-      "audio      choose the output" \
-      "network    join and inspect wireless networks" \
-      "bluetooth  power, scan, pair, connect, forget" \
-      "displays   what is connected, and how" \
-      "storage    map and unmap network storage" \
-      "input      keyboard layout and pointer")" ;;
+    go "$(choose setup '' \
+      "settings   brightness, power, timers, radios" \
+      "audio      output device" \
+      "network    wireless" \
+      "bluetooth  pair and connect" \
+      "displays   arrangement" \
+      "storage    network drives" \
+      "input      keyboard and pointer")" ;;
 
   displays)
     # The QUERY must succeed, not just the command exist. Without a compositor
@@ -213,9 +224,9 @@ for d in json.load(sys.stdin):
 
   # ---------------------------------------------------- install and remove
   install)
-    sel=$(choose install 'through the package abstraction, always (§9.1)' \
+    sel=$(choose install '' \
       "package    search and install" \
-      "list       install every package in a list")
+      "list       every package in a file")
     case $sel in
       package)
         q=$(printf '' | fzf "${NULL_FZF[@]}" --prompt='search > ' --print-query \
@@ -266,7 +277,7 @@ for d in json.load(sys.stdin):
 
   # ---------------------------------------------------------------- system
   system|power)
-    sel=$(choose system 'the session verbs' \
+    sel=$(choose system '' \
       "$(null_row 'screensaver' 'the hero, full screen')" \
       "$(null_row 'lock'        'swaylock')" \
       "$(null_row 'suspend'     'systemctl suspend')" \
@@ -323,11 +334,10 @@ for d in json.load(sys.stdin):
     list=$(nmcli -t -f SSID,SIGNAL,SECURITY device wifi list --rescan no 2>/dev/null \
       | awk -F: 'length($1){printf "%-32s %3s%%  %s\n", $1, $2, ($3==""?"open":"*")}' || true)
     if [ -z "$list" ]; then
-      say "no networks in the daemon's last scan" \
+      say "no networks in the last scan" \
           "" \
-          "This reads the scan the daemon already has rather than forcing one," \
-          "so an empty list means it has not scanned recently -- or the radio" \
-          "is off. Check it under setup > settings."
+          "The radio may be off, or it has not scanned lately." \
+          "Radios are under setup > settings."
       exit 0
     fi
     fzf "${NULL_FZF[@]}" --prompt='network > ' \
