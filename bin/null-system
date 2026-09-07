@@ -97,18 +97,53 @@ cmd_fallback() {
 # -------------------------------------------------------------------- tty
 cmd_tty() {
   head_ "console (§9.5)"
-  local font=ter-118n
-  local src=/usr/lib/kbd/consolefonts/$font.psf.gz
+  # DERIVED FROM THE PANEL, not fixed at the one this was written on.
+  #
+  # This said `ter-118n` and reported "10x18 -- the interface strike, giving
+  # 192x60 at 1920x1080". Both halves were facts about a machine that no longer
+  # exists: nox is a T480 at 1366x768, where the interface strike is ter-u16n
+  # and 10x18 is somebody else's answer. Every machine got a console sized for
+  # a display it might not have.
+  #
+  # The console fonts are named ter-1NNn where the interface strike is ter-uNNn,
+  # so the profile's own answer maps straight onto one. If that font is not
+  # installed the previous fixed choice is the fallback, and it says so rather
+  # than failing.
+  local strike font src
+  strike=$("$ROOT/bin/machine" get interface_strike 2>/dev/null)
+  font=$(printf '%s' "$strike" | sed 's/^ter-u/ter-1/')
+  src=/usr/lib/kbd/consolefonts/$font.psf.gz
+  if [ ! -r "$src" ]; then
+    say "no console font for the profile's strike ($strike); falling back"
+    font=ter-116n
+    src=/usr/lib/kbd/consolefonts/$font.psf.gz
+  fi
   [ -r "$src" ] || refuse "console font $src not found"
-  say "font: $font  (10x18 -- the interface strike, giving 192x60 at 1920x1080)"
+  say "font: $font  (from the machine profile's interface strike, $strike)"
+  say "grid: $("$ROOT/bin/machine" derive interface_cols 2>/dev/null) x $("$ROOT/bin/machine" derive interface_rows 2>/dev/null) cells on this panel"
 
   # At or below 256 glyphs, or the console loses bright background colours:
   # the ninth bit is reallocated from the attribute to the glyph index (§9.5).
   local glyphs
+  # BOTH PSF FORMATS. Terminus ships PSF1 as well as PSF2, and every 8-wide
+  # strike is PSF1 -- which is exactly the strike a 1366x768 panel chooses. This
+  # read PSF2's length field at offset 16 unconditionally, so on a PSF1 font it
+  # printed a number from the middle of the bitmap data. It reported 0 for
+  # ter-116n, and `[ 0 -le 256 ]` is true, so the check passed by accident on a
+  # number that meant nothing.
+  #
+  # The same assumption broke the atlas baker once already: fontlib read only
+  # PSF2, and the guest's 1280x800 panel chose an 8x16 strike.
   glyphs=$(python3 - "$src" <<'PY'
-import gzip,struct,sys
-d=gzip.open(sys.argv[1],'rb').read()
-print(struct.unpack_from('<I', d, 16)[0])
+import gzip, struct, sys
+d = gzip.open(sys.argv[1], 'rb').read()
+if d[:2] == b'\x36\x04':                 # PSF1
+    mode = d[2]
+    print(512 if mode & 0x01 else 256)
+elif d[:4] == b'\x72\xb5\x4a\x86':       # PSF2
+    print(struct.unpack_from('<I', d, 16)[0])
+else:
+    sys.exit("not a PSF font")
 PY
 )
   say "glyphs: $glyphs"
