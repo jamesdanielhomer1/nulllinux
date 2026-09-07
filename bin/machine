@@ -87,6 +87,10 @@ STRIKES="6x12:ter-u12n:ter-112n 8x14:ter-u14n:ter-114n 8x16:ter-u16n:ter-116n
 # a machine that has not started one yet -- which is every machine, once, and
 # is the whole difficulty of installing onto hardware nobody has seen.
 detect_output() {
+  # NULL_DRM_BASE lets a check point this at a fixture tree; it is /sys/class/drm
+  # in every real use. The "any monitors" selection below cannot be exercised on
+  # a build host with one output, so it must be testable off a synthetic /sys.
+  local drm=${NULL_DRM_BASE:-/sys/class/drm}
   # ASK THE COMPOSITOR, NOT sway.
   #
   # This used to shell out to `swaymsg -t get_outputs -r` and parse the JSON
@@ -117,21 +121,37 @@ detect_output() {
   # once and then reports honestly that it cannot detect an output, which the
   # unit treats as success (SuccessExitStatus=0 1).
   local waited=0 limit=${NULL_DRM_WAIT:-5}
-  while [ ! -d /sys/class/drm ] || ! grep -qsx connected /sys/class/drm/card*-*/status; do
+  while [ ! -d "$drm" ] || ! grep -qsx connected "$drm"/card*-*/status; do
     [ "$waited" -ge "$limit" ] && break
     sleep 0.25
     waited=$(awk "BEGIN{print $waited + 0.25}")
   done
 
-  local d
-  for d in /sys/class/drm/card*-*/; do
-    [ -r "$d/status" ] || continue
-    [ "$(cat "$d/status" 2>/dev/null)" = connected ] || continue
-    local mode; mode=$(head -1 "$d/modes" 2>/dev/null)
-    [ -n "$mode" ] || continue
-    local name; name=$(basename "$d"); name=${name#card*-}
+  # THE INTERNAL PANEL IS THE REFERENCE, WHEN THERE IS ONE.
+  #
+  # This used to return the first connected connector in glob order -- and glob
+  # order sorts eDP-1 (lowercase) AFTER DP-1 and HDMI-A-1 (uppercase). So a
+  # laptop docked at first boot derived its profile from the external monitor
+  # rather than its own screen. It self-heals (surfaces size per-output at
+  # runtime, and check-profile regenerates once undocked), but the laptop's own
+  # panel is the sensible reference, so it is preferred: eDP, LVDS and DSI are
+  # the internal-panel connector names the kernel uses. A desktop has none and
+  # falls through to the first connected output, as before.
+  local d name mode
+  emit() {  # <dir> -- print "name w h scale" if it is a connected output with a mode
+    [ -r "$1/status" ] || return 1
+    [ "$(cat "$1/status" 2>/dev/null)" = connected ] || return 1
+    mode=$(head -1 "$1/modes" 2>/dev/null); [ -n "$mode" ] || return 1
+    name=$(basename "$1"); name=${name#card*-}
     echo "$name ${mode%x*} ${mode#*x} 1.0"
-    return 0
+  }
+  for d in "$drm"/card*-{eDP,LVDS,DSI}*/; do
+    [ -d "$d" ] || continue
+    emit "$d" && return 0
+  done
+  for d in "$drm"/card*-*/; do
+    [ -d "$d" ] || continue
+    emit "$d" && return 0
   done
   return 1
 }
@@ -454,6 +474,7 @@ case $verb in
   choose-bake) [ $# -eq 2 ] || die "choose-bake needs <width> <height>"; choose_bake "$1" "$2" ;;
   choose-assets) [ $# -eq 2 ] || die "choose-assets needs <width> <height>"; choose_assets "$1" "$2" ;;
   generate)   generate ;;
+  detect)     detect_output || die "no connected output detected" ;;  # for tests + diagnosis; no profile written
   capabilities)
       for c in $CAPABILITIES; do
         if probe "$c"; then printf '  %-14s present\n' "$c"; else printf '  %-14s absent\n' "$c"; fi

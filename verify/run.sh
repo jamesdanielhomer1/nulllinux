@@ -41,6 +41,7 @@ run "branding is safe"               ./verify/check-branding.sh
 run "no silent takeover"              ./verify/check-no-takeover.sh
 run "no accidental rebuild"          ./verify/check-no-accidental-build.sh
 run "screen measured one way"        ./verify/check-output-geometry.sh
+run "the internal panel is the reference"  ./verify/check-output-selection.sh
 run "initramfs boots elsewhere"      ./verify/check-portable-initramfs.sh
 run "firewall is default-deny"       ./verify/check-firewall.sh
 run "the lock screen is ours"        ./verify/check-lock-screen.sh
