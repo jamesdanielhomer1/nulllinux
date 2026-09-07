@@ -108,10 +108,33 @@ guest_pids() {
 # reads /proc/PID/exe, the real identity, and is not truncated. stop_guest()
 # below already worked this out and says so eighty lines further down. I wrote
 # the broken form anyway, above the comment explaining why it is broken.
+# null_vm_wait [qemu pid] [mode]
+#
+# TWO DIFFERENT ENDINGS, AND THEY LOOK THE SAME FROM HERE.
+#
+#   mode=install  the kickstart finishes with `poweroff`, so the guest STOPS.
+#                 qemu exiting is SUCCESS.
+#   mode=ssh      the disk has been booted on its own; the machine coming up
+#                 and answering is success, and qemu exiting is failure.
+#
+# This function had one mode and it was the wrong one. It waited for ssh after
+# an install and reported, on a completed install that had written 8.5 GB:
+#
+#   vm-iso-install: qemu is gone and nothing is installed.
+#
+# It believed a comment eighty lines below -- "the kickstart ends in `reboot`" --
+# which packaging/nulllinux-install.ks has not said for some time. Line 118 is
+# `poweroff`, and that is the RIGHT ending for a real install: a machine that
+# reboots with the stick still in it walks back into the installer. So the
+# kickstart was right, the comment was stale, and the check believed the prose.
 null_vm_wait() {
-  local qpid_watch=${1:-}
+  local qpid_watch=${1:-} mode=${2:-ssh}
   local limit=${NULL_VM_WAIT_MINS:-60} t0 waited=0 lastsize=0 stalled=0
-  echo "  waiting for the installed machine to answer on :$PORT (up to ${limit}m)"
+  if [ "$mode" = install ]; then
+    echo "  waiting for the install to finish and power the guest off (up to ${limit}m)"
+  else
+    echo "  waiting for the installed machine to answer on :$PORT (up to ${limit}m)"
+  fi
   while [ "$waited" -lt $((limit * 60)) ]; do
     local alive=1
     if [ -n "$qpid_watch" ]; then
@@ -120,8 +143,24 @@ null_vm_wait() {
       [ -n "$(guest_pids)" ] || alive=0
     fi
     if [ "$alive" = 0 ]; then
-      echo >&2
-      echo "vm-iso-install: qemu is gone and nothing is installed." >&2
+      # THE GUEST STOPPING IS THE SUCCESS SIGNAL OF AN INSTALL, and evidence is
+      # required for it rather than taken on trust: a clean power-down in the
+      # console AND a disk with a system on it. A guest that died in the first
+      # minute leaves neither.
+      if [ "$mode" = install ]; then
+        local dsz; dsz=$(stat -c %s "$DISK" 2>/dev/null || echo 0)
+        if grep -qa -e 'reboot: Power down' -e 'poweroff.target' "$WORK/install-console.log" 2>/dev/null \
+           && [ "$dsz" -gt 1000000000 ]; then
+          echo "  the install finished and powered the guest off ($((dsz / 1024 / 1024)) MB written)"
+          return 0
+        fi
+        echo >&2
+        echo "vm-iso-install: the guest stopped without finishing the install." >&2
+        echo "  disk is $((dsz / 1024 / 1024)) MB and the console has no clean power-down." >&2
+      else
+        echo >&2
+        echo "vm-iso-install: qemu is gone and the installed system never answered." >&2
+      fi
       echo "  last of $WORK/install-console.log:" >&2
       tail -25 "$WORK/install-console.log" 2>/dev/null | tr -d '\r' | sed 's/^/    /' >&2
       return 1
@@ -130,7 +169,7 @@ null_vm_wait() {
     # outside the abstraction, and check-package-abstraction caught this line
     # the first time it was written. It is also the better test -- it proves
     # the installed machine's own pkg works, on the installed machine.
-    if sshg -o ConnectTimeout=5 \
+    if [ "$mode" != install ] && sshg -o ConnectTimeout=5 \
          'test ! -d /run/install/repo && /opt/nulllinux/bin/pkg is-installed nulllinux' >/dev/null 2>&1; then
       echo "  the installed system is up and has the nulllinux package"
       return 0
@@ -175,7 +214,7 @@ null_vm_wait() {
 # `wait [pid]` -- the pid is optional, and re-attaching to an install already
 # in flight is exactly when it is wanted: with it, CPU time joins the progress
 # signals instead of the check running on disk and console alone.
-[ "${1:-install}" = wait ] && { null_vm_wait "${2:-}"; exit $?; }
+[ "${1:-install}" = wait ] && { null_vm_wait "${2:-}" "${3:-ssh}"; exit $?; }
 
 # AND ONE CHAIN AT A TIME.
 #
@@ -358,7 +397,9 @@ echo
 echo "booting (install console -> $WORK/install-console.log)"
 stop_guest
 BOOTARGS=(-drive file="$DISK",if=virtio,format=qcow2)
-# `once=d` and not `d`: the kickstart ends in `reboot`, and with a permanent
+# `once=d` and not `d`: the kickstart ends in `poweroff` now, but `once` is kept
+# because it is the property that matters -- a medium that stays first in the
+# boot order sends any later reboot back into the installer. Was `reboot`, and
 # CD-first order that reboot walks straight back into the live image and
 # installs again, forever. `once` means the CD is used for this boot only, so
 # the machine comes up on what was just installed -- which is the thing being
@@ -446,7 +487,9 @@ fi
 echo "  qemu started (pid $qpid); the install is unattended and reboots when it finishes"
 if [ "${1:-install}" = install ]; then
   echo
-  null_vm_wait "$qpid" || exit 1
+  null_vm_wait "$qpid" install || exit 1
+  echo
+  echo "  the disk is installed. Boot it with:  verify/vm-iso-install.sh boot"
   echo
   echo "  now:  verify/vm-iso-install.sh check"
 fi
