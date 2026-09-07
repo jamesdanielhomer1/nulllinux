@@ -13,6 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 fail=0
+[ -r lib/source.sh ] && . lib/source.sh
 note() { printf '  %s\n' "$*"; }
 
 CONF=config/swaylock/config
@@ -88,6 +89,45 @@ if [ "$(printf '%s\n' "$inside" | grep -cv "^$ground$")" -gt 0 ]; then
 else
   note "ok    the indicator is a rule on the ground, not a filled disc"
 fi
+
+# 3. AND SOMETHING HAS TO START THE THING THAT CALLS IT.
+#
+#    A lock screen nothing invokes is a lock screen that never appears. The
+#    compositor's line starting the idle ladder was commented out -- correctly,
+#    for one machine, in the file every machine reads -- so no installed
+#    nullLinux dimmed, blanked, locked, slept, or locked before sleeping.
+#
+#    Found by suspending a guest and resuming it: same boot_id, same compositor
+#    pid, and no lock screen. A laptop that wakes unlocked hands its contents to
+#    whoever opened it, and nothing about it looks wrong until it matters.
+if null_code_only config/sway/config 2>/dev/null | grep -q 'null-idle start'; then
+  note "ok    the compositor starts the idle ladder"
+else
+  note "config/sway/config does not start the idle ladder"
+  note "      nothing would dim, lock, sleep, or lock before sleeping"
+  fail=1
+fi
+
+# 4. AND THE LADDER LOCKS BEFORE IT SLEEPS.
+#
+#    `before-sleep` is the difference between a laptop that protects itself when
+#    the lid closes and one that does not. It is one line in idle.conf and it is
+#    load-bearing.
+for f in config/sway/idle.conf; do
+  [ -r "$f" ] || { note "$f is gone"; fail=1; continue; }
+  if grep -qE "^before-sleep .*null-lock" "$f"; then
+    note "ok    $f locks before sleeping"
+  else
+    note "$f has no before-sleep that locks -- the machine would wake unlocked"
+    fail=1
+  fi
+done
+
+# 5. AND "OFF" HAS SOMEWHERE TO BE REMEMBERED, or the only way to turn the
+#    ladder off is to edit a file that ships -- which is exactly how this got
+#    switched off for everybody.
+grep -q 'IDLE_OFF' bin/null-idle \
+  || { note "bin/null-idle cannot remember that somebody turned the ladder off"; fail=1; }
 
 [ $fail = 0 ] && echo "PASS: the lock screen is this system's, not swaylock's"
 exit $fail

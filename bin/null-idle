@@ -28,6 +28,22 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 # so changing one stage does not silently reset the other four to defaults.
 SYSTEM_CONF="$ROOT/config/sway/idle.conf"
 USER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/nulllinux/idle.conf"
+
+# "OFF" HAS TO SURVIVE A RELOAD, or it is not off.
+#
+# `toggle` used to kill swayidle and nothing else, so the ladder came back at
+# the next `swaymsg reload` or the next login -- and the only way to make it
+# stay off was to comment the exec line out of the compositor's configuration.
+# Which is what happened, in the file EVERY installed machine reads, so every
+# nullLinux has shipped with no dim, no screensaver, no lock, no idle suspend
+# and no lock before sleep.
+#
+# Measured: a guest suspended and resumed with the same boot_id and the same
+# compositor, and came back with no lock screen at all.
+#
+# A marker file instead. One person's machine, one person's choice, and it
+# outlives a reload without editing anything that ships.
+IDLE_OFF="${XDG_CONFIG_HOME:-$HOME/.config}/nulllinux/idle-off"
 if [ "$(id -u)" -eq 0 ] && [ "${NULL_IDLE_USER:-0}" != 1 ]; then
   CONF="$SYSTEM_CONF"
 else
@@ -194,13 +210,28 @@ case "${1:-show}" in
     done < <(stage_names)
     ;;
   set)   set_stage "${2:?stage}" "${3:?seconds}" ;;
+
+  # WHAT THE COMPOSITOR CALLS. Not `swayidle` directly, because the answer to
+  # "should the ladder run" belongs to this tool and to the person, not to a
+  # line in a file that ships to everybody.
+  start)
+    if [ -e "$IDLE_OFF" ]; then
+      echo "the idle ladder is off ($IDLE_OFF); null-idle toggle turns it on"
+      exit 0
+    fi
+    load_stages; write_conf
+    . "$ROOT/lib/once.sh" 2>/dev/null && null_only_one 'swayidle -w -C'
+    setsid swayidle -w -C "$CONF" >/dev/null 2>&1 &
+    echo "the idle ladder is on" ;;
   apply) load_stages; write_conf; echo "wrote $CONF"
          pkill -x -u "$(id -u)" swayidle 2>/dev/null || true
          (swayidle -w -C "$CONF" >/dev/null 2>&1 &) ; echo "swayidle restarted" ;;
   state)
     # Read from the process, not from a flag. A remembered flag and a dead
     # daemon disagree the moment anything restarts.
-    if pgrep -x -u "$(id -u)" swayidle >/dev/null 2>&1; then echo on; else echo off; fi
+    if pgrep -x -u "$(id -u)" swayidle >/dev/null 2>&1; then echo on
+    elif [ -e "$IDLE_OFF" ]; then echo "off (remembered)"
+    else echo off; fi
     ;;
   toggle)
     # Stopping the daemon suspends the WHOLE ladder -- dim, screensaver, lock,
@@ -208,8 +239,12 @@ case "${1:-show}" in
     # configuration is untouched, so turning it back on restores every stage.
     if pgrep -x -u "$(id -u)" swayidle >/dev/null 2>&1; then
       for p in $(pgrep -x -u "$(id -u)" swayidle); do kill "$p"; done 2>/dev/null || true
-      echo "idle ladder off (configuration untouched)"
+      # REMEMBERED, so a reload or a login does not undo it.
+      mkdir -p "$(dirname "$IDLE_OFF")"; : > "$IDLE_OFF"
+      echo "idle ladder off, and it stays off (configuration untouched)"
     else
+      rm -f "$IDLE_OFF"
+      load_stages; write_conf
       setsid swayidle -w -C "$CONF" >/dev/null 2>&1 &
       echo "idle ladder on"
     fi
