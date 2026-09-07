@@ -14,6 +14,15 @@ ROOT=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)
 cd "$ROOT"
 
 PLANT=bin/__selftest_violation
+
+# THE FIXTURE IS TRACKED IN AN ISOLATED INDEX, NEVER THE REAL ONE.
+# The check reads `git ls-files`, so the planted violation must be tracked for
+# it to be seen -- but doing that in the repo's real index means a concurrent
+# `git add -A` (a commit running while the suite does) captures the fixture. It
+# did once. So this points GIT_INDEX_FILE at a throwaway copy of the real index:
+# the check (a child) inherits it and sees the fixture, while the real index --
+# the one any other git command uses -- is never touched. Combined with the
+# .gitignore entry, no stray add can reach it.
 # THIS NEEDS A GIT CHECKOUT, and says so rather than dying.
 #
 # It plants a file and asks git to forget it, so on a deployed tree -- which is
@@ -25,7 +34,14 @@ if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   echo "         tracked file. Run it on the build host, where the repository is."
   exit 0
 fi
-cleanup() { rm -f "$PLANT"; git -C "$ROOT" rm --cached -q "$PLANT" 2>/dev/null || true; }
+# Resolve the REAL index path BEFORE GIT_INDEX_FILE is set -- rev-parse honours
+# GIT_INDEX_FILE, so setting it first makes it resolve to itself and the copy
+# becomes an empty self-copy (that bug cost a 128 and this comment).
+_real_index=$(git -C "$ROOT" rev-parse --git-path index)
+GIT_INDEX_FILE=$(mktemp "${TMPDIR:-/tmp}/null-selftest-index.XXXXXX")
+cp "$_real_index" "$GIT_INDEX_FILE" 2>/dev/null || true
+export GIT_INDEX_FILE
+cleanup() { rm -f "$PLANT" "$GIT_INDEX_FILE"; }
 trap cleanup EXIT
 
 # 1. clean state must pass
@@ -39,7 +55,7 @@ fi
 # that image builders can say `find -name '*.rpm'` and explain themselves. Each
 # loosening is a hole unless something proves it did not swallow the real case,
 # so both the must-catch and the must-not-catch shapes are listed here.
-plant() { printf '%s\n' "$1" > "$PLANT"; chmod +x "$PLANT"; git -C "$ROOT" add -N "$PLANT" >/dev/null 2>&1; }
+plant() { printf '%s\n' "$1" > "$PLANT"; chmod +x "$PLANT"; git -C "$ROOT" add -Nf "$PLANT" >/dev/null 2>&1; }
 fails=0
 must_catch() {
   plant "$2"

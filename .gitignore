@@ -72,3 +72,10 @@ __pycache__/
 # travelled in the package and would be picked up by any installed machine
 # sharing its name -- including nox, which is the machine this is going onto.
 /machines/*.conf
+
+# A transient fixture verify/selftest-package-abstraction.sh plants in bin/ to
+# prove the package-abstraction check catches a violation. It is git-added into
+# an ISOLATED temp index for the check to see, and removed after -- but ignored
+# here too, so a stray `git add -A` mid-test can never sweep it into a commit.
+# It reached one commit exactly that way before this line existed.
+/bin/__selftest_violation
