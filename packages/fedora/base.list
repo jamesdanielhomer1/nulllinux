@@ -178,10 +178,16 @@ file                            # null-open dispatches on MIME type, read from
 
 # --- firmware, because a laptop with no wifi cannot fix itself ------------
 #
-# Fedora SPLIT the wifi firmware out of linux-firmware, and linux-firmware does
-# not pull it back in. An install here had 345 firmware files and ZERO
-# iwlwifi ones -- so on a ThinkPad T480, which is the machine this is going
-# onto, the wireless card would come up and find no firmware to load.
+# ONE FAMILY IS MISSING, AND IT IS THE ONE THIS MACHINE NEEDS.
+#
+# linux-firmware pulls in a wide set of split-out subpackages by itself --
+# watching an install go past, it brought amd-gpu, amd-ucode, atheros,
+# brcmfmac, cirrus-audio, intel-audio, intel-gpu, mt7xxx, nvidia-gpu,
+# mrvlwireless, qcom-wan, realtek and tiwilink. It does NOT bring iwlwifi.
+#
+# An install here had 345 firmware files and ZERO iwlwifi ones -- so on a
+# ThinkPad T480, which is the machine this is going onto and whose wlp3s0 is
+# bound to iwlwifi, the card would come up and find no firmware to load.
 #
 # That is the worst shape a missing package can take: the thing you need to
 # download the fix is the thing that is missing.
@@ -190,9 +196,11 @@ file                            # null-open dispatches on MIME type, read from
 # wc -l` -> 0. Not visible from here, and not visible from the kickstart, which
 # says @core + kernel + nulllinux and looks complete.
 #
-# THE WIFI FAMILIES, not every blob on earth. Intel, Atheros, Realtek and
-# Qualcomm are what laptops have; each is a separate package precisely because
-# Fedora expects a distribution to choose.
+# THE WIFI FAMILIES, not every blob on earth. Intel is the one that was
+# actually absent; Atheros, Realtek and Qualcomm arrive on their own today and
+# are named anyway, because a package that is not declared is a package a
+# dependency change nobody made deliberately can remove (§9.1) -- which is
+# exactly what happened to iwlwifi.
 iwlwifi-mvm-firmware            # Intel 7260..AX200 -- the T480's 8265, and most
                                 # Intel wifi of the last decade
 iwlwifi-dvm-firmware            # Intel 4965..6300, older ThinkPads

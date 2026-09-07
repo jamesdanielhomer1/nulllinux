@@ -260,6 +260,13 @@ cmd_plymouth() {
     got_mod=$(lsinitrd "$img" 2>/dev/null | grep -c "plymouth/$module.so" || true)
     say "theme files in the image: $got_theme"
     say "module in the image:      $got_mod"
+    # AND THE CHECK BUILDS THE WAY --apply DOES, or it is a rehearsal for a
+    # different performance. It used to pass PLYMOUTH_THEME_NAME while --apply
+    # did not, so it counted 22 theme files in an image nobody would ever boot
+    # and --apply shipped one with none.
+    grep -q 'PLYMOUTH_THEME_NAME=nullLinux dracut' "$0" \
+      || say "WARNING: --apply no longer builds the way this check does"
+
     # Files being PRESENT is not the same as the image BOOTING them. There is no
     # default.plymouth on Fedora; the daemon reads Theme= from plymouthd.conf
     # (admin, what plymouth-set-default-theme writes) falling back to
@@ -295,6 +302,10 @@ cmd_plymouth() {
   say "  null-system plymouth --check                      build a throwaway image"
   say "  null-system plymouth --apply --fallback-verified  commit"
   if [ "$APPLY" -eq 1 ] && [ "$FALLBACK_VERIFIED" -eq 1 ]; then
+    # WHAT TO PUT BACK, read before anything is touched.
+    local before_theme
+    before_theme=$(plymouth-set-default-theme 2>/dev/null)
+    [ -n "$before_theme" ] || before_theme=text
     snapshot splash
     rm -rf /usr/share/plymouth/themes/nullLinux
     cp -a "$theme" /usr/share/plymouth/themes/nullLinux
@@ -304,8 +315,49 @@ cmd_plymouth() {
       && [ ! /usr/share/plymouth/themes/nulllinux -ef /usr/share/plymouth/themes/nullLinux ] \
       && rm -rf /usr/share/plymouth/themes/nulllinux
     plymouth-set-default-theme nullLinux
+
+    # AND THE SYMLINK plymouth-populate-initrd ACTUALLY READS.
+    #
+    # plymouth-set-default-theme writes Theme=nullLinux into
+    # /etc/plymouth/plymouthd.conf and stops there. dracut's plymouth module
+    # resolves the theme through /usr/share/plymouth/themes/default.plymouth,
+    # which on this system DID NOT EXIST -- so it fell back and put only the
+    # `text` and `details` themes in the image.
+    ln -sfn "/usr/share/plymouth/themes/nullLinux/nullLinux.plymouth" \
+            /usr/share/plymouth/themes/default.plymouth
+
     say "regenerating ONLY the running kernel's initramfs; the rescue image is untouched"
-    dracut --force --kver "$(uname -r)"
+
+    # THE SAME INVOCATION --check PROVED. It was not.
+    #
+    # --check builds with PLYMOUTH_THEME_NAME=nullLinux and counted 22 theme
+    # files. --apply built WITHOUT it and produced an image containing ZERO,
+    # while its own plymouthd.conf said Theme=nullLinux -- plymouth told to use
+    # a theme whose images were not there, falling back to its own defaults.
+    #
+    # What that looks like on a real boot, measured rather than imagined: a
+    # #2E3436 screen with three grey dots. Fedora's, not this system's. The
+    # splash had never once drawn, and the check passed every time, because it
+    # verified a build that was not the build this performs.
+    PLYMOUTH_THEME_NAME=nullLinux dracut --force --kver "$(uname -r)"
+
+    # AND THE LIVE IMAGE IS READ BACK. A rebuild that exits 0 having included
+    # nothing is precisely the failure above, and §9.6's caution exists because
+    # this is the step that can leave a machine looking broken.
+    local live n
+    live="/boot/initramfs-$(uname -r).img"
+    n=$(lsinitrd "$live" 2>/dev/null | grep -c 'themes/nullLinux/' || true)
+    if [ "${n:-0}" -eq 0 ]; then
+      say ""
+      say "the new initramfs contains NO nullLinux theme files."
+      say "The splash would fall back to plymouth's default: a grey screen with"
+      say "three dots. Putting the previous theme back."
+      plymouth-set-default-theme "$before_theme" 2>/dev/null || true
+      rm -f /usr/share/plymouth/themes/default.plymouth
+      dracut --force --kver "$(uname -r)"
+      refuse "the splash was not applied"
+    fi
+    say "theme files in the live image: $n"
     say "done"
   else
     say ""
