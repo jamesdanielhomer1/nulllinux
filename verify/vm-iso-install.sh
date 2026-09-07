@@ -75,11 +75,51 @@ esac
 # `inst.sshd` means the INSTALLER has sshd too, so "ssh connects" is true
 # minutes before the install is done. The installed system is the one with no
 # /run/install/repo and the nulllinux package on it.
+# THE PIDS OF THE GUEST THIS SCRIPT OWNS, by /proc/PID/exe -- which is the real
+# identity and is not truncated -- narrowed by cmdline to this script's disk.
+# Shared with null_vm_wait so both agree on what "our guest" means.
+guest_pids() {
+  local p exe
+  for p in /proc/[0-9]*; do
+    exe=$(readlink -f "$p/exe" 2>/dev/null) || continue
+    case "$exe" in */qemu-system-x86_64) ;; *) continue ;; esac
+    grep -qa -- "$DISK" "$p/cmdline" 2>/dev/null || continue
+    echo "${p#/proc/}"
+  done
+}
+
+# null_vm_wait [qemu pid]
+#
+# THE LIVENESS TEST CANNOT BE `pgrep -x qemu-system-x86_64`.
+#
+# Linux truncates a process's comm to 15 characters (TASK_COMM_LEN). That name
+# is 18, so -x compares against "qemu-system-x86" and never matches -- pgrep
+# even warns about it on stderr, which is the only reason this was caught:
+#
+#   pgrep: pattern that searches for process name longer than 15 characters
+#          will result in zero matches
+#
+# `! pgrep ...` would therefore have been true on the first pass of every wait,
+# aborting each install with a confident "qemu is gone and nothing is
+# installed" while the install ran on perfectly well behind it. A check that is
+# always true is not a check; it is the thing this function was written to stop.
+#
+# So: the pid we launched, when we have it, and otherwise guest_pids() -- which
+# reads /proc/PID/exe, the real identity, and is not truncated. stop_guest()
+# below already worked this out and says so eighty lines further down. I wrote
+# the broken form anyway, above the comment explaining why it is broken.
 null_vm_wait() {
+  local qpid_watch=${1:-}
   local limit=${NULL_VM_WAIT_MINS:-60} t0 waited=0 lastsize=0 stalled=0
   echo "  waiting for the installed machine to answer on :$PORT (up to ${limit}m)"
   while [ "$waited" -lt $((limit * 60)) ]; do
-    if ! pgrep -x qemu-system-x86_64 >/dev/null 2>&1; then
+    local alive=1
+    if [ -n "$qpid_watch" ]; then
+      kill -0 "$qpid_watch" 2>/dev/null || alive=0
+    else
+      [ -n "$(guest_pids)" ] || alive=0
+    fi
+    if [ "$alive" = 0 ]; then
       echo >&2
       echo "vm-iso-install: qemu is gone and nothing is installed." >&2
       echo "  last of $WORK/install-console.log:" >&2
@@ -383,7 +423,7 @@ fi
 echo "  qemu started (pid $qpid); the install is unattended and reboots when it finishes"
 if [ "${1:-install}" = install ]; then
   echo
-  null_vm_wait || exit 1
+  null_vm_wait "$qpid" || exit 1
   echo
   echo "  now:  verify/vm-iso-install.sh check"
 fi
