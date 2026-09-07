@@ -914,6 +914,27 @@ now known about it, and what is not:
 | a panel whose EDID is not qemu's | untested |
 | the trackpoint, the dock, the fingerprint reader | untested |
 
+**Two ways to misread a screenshot of this system**, both of which cost an
+hour tonight.
+
+`@` IS THE TOP OF THE RAMP, AND TERMINUS DRAWS IT AS A BOX CONTAINING A BOX.
+At high load the CPU meter and the CORES bars fill with `@`, and at 8x16 that
+glyph is
+
+    .#####..
+    #.....#.
+    #..####.
+    #.#...#.
+    #.#...#.
+    #.#..##.
+    #..##.#.
+    #.......
+    .######.
+
+which reads as a missing-glyph box at a glance. It is not: the glyph on screen
+matches the atlas's U+0040 at **128 of 128 pixels**. Every ramp glyph is
+present in every strike's atlas — checked, for all three, rather than assumed.
+
 **A screenshot taken by the host is not what a person sees.** qemu's
 `screendump` misreads a framebuffer whose width is not 4-aligned: at 1366 it
 returns the desktop sheared, colour-separated and with rows dropped, which
