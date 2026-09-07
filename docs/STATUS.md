@@ -84,6 +84,26 @@ Three defects only a real run could show, each fixed:
 - **`openvt` returned 8 from a run that succeeded**, and `%pre` reported that as
   its own verdict. It now decides on whether the answers exist.
 
+## Before nullLinux goes on nox, the project has to exist somewhere else
+
+**There is no git remote.** 147 commits, and the only copy of this repository
+is `/opt/nulllinux` on nox's `nvme0n1` — the disk an install would erase.
+
+That is now on the critical path rather than beside it. The goal is
+"nullLinux running on nox", and reaching it destroys the machine that holds the
+work: the tree, its history, `assets/prebuilt/` (generated, not committed, and
+about 1.3 MB of baked hero per strike), `/var/lib/nulllinux-iso`, and
+`/opt/rice`.
+
+Two things would settle it, and neither is work:
+
+    git remote add origin <somewhere>   &&  git push -u origin main
+    bin/null-backup /run/media/<a drive>
+
+`bin/null-backup` refuses a destination on this machine's own disk, which is
+the right refusal and also the reason it has never run: nothing removable has
+been attached. `/dev/sda` is a card reader with no card in it.
+
 ## The two open gates
 
 **1. Reboot (Phase 10).** Nothing had ever been verified across a reboot;
