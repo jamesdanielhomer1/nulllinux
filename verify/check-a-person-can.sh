@@ -137,7 +137,11 @@ can "take a screenshot" \
     "the key binding runs a program that is not there" \
     grim slurp wl-clipboard
 
-# AND THE ONE THAT IS NOT A PACKAGE LIST.
+can "use the menu, the launcher and every picker" \
+    "fifteen programs in bin/ are pickers over fzf, and all of them fail at once" \
+    fzf
+
+# AND THE ONES THAT ARE NOT A PACKAGE LIST.
 #
 # A machine that never locks is not missing a package; it is missing a line
 # that starts the thing that locks it. That was true of every installed
@@ -148,6 +152,25 @@ if grep -q 'null-idle start' config/sway/config 2>/dev/null \
 else
   note "walk away from the machine and come back to a lock screen -- NOT wired"
   note "      the compositor must start null-idle, and idle.conf must lock before sleep"
+  fail=1
+fi
+
+# FIND OUT HOW TO USE THE MACHINE AT ALL.
+#
+# 80 bindings, no menu bar, and a compositor whose keys are nobody's default.
+# A person logging in for the first time cannot open a terminal without being
+# told how. The answer is $mod+k, and it reaches the key list through four
+# links -- binding, column topic, null-menu, null-keys -- any one of which can
+# break in silence. The column's own comment records that exactly this dispatch
+# "silently did nothing ... for months".
+if grep -qE '^bindsym \$mod\+k exec .*column --send open keys' config/sway/bindings.conf 2>/dev/null \
+   && grep -q 'keys)' bin/null-menu 2>/dev/null \
+   && grep -q 'null-keys' bin/null-menu 2>/dev/null \
+   && [ -x bin/null-keys ]; then
+  note "ok    find out how to use the machine, having been told nothing"
+else
+  note "find out how to use the machine, having been told nothing -- the chain is broken"
+  note "      \$mod+k -> column topic 'keys' -> null-menu keys -> null-keys"
   fail=1
 fi
 
