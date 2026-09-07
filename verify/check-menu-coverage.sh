@@ -28,6 +28,24 @@ declare -A NOT_DRAWN=(
   [mixer]="sends an IPC message to the running column; wiremix cannot be measured without a PipeWire session"
 )
 
+# THE CLIPBOARD TOPIC READS THE LIVE STORE, so it measured whatever this machine
+# had copied. On the build host that included U+276F (a shell prompt's chevron),
+# a glyph Terminus has no cell for, and the check failed -- on CONTENT, not
+# chrome. Content is user data; the rule (10.5) is about the chrome the system
+# draws. Measured against an ISOLATED store seeded with known ASCII it is
+# deterministic and identical on every machine -- the only version that travels
+# (0.2), and the reason a check must run against null, not the machine it is
+# built on.
+CLIP_DB=""
+if command -v cliphist >/dev/null 2>&1; then
+  CLIP_DIR=$(mktemp -d)
+  trap 'rm -rf "$CLIP_DIR"' EXIT
+  CLIP_DB="$CLIP_DIR/db"
+  for cs in "the quick brown fox jumps" "second clipboard entry" "third line here"; do
+    printf '%s' "$cs" | CLIPHIST_DB_PATH="$CLIP_DB" cliphist store 2>/dev/null || true
+  done
+fi
+
 # HOW LONG TO WATCH, and why it stopped being a constant.
 #
 # This was 2 s, then 6 s, raised each time because a topic that asks the package
@@ -54,9 +72,12 @@ for t in $TOPICS; do
     continue
   fi
   probe_topic() {  # <seconds>
+    # clipboard reads an isolated, seeded store: chrome, not last-copied content.
+    local pre=""
+    [ "$t" = clipboard ] && [ -n "$CLIP_DB" ] && pre="CLIPHIST_DB_PATH=$CLIP_DB"
     timeout $(( $1 + 20 )) python3 verify/coverage.py --cols 63 --rows 54 \
       --seconds "$1" --json -- \
-      env NULL_COLUMN=1 NULL_ROOT="$ROOT" "$ROOT/bin/null-menu" "$t" 2>/dev/null
+      env $pre NULL_COLUMN=1 NULL_ROOT="$ROOT" "$ROOT/bin/null-menu" "$t" 2>/dev/null
   }
   cells_of() {
     python3 -c "import json,sys; print(json.loads(sys.argv[1])['printable_cells'])" "$1" 2>/dev/null || echo 0

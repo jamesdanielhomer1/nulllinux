@@ -51,6 +51,7 @@ BuildRequires:  systemd-rpm-macros
 # next package build this block says something false, and that is what a reader
 # and a distribution packager see.
 Requires:       NetworkManager-tui
+Requires:       NetworkManager-wifi
 Requires:       amd-gpu-firmware
 Requires:       atheros-firmware
 Requires:       ax86-terminus-ttf-fonts
@@ -94,6 +95,7 @@ Requires:       libreoffice-calc
 Requires:       libreoffice-gtk3
 Requires:       libreoffice-impress
 Requires:       libreoffice-writer
+Requires:       microcode_ctl
 Requires:       mpv
 Requires:       nano
 Requires:       nftables
@@ -103,6 +105,7 @@ Requires:       pipewire-pulseaudio
 Requires:       playerctl
 Requires:       plymouth-plugin-two-step
 Requires:       polkit
+Requires:       power-profiles-daemon
 Requires:       qcom-firmware
 Requires:       realtek-firmware
 Requires:       sddm
@@ -126,6 +129,7 @@ Requires:       wiremix
 Requires:       wireplumber
 Requires:       wl-clipboard
 Requires:       wlsunset
+Requires:       wpa_supplicant
 Requires:       xarchiver
 Requires:       xdg-desktop-portal-gtk
 Requires:       xdg-desktop-portal-wlr
