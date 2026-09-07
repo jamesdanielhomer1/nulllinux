@@ -30,7 +30,6 @@ The calls that broke were the ones that did not.
 import os
 import re
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -66,39 +65,6 @@ def sway_configs(path, seen=None):
         for p in sorted(g.glob(str(base / spec) if not spec.startswith("/") else spec)):
             out.extend(sway_configs(p, seen))
     return out
-
-
-def commands_from_bindings(paths, variables):
-    """First word of every exec, with env assignments and variables resolved."""
-    found = {}
-    for p in paths:
-        for n, line in enumerate(Path(p).read_text(errors="replace").splitlines(), 1):
-            m = re.search(r"\bexec(?:_always)?\s+(.+)$", line.strip())
-            if not m or line.strip().startswith("#"):
-                continue
-            rest = m.group(1).strip()
-            # `exec sh -c "..."` and pipelines: take the first simple word.
-            for token in rest.split():
-                if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token):
-                    continue                      # env assignment prefix
-                for var, val in variables.items():
-                    token = token.replace(var, val)
-                token = token.strip("'\"")
-                if token in ("pkill", "sh", "bash"):
-                    break
-                found.setdefault(token, []).append(f"{Path(p).name}:{n}")
-                break
-    return found
-
-
-def sway_variables(paths):
-    v = {}
-    for p in paths:
-        for line in Path(p).read_text(errors="replace").splitlines():
-            m = re.match(r"^\s*set\s+(\$[A-Za-z0-9_]+)\s+(.+?)\s*$", line)
-            if m:
-                v[m.group(1)] = m.group(2)
-    return v
 
 
 def commands_from_bindings(paths, variables):

@@ -9,7 +9,6 @@ radiance would be judging something nobody looks at.
 """
 
 import argparse
-import json
 import shutil
 import subprocess
 import sys

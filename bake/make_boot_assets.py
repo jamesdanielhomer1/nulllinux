@@ -23,7 +23,6 @@ system about what the hero looks like.
 import argparse
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 from PIL import Image
@@ -138,7 +137,7 @@ def make_plymouth(outdir, cells, atlas, count, total_frames, palette):
     for i in range(count):
         total += rasterise(cells, atlas, i * step, outdir / f"throbber-{i + 1:04d}.png")
 
-    extra = write_prompt_images(outdir)
+    write_prompt_images(outdir)
     (outdir / "nullLinux.plymouth").write_text(f"""\
 [Plymouth Theme]
 Name=nullLinux
