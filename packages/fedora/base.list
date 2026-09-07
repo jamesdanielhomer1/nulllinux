@@ -83,6 +83,21 @@ plymouth-plugin-two-step
 # inside a transaction is not a guarantee. See `null-system initramfs`.
 dracut-config-generic
 
+# THE CPU'S OWN ERRATA FIXES, WHICH @core DOES NOT CARRY.
+#
+# Intel microcode ships in microcode_ctl, which lives in @standard, not @core --
+# so a minimal install has none of it, and the AMD blobs (in linux-firmware) do
+# an Intel machine no good. Found by asking the installed guest: microcode_ctl
+# absent, /lib/firmware/intel-ucode missing, `journalctl | grep microcode`
+# silent -- the T480's Kaby Lake runs on whatever the BIOS burned in, without the
+# errata and side-channel mitigations that ship as microcode.
+#
+# Not a boot blocker -- the CPU boots on its factory microcode -- which is why it
+# goes unnoticed. The %post `dracut --regenerate-all` prepends the early-load
+# cpio once this is in the transaction, so the fix costs no new step. amd-ucode
+# rides in with linux-firmware, so this one package covers Intel and AMD both.
+microcode_ctl
+
 # THE FIREWALL'S OWN BINARY, DECLARED RATHER THAN INHERITED.
 #
 # config/nftables/nulllinux.nft is this system's firewall and nftables.service
@@ -446,6 +461,20 @@ bluez                           # bluetoothctl, for the bluetooth menu topic
 # these are reached through the menu, so it never saw them. And on this build
 # host they happen to be installed, which is why nobody noticed.
 NetworkManager-tui              # nmtui, the network topic in the settings menu
+NetworkManager-wifi             # the device plugin without which NM sees no
+                                # wireless card at all -- a separate subpackage
+wpa_supplicant                  # THE ASSOCIATION BACKEND. Firmware present, iw
+                                # present, and still no wifi: NetworkManager had
+                                # no supplicant, so it could authenticate to
+                                # nothing. The card came up and could join no
+                                # network -- the very "association" the firmware
+                                # note upstream is not enough for on its own.
+power-profiles-daemon           # null-power DISCOVERS ppd or tuned and ships
+                                # neither, so `null-power backend` returned
+                                # "none" and the settings power topic was dead.
+                                # ppd over tuned: lighter (no Python daemon),
+                                # the modern desktop standard, and what UPower's
+                                # CriticalPowerAction already expects.
 wiremix                         # the PipeWire mixer the column hosts (bin/null-mixer)
 swaylock                        # the lock the idle ladder calls (§8.5)
 swayidle                        # and the daemon that decides when

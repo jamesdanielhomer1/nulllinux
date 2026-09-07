@@ -74,8 +74,19 @@ can "read and send mail at all" \
     thunderbird
 
 can "join a wireless network" \
-    "the card comes up and finds no firmware, on the machine this is going onto" \
-    iwlwifi-mvm-firmware NetworkManager-tui iw
+    "firmware and iw are present and it still associates with nothing: NetworkManager \
+has no wifi device plugin and no supplicant to authenticate with" \
+    iwlwifi-mvm-firmware NetworkManager-wifi wpa_supplicant NetworkManager-tui iw
+# The firmware was the first thing found missing here, so the reason above used
+# to stop at it -- and the check passed while a real install could join no
+# network at all, because NetworkManager-wifi (the device plugin) and
+# wpa_supplicant (the association backend) were never asked for. Firmware lets
+# the card exist; these two let it CONNECT.
+
+can "manage battery and power" \
+    "null-power discovers a daemon rather than naming one, and the package set \
+ships none -- so `null-power backend` is 'none' and the power topic is a dead menu entry" \
+    power-profiles-daemon
 
 can "print" \
     "there is no print spooler and no way to add a printer" \

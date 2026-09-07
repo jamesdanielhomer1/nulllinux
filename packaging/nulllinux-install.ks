@@ -103,7 +103,7 @@ sshpw --username=root nulltest --plaintext
 rootpw --plaintext nulltest
 user --name=null --groups=wheel --password=nulltest --plaintext
 
-services --enabled=NetworkManager,sshd
+services --enabled=NetworkManager,sshd,power-profiles-daemon
 # POWEROFF, NOT REBOOT.
 #
 # The install is driven by booting the installer's kernel directly, and qemu
