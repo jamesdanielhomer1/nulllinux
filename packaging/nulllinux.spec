@@ -162,6 +162,18 @@ install -d %{buildroot}%{_prefix}/%{name}
 # host has and an installed machine does not.
 cp -a bin lib bake config machines packages verify docs assets NULL.md README.md \
       %{buildroot}%{_prefix}/%{name}/
+
+# THE BUILD HOST'S MACHINE PROFILE DOES NOT TRAVEL.
+#
+# `machines/<hostname>.conf` is GENERATED from the hardware, and `bin/machine`
+# selects one BY HOSTNAME. Shipping the build host's meant that an installed
+# machine which happened to share its name -- and nox, the machine this is
+# going onto, is exactly that -- would find a profile matching itself and use
+# geometry measured on somebody else's panel instead of deriving its own.
+#
+# The directory ships; its contents do not. The profile is derived on the first
+# boot that has a display, which is the only way it is ever right.
+rm -f %{buildroot}%{_prefix}/%{name}/machines/*.conf
 # The bake's own working directories are not shipped: hundreds of megabytes of
 # HDR frames whose only purpose was to be packed into assets/prebuilt/master.hero.
 rm -rf %{buildroot}%{_prefix}/%{name}/bake/out \

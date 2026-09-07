@@ -66,3 +66,9 @@ __pycache__/
 /program.log
 /anaconda.log
 /dnf.log
+
+# A machine profile is DERIVED from the hardware by `machine generate`, and
+# `bin/machine` selects one by hostname. Committing the build host's meant it
+# travelled in the package and would be picked up by any installed machine
+# sharing its name -- including nox, which is the machine this is going onto.
+/machines/*.conf

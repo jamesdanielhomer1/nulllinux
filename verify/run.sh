@@ -61,6 +61,7 @@ run "the screens go where told"      ./verify/check-outputs.sh
 run "removable media, and only that" ./verify/check-drive.sh
 run "unknown is not zero"            ./verify/check-unknown-is-not-zero.sh
 run "tests stay off the host"        ./verify/check-tests-stay-off-the-host.sh
+run "the rice and this are apart"    ./verify/check-two-systems-apart.sh
 run "accounts, and their refusals"   ./verify/check-users.sh
 run "archives actually open"         ./verify/check-archives.sh
 run "firmware nothing went without" ./verify/check-firmware.sh

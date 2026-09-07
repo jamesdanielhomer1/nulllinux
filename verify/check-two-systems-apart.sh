@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# THE RICE AND THE DISTRIBUTION ARE TWO SYSTEMS.
+#
+# `nox` is a machine. It runs `/opt/rice`, a Fedora rice, and it is where
+# nullLinux is developed. nullLinux is a distribution that will one day be
+# installed onto that machine, erasing the other one.
+#
+# They share a person, a palette's ancestry and a hostname, and nothing else.
+# Every way they have leaked into each other so far has been silent:
+#
+#   machines/nox.conf shipped inside the package. `bin/machine` selects a
+#     profile BY HOSTNAME, so any installed machine called `nox` -- which is
+#     precisely the machine this is going onto -- would have found a profile
+#     matching itself and used geometry measured on the build host's panel
+#     instead of deriving its own.
+#
+#   config/firefox/newtab.html was titled `nox`. Not a comment: the title of a
+#     page this distribution opens in front of whoever installed it, naming a
+#     machine that has nothing to do with them.
+#
+# PROSE IS NOT A LEAK. The comments in this tree explain at length that nox runs
+# rice and why that matters -- lib/host.sh exists for it, and
+# config/sway/config records which machine an instruction was about. That
+# context is the reason the separation holds. So this reads code, with
+# lib/source.sh, and leaves the explanations alone.
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+fail=0
+note() { printf '  %s\n' "$*"; }
+[ -r lib/source.sh ] || { note "lib/source.sh is gone"; exit 1; }
+. lib/source.sh
+
+# 1. NOTHING IN THE DISTRIBUTION READS OR WRITES THE RICE.
+hits=0
+for f in bin/* lib/*.sh lib/pkg/* verify/*.sh bake/*.py config/sway/config packaging/*.spec packaging/*.ks; do
+  [ -f "$f" ] || continue
+  case $f in verify/check-two-systems-apart.sh) continue ;; esac
+  if null_code_only "$f" 2>/dev/null | grep -q '/opt/rice'; then
+    note "$f names /opt/rice in code, not in a comment"
+    hits=$((hits+1)); fail=1
+  fi
+done
+[ "$hits" = 0 ] && note "ok    no code in the distribution touches the rice"
+
+# 2. NO MACHINE PROFILE IS COMMITTED.
+#
+#    A profile is generated from the hardware. Committing one puts a measurement
+#    of a particular panel into the history of a distribution meant for any
+#    panel -- and §5.7 forbids committing derived files anyway.
+tracked=$(git ls-files 'machines/*.conf' 2>/dev/null)
+if [ -n "$tracked" ]; then
+  note "a machine profile is committed:"; printf '%s\n' "$tracked" | sed 's/^/      /'
+  fail=1
+else
+  note "ok    no machine profile is committed"
+fi
+
+# 3. AND NONE IS PACKAGED.
+if [ -r packaging/nulllinux.spec ]; then
+  grep -q 'rm -f %{buildroot}%{_prefix}/%{name}/machines/\*\.conf' packaging/nulllinux.spec \
+    && note "ok    the package ships the machines directory and no profile in it" \
+    || { note "packaging/nulllinux.spec does not strip machines/*.conf"
+         note "      an installed machine sharing the build host's name would inherit its panel"
+         fail=1; }
+fi
+
+# 4. NOTHING A PERSON SEES NAMES THE DEVELOPMENT MACHINE.
+#
+#    Named surfaces rather than a blanket grep, because the word appears
+#    legitimately all over the comments. These are the strings that reach a
+#    screen.
+seen=0
+check_visible() {  # <file> <what it is> <extractor...>
+  local f=$1 what=$2; shift 2
+  [ -r "$f" ] || return 0
+  local v; v=$("$@" "$f" 2>/dev/null)
+  [ -n "$v" ] || return 0
+  seen=$((seen+1))
+  case $v in
+    *nox*|*rice*)
+      note "$what says '$v' -- that is the development machine, not this system"
+      fail=1 ;;
+    *) note "ok    $what: $v" ;;
+  esac
+}
+title_of() { sed -n 's/.*<title>\(.*\)<\/title>.*/\1/p' "$1" | head -1; }
+name_of()  { sed -n 's/^Name=//p' "$1" | head -1; }
+
+check_visible config/firefox/newtab.html "the browser's new tab" title_of
+check_visible system/plymouth-theme/nullLinux.plymouth "the boot splash's name" name_of
+[ "$seen" = 0 ] && note "(no shipped surface was readable here to check its name)"
+
+# 5. AND THE HERO IS THE DISTRIBUTION'S, NOT A MACHINE'S.
+#
+#    The plan once had a hero per machine -- `nox` here, `sol` elsewhere. That
+#    makes the identity of the system depend on which box it was installed on.
+#    §0.1 cut it; this is the part that would bring it back.
+if null_code_only bin/machine 2>/dev/null | grep -qE 'hero\s*=\s*(nox|sol)\b'; then
+  note "bin/machine names a per-machine hero; §0.1 cut those"
+  fail=1
+else
+  note "ok    one hero for the distribution, not one per machine"
+fi
+
+[ $fail = 0 ] && echo "PASS: the rice and the distribution stay separate"
+exit $fail

@@ -85,7 +85,7 @@ def main():
 
     # ------------------------------------------------------------ empty state
     (out / "newtab.html").write_text(f"""<!doctype html>
-<meta charset="utf-8"><title>nox</title>
+<meta charset="utf-8"><title>nullLinux</title>
 <style>
   html, body {{ margin:0; height:100%; background:{r['background']}; }}
   body {{ display:flex; align-items:center; justify-content:center; }}
