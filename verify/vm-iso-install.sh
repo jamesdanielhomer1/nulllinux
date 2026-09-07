@@ -129,7 +129,7 @@ guest_pids() {
 # kickstart was right, the comment was stale, and the check believed the prose.
 null_vm_wait() {
   local qpid_watch=${1:-} mode=${2:-ssh}
-  local limit=${NULL_VM_WAIT_MINS:-60} t0 waited=0 lastsize=0 stalled=0
+  local limit=${NULL_VM_WAIT_MINS:-60} waited=0 lastsize=0 stalled=0
   if [ "$mode" = install ]; then
     echo "  waiting for the install to finish and power the guest off (up to ${limit}m)"
   else
@@ -387,6 +387,12 @@ if [ "${1:-install}" = install ]; then
   # later boot/install with "another install is already running". That happened.
   ( cd "$WORK" && exec python3 -m http.server 8899 --bind 0.0.0.0 ) >/dev/null 2>&1 9>&- &
   HTTPPID=$!
+  # AND IT DIES WITH THE INSTALL. It serves the kickstart and the repo for the
+  # duration of anaconda's run, then it is done -- but nothing killed it, so it
+  # (and port 8899) leaked after every install. That is the same server whose
+  # inherited fd held the flock; closing the fd stopped the lock leak, this stops
+  # the process leak. A trap, so it goes on success, error and interrupt alike.
+  trap '''[ -n "${HTTPPID:-}" ] && kill "$HTTPPID" 2>/dev/null''' EXIT
   # The debugging key, served the same way. The live image only fetches it
   # because the command line below names it; a shipped ISO has no key at all.
   cp "$KEY.pub" "$WORK/testkey.pub"
