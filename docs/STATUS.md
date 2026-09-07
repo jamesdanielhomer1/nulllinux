@@ -98,9 +98,19 @@ guest, 2026-09-07:**
   is-system-running` says `running`, its title is `nullLinux (0-rescue-…)`, and
   the console palette is on its command line too
 
-The splash is the one step that can leave a machine unbootable, which is why it
-refuses to install until the fallback above has been confirmed. On metal that
-confirmation is still owed.
+**And the splash was applied and booted, which is how it was found to have
+never worked.** Every previous install showed Fedora's default — a #2E3436
+screen with three grey dots — because the initramfs contained zero nullLinux
+theme files while its own `plymouthd.conf` said `Theme=nullLinux`. Two causes:
+`plymouth-set-default-theme` writes the config and does not create the
+`default.plymouth` symlink dracut resolves through, and `--check` built with
+`PLYMOUTH_THEME_NAME=nullLinux` while `--apply` did not — so the check counted
+22 theme files in an image nobody would ever boot. `--apply` now builds the way
+the check builds and reads the live image back, restoring the previous theme
+and refusing if the theme is not in it. **23 theme files in the live image, and
+the hero draws.**
+
+On metal all of this is still owed.
 
 ```
   reboot into the rescue entry once, confirm it reaches a shell
