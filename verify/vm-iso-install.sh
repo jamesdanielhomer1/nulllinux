@@ -221,6 +221,11 @@ null_vm_wait() {
 # Nothing stopped a second build chain from starting while the first was mid
 # install; the newcomer stopped the incumbent's guest and both reported done.
 # A lock, taken for the whole install, so the second one says so and stops.
+# ANY BACKGROUND PROCESS LAUNCHED WHILE THIS IS HELD MUST CLOSE fd 9 (9>&-):
+# fd 9 is not close-on-exec, so a child that outlives this script -- the
+# kickstart HTTP server did -- keeps the lock held for ever. Learned the hard
+# way; bash does not set cloexec on {var}-allocated fds either, so there is no
+# tidier version of this.
 if [ "${1:-install}" = install ] || [ "${1:-install}" = boot ]; then
   exec 9>"$WORK/.install.lock"
   if ! flock -n 9; then
@@ -377,7 +382,10 @@ if [ "${1:-install}" = install ]; then
   # The kickstart is SERVED, not embedded. 0.0.0.0 rather than 127.0.0.1: the
   # guest reaches the host as 10.0.2.2, and a server bound to loopback is a
   # server the guest cannot see.
-  ( cd "$WORK" && exec python3 -m http.server 8899 --bind 0.0.0.0 ) >/dev/null 2>&1 &
+  # 9>&- CLOSES THE LOCK FD. Without it this server -- which outlives the install
+  # script -- inherits fd 9 and holds the install flock for ever, refusing every
+  # later boot/install with "another install is already running". That happened.
+  ( cd "$WORK" && exec python3 -m http.server 8899 --bind 0.0.0.0 ) >/dev/null 2>&1 9>&- &
   HTTPPID=$!
   # The debugging key, served the same way. The live image only fetches it
   # because the command line below names it; a shipped ISO has no key at all.
@@ -466,7 +474,7 @@ setsid qemu-system-x86_64 -enable-kvm -cpu host -m "$MEM" -smp 4 \
   "${DISPLAYARGS[@]}" \
   -display none -serial file:"$WORK/install-console.log" \
   -monitor unix:"$WORK/install-monitor",server,nowait \
-  >"$WORK/qemu.log" 2>&1 &
+  9>&- >"$WORK/qemu.log" 2>&1 &
 qpid=$!
 
 # "qemu started" WAS A CLAIM, NOT A CHECK.
