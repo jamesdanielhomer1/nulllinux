@@ -87,7 +87,12 @@ autopart --type=plain --noswap
 # Shift during that second still brings the menu up, which matters here more
 # than usual: this system has ONE ordinary kernel, so the rescue entry is the
 # only fallback (NULL.md 9.6). The menu is not gone, it is quiet.
-bootloader --location=mbr --boot-drive=vda --timeout=1
+# NO --location: it is BIOS-only, and on an EFI machine anaconda stops reading
+# the file here. `rootpw` and `user` are BELOW this line, so a UEFI install made
+# a machine with no user account and no root password -- one nobody can log into
+# at all. anaconda chooses the MBR on a BIOS machine and the ESP on an EFI one
+# without being told.
+bootloader --boot-drive=vda --timeout=1
 
 # A shell in the INSTALLER ENVIRONMENT, which is a different machine from the
 # one being installed. With inst.sshd on the command line this is the only way

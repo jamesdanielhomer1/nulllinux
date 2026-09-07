@@ -271,7 +271,26 @@ umask 077
   echo "zerombr"
   echo "clearpart --all --initlabel --drives=${DISK#/dev/}"
   echo "autopart --type=plain --noswap"
-  echo "bootloader --location=mbr --boot-drive=${DISK#/dev/} --timeout=1"
+  # NO --location. IT IS BIOS-ONLY, AND ON AN EFI MACHINE IT TAKES THE REST
+  # OF THIS FILE WITH IT.
+  #
+  # A UEFI install with `--location=mbr` applied everything BEFORE this line
+  # and nothing after it. Measured on the resulting disk:
+  #
+  #   before   ignoredisk, zerombr, clearpart, autopart -- applied. A 600M ESP,
+  #            a 2G /boot and a 17.4G /, ext4, no swap: exactly what
+  #            `autopart --type=plain --noswap` asks for.
+  #   after    network --hostname, timezone, keyboard, user -- none applied. No
+  #            /etc/hostname, no /etc/localtime, vconsole.conf still systemd's
+  #            fallback, and not one account with a shell but root.
+  #
+  # The greeter came up saying `localhost` and refused the password, because
+  # the person it was asked to create was never created.
+  #
+  # anaconda picks the right place for the firmware it is on: the MBR on a BIOS
+  # machine, the ESP on an EFI one. Naming it here can only be wrong on one of
+  # them, and nox boots EFI.
+  echo "bootloader --boot-drive=${DISK#/dev/} --timeout=1"
   echo
   echo "network --bootproto=dhcp --device=link --activate --hostname=$HOSTNAME"
   echo "timezone $TIMEZONE --utc"

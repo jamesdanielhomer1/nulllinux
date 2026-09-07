@@ -55,6 +55,7 @@ run "the console is ours"            ./verify/check-console-palette.sh
 run "the ladder is the user's"       ./verify/check-idle-ladder-writable.sh
 run "the boot menu is quiet"         ./verify/check-boot-menu.sh
 run "the installer is ours"          ./verify/check-installer.sh
+run "the kickstart is portable"      ./verify/check-kickstart-portable.sh
 run "no restart kills its shell"     ./verify/check-no-self-kill.sh
 run "the screens go where told"      ./verify/check-outputs.sh
 run "removable media, and only that" ./verify/check-drive.sh
