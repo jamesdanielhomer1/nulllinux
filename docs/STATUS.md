@@ -41,6 +41,10 @@ proven on metal.**
 | **suspend and resume** | VM, qemu S3 | same `boot_id`, same compositor pid |
 | the whole suite passes **on nullLinux** | ISO-installed guest | `verify/in-guest.sh`, 57 checks |
 | offline install — no repository of ours reachable | VM | the package comes from the medium |
+| **document fonts resolve** — Times New Roman → Liberation Serif, Arial → Liberation Sans, Courier New → Liberation Mono | installed VM | `fc-match` on the machine; 12 Liberation faces, 170 Noto |
+| **the editor's theme reaches /etc/nanorc** | installed VM | byte-identical to `config/nano/nanorc` (`48c41b6c…`) |
+| **the machine powers off cleanly at 2%**, and the warning text is true | installed VM | `CanHibernate: na`, and UPower resolves `critical-action: PowerOff` itself |
+| swap is zram, not a partition | installed VM | 3.8 GB at priority 100; `--noswap` means no *partition* |
 | idle at 1% of one core across three outputs | VM | sway 0.7%, everything else under 0.2% |
 | boot 26.8s → 17.1s, plus 5s of GRUB menu upstream of the ruler | VM | [measurements.md](measurements.md) |
 
@@ -50,8 +54,18 @@ proven on metal.**
 |---|---|
 | **metal** | the largest unknown by far. Real firmware, a real panel's EDID, wifi *association* rather than firmware merely being present, the dock, the trackpoint, two batteries with one removable while the machine runs |
 | **an off-machine copy** | still nothing off this disk. `null-backup` now carries the repository as well as the master, and both halves were proven by restoring them — but no drive is attached and there is no remote, so the copy does not exist. A precondition, not a task — see below |
-| **mail and office ON A MACHINE** | Thunderbird and LibreOffice are declared, styled and checked — on the host. Neither has been seen on an installed machine, and both are things that can only finally be judged by eye |
+| **mail and office SEEN BY EYE** | Thunderbird and LibreOffice are now installed on a machine and their pieces verified there. Neither has been *looked at* — the chrome and the GTK theming can only finally be judged on a screen |
 | **the bake end to end, and its cost** | it runs; the whole-pipeline figure has not been retaken since the machine became a T480, which cannot run it at all |
+
+## Known limitations of choices made
+
+- **No hibernate.** Swap is zram — compressed RAM — so there is nowhere to write
+  a hibernation image. Suspend-to-RAM works and is tested. The consequence is
+  real on a laptop: if the batteries run flat while suspended, unsaved work is
+  gone. `null-battery` says so at 5% in those words, and UPower falls back from
+  its configured HybridSleep to `PowerOff` on its own, which was checked on the
+  machine rather than assumed. Adding hibernate means a swap partition at least
+  the size of RAM.
 
 ## Deliberately not in scope
 
