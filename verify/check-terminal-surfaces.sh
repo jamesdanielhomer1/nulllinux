@@ -16,10 +16,32 @@ awk 'BEGIN{for(i=1;i<=200;i++) printf "line %03d  the quick brown fox jumps over
   > /tmp/null-pager-probe.txt
 fail=0
 
+# A SHORT WINDOW IS A MEASUREMENT, AND MEASUREMENTS MISS.
+#
+# The probe watches for two seconds. On a loaded machine that is sometimes not
+# long enough for the surface to draw anything at all, and the audit then
+# reports "ONLY 0 cells drew" -- which is correct as far as it goes (it refuses
+# to call an unmeasured surface clean) but is a FAILURE OF THE SUITE, not of
+# the system.
+#
+# It happened: the pager reported 0 in a guest while a compile was saturating
+# the host. Re-run on an idle machine the same probe drew 1563 cells.
+#
+# A zero means "nothing was measured", which is a reason to measure again with
+# more time -- not a reason to fail. Anything above zero but under the minimum
+# is a real answer and is reported as one, first try.
 audit() {  # <label> <min-cells> <command...>
   local label=$1 min=$2; shift 2
-  timeout 40 python3 verify/coverage.py --cols 100 --rows 30 --seconds 2 --json -- \
-    "$@" > /tmp/null-cov.json 2>/dev/null
+  local secs
+  for secs in 2 6 15; do
+    timeout 60 python3 verify/coverage.py --cols 100 --rows 30 --seconds "$secs" --json -- \
+      "$@" > /tmp/null-cov.json 2>/dev/null
+    # Only a total blank is worth retrying, and only while there is a longer
+    # window left to try.
+    python3 -c "import json,sys; sys.exit(0 if json.load(open('/tmp/null-cov.json'))['printable_cells'] > 0 else 1)" \
+      2>/dev/null && break
+    [ "$secs" = 15 ] || printf '  %-16s nothing drew in %ss -- retrying with a longer window\n' "$label" "$secs"
+  done
   python3 - "$label" "$min" <<'PY'
 import json, sys
 label, minimum = sys.argv[1], int(sys.argv[2])

@@ -484,7 +484,11 @@ if ! kill -0 "$qpid" 2>/dev/null; then
   sed 's/^/  /' "$WORK/qemu.log" >&2
   exit 1
 fi
-echo "  qemu started (pid $qpid); the install is unattended and reboots when it finishes"
+if [ "${1:-install}" = install ]; then
+  echo "  qemu started (pid $qpid); the install is unattended and powers the guest off when it finishes"
+else
+  echo "  qemu started (pid $qpid); booting the installed disk"
+fi
 if [ "${1:-install}" = install ]; then
   echo
   null_vm_wait "$qpid" install || exit 1
