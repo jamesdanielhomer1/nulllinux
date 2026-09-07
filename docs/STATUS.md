@@ -932,10 +932,44 @@ now known about it, and what is not:
 |---|---|
 | 1366x768, a width that is not 4-aligned | **verified in a VM** — profile derives, grid fits with 6 px unreached, desktop draws clean |
 | Intel wifi (`wlp3s0`, `iwlwifi`) | firmware **now declared**; it was absent and would have left the card dead |
-| UEFI boot | nox boots UEFI **with secure boot enrolled**; the ISO had only ever been booted under SeaBIOS. Being tested against OVMF |
+| UEFI boot | the ISO **boots** under UEFI, and under UEFI with secure boot enrolled. Installing that way found `bootloader --location=mbr`, which made anaconda **stop reading the kickstart at that line** — see below |
 | suspend and resume | untested. `before-sleep` locks, which is the part that can be got wrong silently |
 | a panel whose EDID is not qemu's | untested |
 | the trackpoint, the dock, the fingerprint reader | untested |
+
+## One word made a UEFI install unusable (2026-09-07)
+
+`bootloader --location=mbr` names a place a BIOS machine has and an EFI machine
+does not. On EFI anaconda stops reading the kickstart there, and everything
+after it is silently lost. Measured on the installed disk, the split is exactly
+at that line:
+
+| | |
+|---|---|
+| before — `ignoredisk`, `zerombr`, `clearpart`, `autopart` | applied: a 600M ESP, a 2G `/boot`, a 17.4G `/`, ext4, no swap |
+| after — `network --hostname`, `timezone`, `keyboard`, `user` | **none** applied: no `/etc/hostname`, no `/etc/localtime`, `vconsole.conf` still systemd's `#KEYMAP=us`, no account with a shell but root |
+
+The greeter came up saying `localhost` and refused the password, because the
+person it had been asked to create was never created.
+
+**In the automated kickstart it is worse.** `rootpw` and `user` both sit below
+that line, so a UEFI install of it makes a machine with no user account and no
+root password — one nobody can log into by any means.
+
+The line had been correct on every machine anybody had tried, because every
+install this project had ever done was BIOS. nox boots EFI.
+
+Both paths now omit `--location`; anaconda picks the MBR on a BIOS machine and
+the ESP on an EFI one without being told.
+`verify/check-kickstart-portable.sh` refuses any kickstart that names something
+only one firmware has.
+
+**Two mis-diagnoses on the way, both confident.** `enforcing=0` made the
+machine boot, so SELinux looked like the cause — it was not; permissive mode
+only let a half-configured machine limp far enough to draw a login box. And an
+automated check concluded "SELinux is not the cause" because ssh did not
+answer, when ssh *cannot* answer on an interactively installed machine: the
+test key is stripped from shipped media by design.
 
 **Two ways to misread a screenshot of this system**, both of which cost an
 hour tonight.
