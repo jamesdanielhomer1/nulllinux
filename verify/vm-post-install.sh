@@ -72,6 +72,52 @@ else
 fi
 
 # --- the package on the machine is the package we published -----------------
+# --- the answers the kickstart gave are the answers the machine has ---------
+#
+# NOTHING CHECKED THIS, and that is how a UEFI install shipped that applied
+# clearpart and autopart and then silently dropped `network --hostname`,
+# `timezone`, `keyboard`, `rootpw` and `user` -- because `bootloader
+# --location=mbr` made anaconda stop reading the file at that line. The machine
+# booted. It reached a greeter. It said `localhost` and refused every password,
+# and every existing assertion here passed.
+#
+# THE EXPECTED VALUES COME FROM THE KICKSTART, not from this file, so it still
+# asks the right question after somebody edits the answers.
+head_ "the answers took"
+ks="$ROOT/packaging/nulllinux-install.ks"
+if [ -r "$ks" ]; then
+  want_host=$(grep -vE '^\s*#' "$ks" | sed -n 's/^network .*--hostname=\([^ ]*\).*/\1/p' | head -1)
+  want_user=$(grep -vE '^\s*#' "$ks" | sed -n 's/^user --name=\([^ ]*\).*/\1/p' | head -1)
+  want_tz=$(grep -vE '^\s*#'   "$ks" | sed -n 's/^timezone \([^ ]*\).*/\1/p' | head -1)
+  want_km=$(grep -vE '^\s*#'   "$ks" | sed -n "s/^keyboard .*--vckeymap=\\([^ ]*\\).*/\\1/p" | head -1)
+
+  got_host=$(g 'hostname')
+  info "hostname   want '$want_host'  got '$got_host'"
+  [ -n "$want_host" ] && [ "$got_host" = "$want_host" ] \
+    && ok "the hostname the kickstart asked for is the hostname it has" \
+    || bad "the hostname did not take -- a kickstart line was dropped or ignored"
+
+  got_user=$(g "getent passwd '$want_user' >/dev/null && echo yes || echo no")
+  info "user       want '$want_user'  present: $got_user"
+  [ "$got_user" = yes ] \
+    && ok "the account the kickstart asked for exists" \
+    || bad "the account does not exist -- nobody could log in to this machine"
+
+  got_tz=$(g 'readlink -f /etc/localtime 2>/dev/null | sed "s|.*/zoneinfo/||"')
+  info "timezone   want '$want_tz'  got '$got_tz'"
+  [ -n "$want_tz" ] && [ "$got_tz" = "$want_tz" ] \
+    && ok "the timezone took" \
+    || bad "the timezone did not take"
+
+  got_km=$(g 'sed -n "s/^KEYMAP=//p" /etc/vconsole.conf 2>/dev/null | tr -d \"')
+  info "keymap     want '$want_km'  got '$got_km'"
+  [ -n "$want_km" ] && [ "$got_km" = "$want_km" ] \
+    && ok "the console keymap took" \
+    || bad "the keymap did not take -- /etc/vconsole.conf is still the fallback"
+else
+  warn "no kickstart at $ks; the answers cannot be compared against what was asked"
+fi
+
 head_ "the installed package"
 # THROUGH bin/pkg, NOT rpm (NULL.md 9.1). The guest has the same tool at the
 # same path, so the same verb answers on both sides.
