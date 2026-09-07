@@ -191,11 +191,39 @@ ask_secret() {  # <prompt> -> stdout, twice, matching
 # that this filter hides would be worse than the noise, so the exclusions are
 # specific: zram is compressed RAM, nbd is a network block device, loop is a
 # file, ram is a ramdisk, sr is optical, fd is a floppy.
+# THE MEDIUM THIS IS RUNNING FROM IS NOT SOMEWHERE TO INSTALL.
+#
+# In a VM the installer arrives on a virtual CD and `sr0` is filtered out. On
+# real hardware it arrives on a USB STICK, which is a disk like any other -- so
+# the list offered both the stick and the machine's own drive, told apart only
+# by size and model. Choosing the stick means erasing the installer while it
+# runs.
+#
+# Found by writing down what the list was supposed to do (docs/installing-on-nox.md)
+# and then reading the code that does it.
+#
+# DERIVED, not guessed: anaconda mounts the medium at /run/install/repo, and the
+# whole disk behind that mount is the one to leave alone. If that mount is not
+# there -- a network install, a test -- nothing is excluded and nothing is
+# claimed.
+booted_from() {
+  local src disk
+  for m in /run/install/repo /run/install/sources/mount-0000-cdrom /; do
+    src=$(findmnt -no SOURCE --target "$m" 2>/dev/null | head -1) || continue
+    [ -b "$src" ] || continue
+    disk=$(lsblk -ndo PKNAME "$src" 2>/dev/null)
+    [ -n "$disk" ] && { echo "/dev/$disk"; return 0; }
+  done
+  return 1
+}
+
 disks() {
+  local self; self=$(booted_from || true)
   lsblk -dnpo NAME,SIZE,MODEL,TYPE 2>/dev/null \
     | awk '$NF=="disk" { $NF=""; sub(/[ \t]+$/,""); print }' \
     | grep -vE '^/dev/(zram|nbd|loop|ram|sr|fd)[0-9]' \
-    | grep -vE ' 0B( |$)'
+    | grep -vE ' 0B( |$)' \
+    | { if [ -n "$self" ]; then grep -vE "^$self( |$)"; else cat; fi; }
 }
 
 # ===========================================================================
@@ -211,6 +239,10 @@ if [ "${#DISKS[@]}" -eq 0 ]; then
   if [ "$DRY" = 1 ]; then DISKS=("/dev/sda 20G (dry run)")
   else oops "no disks found -- there is nothing here to install onto"; exit 1; fi
 fi
+# SAID OUT LOUD, because a disk that is missing from a list is otherwise
+# indistinguishable from a disk the machine cannot see.
+_self=$(booted_from || true)
+[ -n "$_self" ] && hint "$_self is the medium this installer is running from, and is not listed"
 DISK=$(null_pick "disk" "everything on the disk you choose will be erased" "" "${DISKS[@]}" | awk '{print $1}')
 [ -n "$DISK" ] || { oops "no disk chosen"; exit 1; }
 DISK_DESC=$(printf '%s\n' "${DISKS[@]}" | grep -F "$DISK" | head -1)
