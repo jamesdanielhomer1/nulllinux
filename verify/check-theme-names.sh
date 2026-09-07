@@ -102,12 +102,29 @@ echo
 # themes/nulllinux while Current= said nullLinux, so sddm fell back to its own
 # default and a machine booting to the wrong login screen looks exactly like a
 # machine booting to the right one.
+. lib/source.sh
 echo "== the greeter and the splash agree with themselves"
 gr_dir=$(grep -oE '/usr/share/sddm/themes/[A-Za-z0-9._-]+' bin/null-system \
          | grep -v nulllinux | sort -u | head -1)
 gr_sel=$(grep -oP 'Current=\K[A-Za-z0-9._-]+' bin/null-system | head -1)
-pl_dir=$(grep -oE '/usr/share/plymouth/themes/[A-Za-z0-9._-]+' bin/null-system \
-         | grep -v nulllinux | sort -u | head -1)
+# THE THEME'S OWN DIRECTORY, not the first themes/ path in the file.
+#
+# This took the alphabetically first /usr/share/plymouth/themes/<x> string that
+# was not `nulllinux`. bin/null-system then gained a SECOND such path -- a
+# `default.plymouth` symlink, because that is what dracut resolves the theme
+# through -- and `default.plymouth` sorts before `nullLinux`, so this check
+# began reporting that the theme directory was called "default.plymouth" and
+# that all four of the places naming it disagreed. Four false failures from one
+# correct line.
+#
+# The directory is the one with a matching .plymouth file inside it, which is
+# what plymouth itself requires, so that is what is looked for.
+pl_dir=$(null_code_only bin/null-system \
+         | grep -oE '/usr/share/plymouth/themes/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\.plymouth' \
+         | sed 's|/[^/]*\.plymouth$||' | grep -v nulllinux | sort -u | head -1)
+[ -n "$pl_dir" ] || pl_dir=$(null_code_only bin/null-system \
+         | grep -oE '/usr/share/plymouth/themes/[A-Za-z0-9._-]+' \
+         | grep -vE 'nulllinux|\.plymouth$' | sort -u | head -1)
 # THE COMMAND, not every mention of it. null-system names this tool five
 # times: a `command -v` guard, a reporting line whose `2>/dev/null` a loose
 # pattern read as a theme called "2", two comments, and one actual invocation.

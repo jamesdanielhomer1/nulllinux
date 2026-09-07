@@ -60,8 +60,27 @@ n=$(ls "$THEME"/throbber-*.png 2>/dev/null | wc -l)
 # The name plymouth resolves: themes/<name>/<name>.plymouth
 echo
 echo "== the theme file is named after its directory"
-want=$(basename "$(grep -oE '/usr/share/plymouth/themes/[A-Za-z0-9._-]+' bin/null-system \
-       | grep -v nulllinux | sort -u | head -1)")
+# THE NAME plymouth IS TOLD TO USE, not the first themes/ path in the file.
+#
+# This read the first `/usr/share/plymouth/themes/<x>` string in bin/null-system
+# that was not `nulllinux`, sorted. It broke the moment that file gained a
+# second such path -- a `default.plymouth` symlink, added because dracut
+# resolves the theme through it -- because `default.plymouth` sorts before
+# `nullLinux`, so the check began demanding `default.plymouth.plymouth`.
+#
+# `plymouth-set-default-theme <NAME>` is the one place the name is stated as a
+# name rather than as part of a path, and it cannot be confused with anything.
+#
+# AND THE PROSE IS STRIPPED FIRST (lib/source.sh). The comments in
+# bin/null-system explain what plymouth-set-default-theme does, so a plain grep
+# for it also finds "plymouth-set-default-theme writes" and
+# "plymouth-set-default-theme before" and picks one of those as the theme name.
+# That is the eighth time prose has fooled a check in this suite, and the
+# second time this hour.
+. lib/source.sh
+want=$(null_code_only bin/null-system \
+       | grep -oE 'plymouth-set-default-theme [A-Za-z][A-Za-z0-9._-]*' \
+       | awk '{print $2}' | sort -u | head -1)
 if [ -s "$THEME/$want.plymouth" ]; then
   printf '  ok        %s.plymouth\n' "$want"
 else
