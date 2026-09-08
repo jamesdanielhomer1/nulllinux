@@ -16,7 +16,7 @@ pub fn frame_to_bgra(c: &Cells, a: &Atlas, frame: usize, bg: [u8; 3]) -> (usize,
     for px in buf.chunks_exact_mut(4) {
         px[0] = bg[2]; px[1] = bg[1]; px[2] = bg[0]; px[3] = 0xff;
     }
-    blit_frame(c, a, frame, &mut buf, w, None);
+    blit_frame(c, a, frame, &mut buf, w, bg, None);
     (w, h, buf)
 }
 
@@ -25,7 +25,7 @@ pub fn frame_to_bgra(c: &Cells, a: &Atlas, frame: usize, bg: [u8; 3]) -> (usize,
 /// If `prev` is given, only cells whose glyph or colour changed are touched --
 /// the delta property the whole design rests on.
 pub fn blit_frame(c: &Cells, a: &Atlas, frame: usize, buf: &mut [u8], stride_px: usize,
-                  prev: Option<(&[u8], &[u8])>) -> usize {
+                  bg: [u8; 3], prev: Option<(&[u8], &[u8])>) -> usize {
     let g = c.glyphs(frame);
     let col = c.colours(frame);
     let mut touched = 0usize;
@@ -51,13 +51,22 @@ pub fn blit_frame(c: &Cells, a: &Atlas, frame: usize, buf: &mut [u8], stride_px:
                 let dst_row = (y0 + cy) * stride_px;
                 for cx in 0..a.cell_w {
                     let o = (dst_row + x0 + cx) * 4;
+                    // Guarded like TextGrid::blit: the buffer is the
+                    // COMPOSITOR's size and the cells are the FILE's. A mode
+                    // change mid-run can shrink one under the other for a
+                    // frame, and a clipped pixel beats a panic in the draw
+                    // loop, whatever screen is attached.
+                    if o + 3 >= buf.len() { continue }
                     let lit = bits.map_or(false, |b| b[cy * a.cell_w + cx] != 0);
                     if lit {
                         buf[o] = rgb[2]; buf[o + 1] = rgb[1]; buf[o + 2] = rgb[0]; buf[o + 3] = 0xff;
                     } else {
                         // Clearing to the background is what makes this a
                         // DELTA blit: a changed cell must erase what it had.
-                        buf[o] = 0x0a; buf[o + 1] = 0x06; buf[o + 2] = 0x05; buf[o + 3] = 0xff;
+                        // The colour is the CALLER's background -- this was a
+                        // hand-typed #05060a, which 4.8 forbids, and which
+                        // silently diverges the moment the palette is rebaked.
+                        buf[o] = bg[2]; buf[o + 1] = bg[1]; buf[o + 2] = bg[0]; buf[o + 3] = 0xff;
                     }
                 }
             }
@@ -75,4 +84,76 @@ pub fn write_ppm(path: &str, w: usize, h: usize, bgra: &[u8]) -> std::io::Result
         rgb.push(px[2]); rgb.push(px[1]); rgb.push(px[0]);
     }
     f.write_all(&rgb)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // One frame, every cell glyph 0 / colour 0. ramp[0] is ' ' (all pixels
+    // unlit), so a blit paints every covered pixel the caller's background.
+    fn cells(cols: u16, rows: u16) -> Cells {
+        let n = cols as usize * rows as usize;
+        Cells::synthetic(cols, rows, 1, vec![' ', '#'], vec![[200, 100, 50]],
+                         vec![0u8; n * 2])
+    }
+    fn atlas() -> Atlas {
+        // A synthetic 2x2 atlas carrying ' ' (unlit) and '#' (all lit).
+        let mut d = b"RATL".to_vec();
+        d.extend_from_slice(&[0, 0]);
+        d.extend_from_slice(&2u16.to_le_bytes());   // cell_w
+        d.extend_from_slice(&2u16.to_le_bytes());   // cell_h
+        d.extend_from_slice(&2u16.to_le_bytes());   // count
+        d.extend_from_slice(&[0u8; 32]);
+        d.extend_from_slice(&2u16.to_le_bytes());   // tbl
+        d.extend_from_slice(&[b' ', 0, 0, 0, 0, 0]);
+        d.extend_from_slice(&[b'#', 0, 0, 0, 1, 0]);
+        d.extend_from_slice(&[0u8; 4]);             // ' ' bitmap: unlit
+        d.extend_from_slice(&[1u8; 4]);             // '#' bitmap: lit
+        Atlas::from_bytes(&d, "synthetic").unwrap()
+    }
+
+    #[test]
+    fn erase_uses_the_callers_background_not_a_constant() {
+        // The erase colour was a hand-typed #05060a. Pass a colour that is
+        // nothing like it and require every covered pixel to be exactly that.
+        let (c, a) = (cells(3, 2), atlas());
+        let (w, h) = (6usize, 4usize);
+        let mut buf = vec![0u8; w * h * 4];
+        blit_frame(&c, &a, 0, &mut buf, w, [9, 8, 7], None);
+        for (i, px) in buf.chunks_exact(4).enumerate() {
+            assert_eq!([px[0], px[1], px[2], px[3]], [7, 8, 9, 0xff], "pixel {i}");
+        }
+    }
+
+    #[test]
+    fn a_buffer_smaller_than_the_cells_does_not_panic() {
+        // The compositor's size and the file's size are independent; a mode
+        // change mid-run can hand a buffer smaller than the grid for a frame.
+        let (c, a) = (cells(50, 40), atlas());     // needs 100x80 px
+        for (w, h) in [(30usize, 20usize), (7, 3), (1, 1), (99, 79), (101, 81)] {
+            let mut buf = vec![0u8; w * h * 4];
+            blit_frame(&c, &a, 0, &mut buf, w, [1, 2, 3], None);
+        }
+    }
+
+    #[test]
+    fn weird_panel_sizes_all_survive_fill_plus_blit() {
+        // The property, not one machine: ANY buffer at least as big as the
+        // grid, filled then blitted, ends fully opaque with the remainder
+        // bands the background -- odd widths, primes, portrait, near-misses.
+        let (c, a) = (cells(4, 3), atlas());        // grid: 8x6 px
+        let bg = [5, 6, 10];
+        for (w, h) in [(9usize, 7usize), (13, 6), (8, 11), (37, 23), (8, 6), (211, 6), (9, 97)] {
+            let mut buf = vec![0u8; w * h * 4];
+            for px in buf.chunks_exact_mut(4) {
+                px[0] = bg[2]; px[1] = bg[1]; px[2] = bg[0]; px[3] = 0xff;
+            }
+            blit_frame(&c, &a, 0, &mut buf, w, bg, None);
+            for (i, px) in buf.chunks_exact(4).enumerate() {
+                assert_eq!(px[3], 0xff, "{w}x{h}: pixel {i} transparent");
+                assert_eq!([px[2], px[1], px[0]], bg, "{w}x{h}: pixel {i} not bg");
+            }
+        }
+    }
 }

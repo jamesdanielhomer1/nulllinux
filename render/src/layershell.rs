@@ -50,6 +50,7 @@ pub struct Wallpaper {
 
     cells: Cells,
     atlas: Atlas,
+    bg: [u8; 3],
 
     width: u32,
     height: u32,
@@ -70,7 +71,7 @@ pub struct Wallpaper {
 }
 
 pub fn run(cells: Cells, atlas: Atlas, layer_name: &str, overlay: bool,
-           force_animate: bool, output_name: Option<&str>) -> Result<(), String> {
+           force_animate: bool, bg: [u8; 3], output_name: Option<&str>) -> Result<(), String> {
     let conn = Connection::connect_to_env().map_err(|e| format!("no Wayland display: {e}"))?;
     let (globals, mut queue) = registry_queue_init(&conn).map_err(|e| e.to_string())?;
     let qh = queue.handle();
@@ -116,7 +117,7 @@ pub fn run(cells: Cells, atlas: Atlas, layer_name: &str, overlay: bool,
         registry_state: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
         shm, pool, layer,
-        cells, atlas,
+        cells, atlas, bg,
         width: w, height: h,
         configured: false, exit: false,
         slots: Vec::new(), next_slot: 0,
@@ -143,8 +144,19 @@ impl Wallpaper {
         if !self.slots.is_empty() { return }
         let stride = self.width as i32 * 4;
         for _ in 0..2 {
-            if let Ok((buffer, _)) = self.pool.create_buffer(
+            if let Ok((buffer, canvas)) = self.pool.create_buffer(
                 self.width as i32, self.height as i32, stride, wl_shm::Format::Argb8888) {
+                // Painted the background ONCE at creation. The surface is the
+                // output's size and the cells are the asset's; on any panel
+                // the asset does not exactly cover -- most of them -- the
+                // remainder bands would otherwise stay zeroed shm, i.e.
+                // transparent on the bottom layer. The 1280x800 test guest has
+                // a 2px and an 8px band; a 1366-wide panel an 86px one. blit
+                // only ever touches the grid area, so this is the only thing
+                // that paints the bands.
+                for px in canvas.chunks_exact_mut(4) {
+                    px[0] = self.bg[2]; px[1] = self.bg[1]; px[2] = self.bg[0]; px[3] = 0xff;
+                }
                 self.slots.push(Slot { buffer, shows: None });
             }
         }
@@ -223,7 +235,7 @@ impl Wallpaper {
 
         let canvas = self.slots[i].buffer.canvas(&mut self.pool).unwrap();
         let touched = raster::blit_frame(
-            &self.cells, &self.atlas, idx, canvas, stride_px,
+            &self.cells, &self.atlas, idx, canvas, stride_px, self.bg,
             prev.as_ref().map(|(pg, pc)| (pg.as_slice(), pc.as_slice())),
         );
         self.slots[i].shows = Some((g, c));
@@ -262,9 +274,19 @@ impl LayerShellHandler for Wallpaper {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) { self.exit = true }
     fn configure(&mut self, _: &Connection, qh: &QueueHandle<Self>, _: &LayerSurface,
                  cfg: LayerSurfaceConfigure, _: u32) {
-        if cfg.new_size.0 != 0 && cfg.new_size.1 != 0 {
+        if cfg.new_size.0 != 0 && cfg.new_size.1 != 0
+            && (cfg.new_size.0 != self.width || cfg.new_size.1 != self.height) {
             self.width = cfg.new_size.0;
             self.height = cfg.new_size.1;
+            // A RESIZE INVALIDATES THE SLOTS. They were allocated at the old
+            // size; reusing them means attaching wrong-size buffers with a new
+            // stride -- garbage on shrink, clipped frames on grow. Dropped
+            // here, recreated (and background-filled) at the new size on the
+            // next draw; the delta baseline goes too, because `shows` refers
+            // to buffers that no longer exist.
+            self.slots.clear();
+            self.next_slot = 0;
+            self.last_frame_index = None;
         }
         // A re-shown surface needs a fresh configure before a buffer may be
         // attached; drawing straight after a remap is a protocol error that

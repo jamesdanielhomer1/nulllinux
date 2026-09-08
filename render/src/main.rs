@@ -217,7 +217,19 @@ fn main() {
             let force = args.iter().any(|x| x == "--force-animate");
             let name = if overlay { "null-screensaver" } else { "null-wallpaper" };
             let out = arg(&args, "--output");
-            if let Err(e) = layershell::run(c, a, name, overlay, force, out.as_deref()) {
+            // The background the bands and delta-erases paint. From the
+            // palette next to the atlas (both installed layouts carry
+            // palette.json there), else $NULL_ROOT/assets, else the cells'
+            // own first entry. Never a hand-typed hex (4.8).
+            let bg = std::path::Path::new(&ap).parent()
+                .map(|d| d.join("palette.json"))
+                .and_then(|pp| pp.to_str().and_then(|q| nulllinux::palette::Palette::load(q).ok()))
+                .or_else(|| std::env::var("NULL_ROOT").ok().and_then(|r|
+                    nulllinux::palette::Palette::load(&format!("{r}/assets/palette.json")).ok()))
+                .map(|pl| pl.get(nulllinux::palette::Role::Background))
+                .or_else(|| c.palette.first().copied())
+                .unwrap_or([0, 0, 0]);
+            if let Err(e) = layershell::run(c, a, name, overlay, force, bg, out.as_deref()) {
                 eprintln!("render: {e}"); std::process::exit(1);
             }
         }

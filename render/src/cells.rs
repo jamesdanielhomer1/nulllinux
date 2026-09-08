@@ -73,6 +73,15 @@ impl Cells {
     pub fn cell_count(&self) -> usize { self.cols as usize * self.rows as usize }
 
     #[inline]
+    /// Test-only: build an in-memory Cells without a file. planes is, per
+    /// frame, cols*rows glyph bytes then cols*rows colour bytes -- the same
+    /// layout glyphs()/colours() index below.
+    #[cfg(test)]
+    pub(crate) fn synthetic(cols: u16, rows: u16, frames: u16,
+                            ramp: Vec<char>, palette: Vec<[u8; 3]>, planes: Vec<u8>) -> Self {
+        Cells { cols, rows, frames, fps: 12, ramp, palette, planes }
+    }
+
     pub fn glyphs(&self, frame: usize) -> &[u8] {
         let n = self.cell_count();
         let off = frame * n * 2;
