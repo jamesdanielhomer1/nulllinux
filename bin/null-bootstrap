@@ -86,7 +86,8 @@ while read -r p; do
 done < <(grep -vE '^\s*#|^\s*$' packages/fedora/base.list | awk '{print $1}')
 if [ "$missing" -eq 0 ]; then ok "all $(grep -vcE '^\s*#|^\s*$' packages/fedora/base.list) packages present"
 elif [ "$APPLY" -eq 1 ]; then
-  say "  installing $missing missing package(s)..."
+  local word=packages; [ "$missing" -eq 1 ] 2>/dev/null && word=package
+  say "  installing $missing missing $word..."
   # `install-list base`, not `fedora/base`: pkg prefixes the backend itself,
   # so naming it twice looks for packages/fedora/fedora/base.list. It said so
   # clearly and the bootstrap threw the message away into /dev/null, which is

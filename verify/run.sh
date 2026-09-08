@@ -89,6 +89,7 @@ run "no key bound twice (§8.3, §10.4)"     ./verify/check-binds.sh
 run "... and that audit can fail (§10.1)"  ./verify/selftest-binds.sh
 run "idle ladder is in order (§8.5)"       ./bin/null-idle check
 run "every menu topic is drawable (§10.5)" ./verify/check-menu-coverage.sh
+run "the menus state facts, in words"     ./verify/check-menu-voice.sh
 run "terminal-adjacent surfaces (§7.6)"   ./verify/check-terminal-surfaces.sh
 run "file manager behaviour (§8.7)"       ./bin/null-filemanager check
 run "joins into foreign files (§9.8)"     ./bin/null-join check
