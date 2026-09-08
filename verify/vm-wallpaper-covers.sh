@@ -17,6 +17,11 @@ set -u
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/0}
 mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
 export NULL_ROOT=${NULL_ROOT:-/opt/nulllinux}
+# THIS KILLS AND RESTARTS sway BY NAME. On the build host that is somebody's
+# live session (lib/host.sh knows the history). Refuse anywhere that is not a
+# machine whose state nobody minds.
+. "$NULL_ROOT/lib/host.sh"
+null_only_on_a_test_machine "the wallpaper-covers proof" || exit 0
 export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_HEADLESS_OUTPUTS=3
 export SWAYSOCK=/tmp/null-wpcover.sock
 BG="5 6 10"

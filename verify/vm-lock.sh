@@ -29,6 +29,11 @@ export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/0}
 mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
 export NULL_ROOT=${NULL_ROOT:-/opt/nulllinux}
 LOCKBIN="$NULL_ROOT/render/target/release/lock"
+# THIS KILLS AND RESTARTS sway BY NAME. On the build host that is somebody's
+# live session (lib/host.sh knows the history). Refuse anywhere that is not a
+# machine whose state nobody minds.
+. "$NULL_ROOT/lib/host.sh"
+null_only_on_a_test_machine "the live lock/hold/unlock proof" || exit 0
 export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_HEADLESS_OUTPUTS=1
 export SWAYSOCK=/tmp/null-vmlock.sock
 LINE="35 44 64"   # 0x232c40, the rule colour the panel frame is drawn in

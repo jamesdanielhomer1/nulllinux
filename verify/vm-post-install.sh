@@ -290,6 +290,26 @@ if [ "$(g 'command -v swaylock >/dev/null && echo yes || echo no')" = yes ]; the
 else
   bad "swaylock is NOT installed -- the screen cannot be locked"
 fi
+# The PREFERRED locker is our session-lock client; swaylock above is its
+# fallback. Three parts have to arrive together or the lock is wrong in a way
+# nothing on screen shows: the binary (or null-lock silently falls back), its
+# PAM stack (or every password is denied and the machine cannot be unlocked by
+# its own locker), and libpam to link against at runtime.
+if [ "$(g 'test -x /opt/nulllinux/render/target/release/lock && echo yes || echo no')" = yes ]; then
+  ok "the session-lock client is installed and executable"
+else
+  bad "render/target/release/lock is missing -- every lock falls back to swaylock"
+fi
+if [ "$(g 'grep -qE "^auth[[:space:]]+include[[:space:]]+system-auth" /etc/pam.d/null-lock 2>/dev/null && grep -qE "^account[[:space:]]+include[[:space:]]+system-auth" /etc/pam.d/null-lock 2>/dev/null && echo yes || echo no')" = yes ]; then
+  ok "/etc/pam.d/null-lock stacks auth+account on system-auth"
+else
+  bad "/etc/pam.d/null-lock is missing or wrong -- the locker would deny every password (an unpassable lock)"
+fi
+if [ "$(g 'ldd /opt/nulllinux/render/target/release/lock 2>/dev/null | grep -q "libpam.so.0 =>.*/" && echo yes || echo no')" = yes ]; then
+  ok "the client resolves libpam.so.0 at runtime"
+else
+  bad "libpam.so.0 does not resolve for the lock client -- it would fail to start"
+fi
 
 # --- the surfaces ----------------------------------------------------------
 head_ "surfaces"
