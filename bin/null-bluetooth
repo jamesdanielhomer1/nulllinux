@@ -48,7 +48,7 @@ case "${1:-menu}" in
       "$(null_row 'devices' "$(devices | grep -c . || echo 0) known")" \
       "$(null_row 'scan'    'look for new devices')" \
       | fzf "${NULL_FZF[@]}" --prompt='bluetooth > ' --no-sort \
-            --header='read from the daemon at draw time' | awk '{print $1}')
+            | awk '{print $1}')
     [ -n "$sel" ] || exit 0
     exec "$0" "$sel" ;;
 

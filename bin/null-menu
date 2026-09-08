@@ -104,12 +104,10 @@ case $topic in
   plan)
     [ -r "$ROOT/NULL.md" ] || { say "no NULL.md in $ROOT"; exit 0; }
     grep -nE '^#{1,3} ' "$ROOT/NULL.md" | sed 's/:#* / /' \
-      | fzf "${NULL_FZF[@]}" --prompt='plan > ' \
-            --header='every section of the specification' >/dev/null || true ;;
+      | fzf "${NULL_FZF[@]}" --prompt='plan > ' >/dev/null || true ;;
 
   about)
-    "$B/machine" show 2>/dev/null | fzf "${NULL_FZF[@]}" --prompt='about > ' \
-      --header='derived at runtime, never stored' >/dev/null || true ;;
+    "$B/machine" show 2>/dev/null | fzf "${NULL_FZF[@]}" --prompt='about > ' >/dev/null || true ;;
 
   # --------------------------------------------------------------- trigger
   trigger)
@@ -204,8 +202,7 @@ for o in json.load(sys.stdin):
         o.get("name","?"), (o.get("make","")+" "+o.get("model",""))[:20],
         m.get("width","?"), m.get("height","?"), (m.get("refresh",0) or 0)/1000,
         "on" if o.get("active") else "off"))' \
-      | fzf "${NULL_FZF[@]}" --prompt='displays > ' \
-            --header='read from the compositor' >/dev/null || true ;;
+      | fzf "${NULL_FZF[@]}" --prompt='displays > ' >/dev/null || true ;;
 
   input)
     if ! have swaymsg || ! out=$(swaymsg -t get_inputs 2>/dev/null) || [ -z "$out" ]; then
@@ -216,8 +213,7 @@ import json,sys
 for d in json.load(sys.stdin):
     n=d.get("xkb_active_layout_name") or ""
     print("%-34s %-12s %s" % (d.get("identifier","?"), d.get("type","?"), n))' \
-      | fzf "${NULL_FZF[@]}" --prompt='input > ' \
-            --header='read from the compositor; layout is set in input.conf' >/dev/null || true ;;
+      | fzf "${NULL_FZF[@]}" --prompt='input > ' >/dev/null || true ;;
 
   storage)  exec "$B/null-storage" ;;
   bluetooth) exec "$B/null-bluetooth" ;;
@@ -251,7 +247,7 @@ for d in json.load(sys.stdin):
     # invites removing a dependency by hand (§8.4).
     p=$("$B/pkg" list-explicitly-installed 2>/dev/null \
         | fzf "${NULL_FZF[@]}" --prompt='remove > ' \
-              --header='the user-installed set, not every installed package')
+              --header='the set you installed, not every package')
     [ -n "$p" ] || exit 0
     foot -e sudo "$B/pkg" remove "$p" ;;
 
@@ -275,7 +271,6 @@ for d in json.load(sys.stdin):
     # has to read top-down. The short pickers keep the default, where the list
     # rising to meet the prompt is the right shape.
     fzf "${NULL_FZF[@]}" --layout=reverse --prompt='keys > ' \
-        --header='read from the configuration the compositor loaded' \
         <<<"$list" >/dev/null || true ;;
 
   # ---------------------------------------------------------------- system
@@ -320,8 +315,25 @@ for d in json.load(sys.stdin):
       fi
       exit 0
     fi
-    list=$(wpctl status | sed -n '/Sinks:/,/^$/p' | grep -E '^\s+\|?\s+[0-9*.]' || true)
-    if [ -z "$list" ]; then
+    # IT CHOOSES, it does not report at one remove. A list of outputs whose
+    # header said "change them in the mixer" was a control describing another
+    # control; picking one now sets it as the default sink. The current output
+    # reads 'current' in its value column -- a mark, not a header -- and the
+    # node id rides a hidden second field so a device name with spaces stays the
+    # name (--accept-nth returns only the id).
+    data=$(wpctl status | python3 -c '
+import re, sys
+inblk = False
+for ln in sys.stdin:
+    if "Sinks:" in ln: inblk = True; continue
+    if inblk and ("Sources:" in ln or "Filters:" in ln or not ln.strip()): break
+    if not inblk: continue
+    m = re.search(r"(\*)?\s*(\d+)\.\s+(.+?)\s+\[vol: ([0-9.]+)( MUTED)?", ln)
+    if not m: continue
+    cur, nid, name, vol, muted = m.groups()
+    state = "current" if cur else ("muted" if muted else "%d%%" % round(float(vol)*100))
+    print("%s\t%s\t%s" % (nid, name.strip(), state))' 2>/dev/null || true)
+    if [ -z "$data" ]; then
       # An empty picker is indistinguishable from a key that did nothing.
       say "the audio daemon is running, but has no outputs" \
           "" \
@@ -329,26 +341,51 @@ for d in json.load(sys.stdin):
           "another session on the seat leaves this one none"
       exit 0
     fi
-    fzf "${NULL_FZF[@]}" --prompt='audio > ' \
-        --header='reporting only -- outputs change in the mixer' \
-        <<<"$list" >/dev/null || true ;;
+    rows=$(while IFS=$'\t' read -r id name state; do
+             printf '%s\t%s\n' "$(null_row "$name" "$state")" "$id"
+           done <<<"$data")
+    id=$(printf '%s\n' "$rows" | fzf "${NULL_FZF[@]}" --prompt='output > ' \
+           --delimiter='\t' --with-nth=1 --accept-nth=2) || exit 0
+    [ -n "$id" ] && wpctl set-default "$id" >/dev/null 2>&1 ;;
 
-  network)
-    have nmcli || { say "no network daemon"; exit 0; }
-    # The scan is the slowest thing any topic does, and it is exactly why the
-    # spinner showed here most. The whole list is built BEFORE the picker
-    # starts, and --rescan no reads the scan the daemon already has.
-    list=$(nmcli -t -f SSID,SIGNAL,SECURITY device wifi list --rescan no 2>/dev/null \
-      | awk -F: 'length($1){printf "%-32s %3s%%  %s\n", $1, $2, ($3==""?"open":"*")}' || true)
-    if [ -z "$list" ]; then
-      say "no networks in the last scan" \
-          "" \
-          "the radio may be off, or nothing has scanned lately" \
-          "radios: setup > settings"
-      exit 0
-    fi
-    fzf "${NULL_FZF[@]}" --prompt='network > ' \
-        --header='strongest first; * is secured' <<<"$list" >/dev/null || true ;;
+    network)
+      have nmcli || { say "no network daemon"; exit 0; }
+      # The scan is the slowest thing any topic does; the whole list is built
+      # BEFORE the picker starts, and --rescan no reads the scan already taken.
+      #
+      # THE WORD, NOT A MARK. '*' for "secured" is punctuation pressed into
+      # service as an icon (§7.1); the value column says 'secured' or 'open'
+      # outright, so no header has to gloss a legend. And picking CONNECTS --
+      # the obvious act for a list of networks -- so SSID and security ride
+      # hidden fields (a name with spaces stays the row; --accept-nth returns
+      # the fields to act on). netconfig keeps the advanced cases: VPN, static.
+      data=$(nmcli -t -f SSID,SIGNAL,SECURITY device wifi list --rescan no 2>/dev/null \
+        | awk -F: 'length($1){s=($3==""?"open":"secured"); printf "%s\t%s%% %s\t%s\t%s\n",$1,$2,s,$1,s}' || true)
+      if [ -z "$data" ]; then
+        say "no networks in the last scan" \
+            "" \
+            "the radio may be off, or nothing has scanned lately" \
+            "radios: setup > settings"
+        exit 0
+      fi
+      rows=$(while IFS=$'\t' read -r ssid disp _s sec; do
+               printf '%s\t%s\t%s\n' "$(null_row "$ssid" "$disp")" "$ssid" "$sec"
+             done <<<"$data")
+      pick=$(printf '%s\n' "$rows" | fzf "${NULL_FZF[@]}" --prompt='connect > ' \
+               --delimiter='\t' --with-nth=1 --accept-nth=2,3) || exit 0
+      [ -n "$pick" ] || exit 0
+      IFS=$'\t' read -r ssid sec <<<"$pick"
+      [ "$ssid" = "$(nmcli -t -f ACTIVE,SSID device wifi 2>/dev/null | awk -F: '$1=="yes"{print $2; exit}')" ] && exit 0
+      if [ "$sec" = open ]; then
+        nmcli device wifi connect "$ssid" >/dev/null 2>&1 || say "could not connect to $ssid"
+      elif nmcli -t -g NAME connection show 2>/dev/null | grep -qxF "$ssid"; then
+        nmcli connection up id "$ssid" >/dev/null 2>&1 || say "could not connect to $ssid"
+      else
+        pw=$(null_ask "$ssid") || exit 0
+        [ -n "$pw" ] || exit 0
+        nmcli device wifi connect "$ssid" password "$pw" >/dev/null 2>&1 \
+          || say "$ssid did not accept that password"
+      fi ;;
 
   monitor)  exec "$COLUMN" --send open monitor ;;
 

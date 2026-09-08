@@ -436,8 +436,7 @@ while true; do
     "$(null_row NOTIFICATIONS 'show or hold back')" \
     "$(null_row CLOCK         'timezone and synchronisation')" \
     "$(null_row SYSTEM        'machine, updates, storage, about')" \
-    | fzf "${NULL_FZF[@]}" --prompt='settings > ' \
-        --header='every value read live from whatever owns it' --no-sort) || exit 0
+    | fzf "${NULL_FZF[@]}" --prompt='settings > ' --no-sort) || exit 0
   [ -n "$sel" ] || exit 0
   panel "$(awk '{print $1}' <<<"$sel")"
 done

@@ -31,7 +31,7 @@ case "${1:-menu}" in
       printf '%s\n' "nothing is playing" "" \
         "No player is on the bus. Start one and this fills in." \
         | fzf "${NULL_FZF[@]}" --prompt='player > ' \
-              --header='read live from the player' >/dev/null || true
+              >/dev/null || true
       exit 0
     fi
     IFS='|' read -r st meta <<<"$(now_playing)"

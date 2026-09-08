@@ -137,7 +137,7 @@ case "${1:-menu}" in
     fi
     [ -n "$list" ] || list="(nothing advertised -- use 'map' with the server name)"
     fzf "${NULL_FZF[@]}" --prompt='discover > ' \
-        --header='servers advertising themselves on this network' \
+        --header='on this network' \
         <<<"$list" >/dev/null || true ;;
 
   unmap)
