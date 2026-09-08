@@ -60,6 +60,16 @@ controlled store, not whatever was last copied (see Verification).
 - **Where a pictogram is unavoidable, it is a glyph the font actually has** —
   never a private-use codepoint, which Terminus cannot draw and will show as
   nothing.
+- **Rows mean pick one; a rule means write one.** The filter-picker is the
+  control for choosing. For writing a line (a search term, an address) use
+  `null_ask` in `lib/menu.sh`: the prompt, and one rule to write on beneath it,
+  with filtering disabled so the rule stays put. The drawing is the affordance
+  — no header ever says "type". A default sits already in the field, where
+  Enter keeps it; nothing names it in prose.
+- **The prompt is the verb.** An action picker's prompt names what Enter does
+  — `install > `, `remove > `, `copy > `, `map > ` — so the picked row
+  completes the sentence and no header explains the consequence. If a header
+  is explaining what a control does, the control is wearing the wrong prompt.
 
 ## Menus
 

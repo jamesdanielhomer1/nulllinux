@@ -53,9 +53,10 @@ add_gtk_bookmark() {  # <uri> <label>
 drop_gtk_bookmark() { [ -f "$GTKMARKS" ] && grep -vF "$1" "$GTKMARKS" > "$GTKMARKS.tmp" && mv "$GTKMARKS.tmp" "$GTKMARKS" || true; }
 
 ask() {  # <prompt> [default]
-  local q=$1 d=${2:-}
-  printf '' | fzf "${NULL_FZF[@]}" --print-query --prompt="$q > " \
-      --header="${d:+default: $d}   type, then Enter" --query="$d" | head -1
+  # The shared write-control: a rule to write on, the default already in the
+  # field where Enter keeps it. Both facts the old header narrated are now
+  # visible in the control itself.
+  null_ask "$1" "${2:-}"
 }
 
 do_map() {  # <uri>
@@ -107,8 +108,8 @@ case "${1:-menu}" in
                | awk '/Disk/ && $1 !~ /\$$/ {print $1}' || true)
     fi
     if [ -n "$shares" ]; then
-      share=$(fzf "${NULL_FZF[@]}" --prompt='share > ' \
-                --header="shares advertised by $host" <<<"$shares")
+      share=$(fzf "${NULL_FZF[@]}" --prompt='map > ' \
+                --header="advertised by $host" <<<"$shares")
     else
       share=$(ask 'share' '')
     fi

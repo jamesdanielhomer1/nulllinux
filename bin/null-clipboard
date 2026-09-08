@@ -53,8 +53,8 @@ case "${1:-list}" in
         | fzf "${NULL_FZF[@]}" --prompt='clipboard > ' >/dev/null || true
       exit 0
     fi
-    pick=$(fzf "${NULL_FZF[@]}" --prompt='clipboard > ' \
-             --header='Enter copies it back; newest first' <<<"$list") || exit 0
+    pick=$(fzf "${NULL_FZF[@]}" --prompt='copy > ' \
+             --header='newest first' <<<"$list") || exit 0
     [ -n "$pick" ] || exit 0
     # Decoded through cliphist, not from the displayed row: the row is a
     # one-line PREVIEW, and copying the preview would silently truncate.

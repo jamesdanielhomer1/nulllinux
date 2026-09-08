@@ -76,6 +76,27 @@ null_row() {
 # different ways is four different things to search for.
 NULL_UNMEASURED="--"
 
+# A CONTROL FOR WRITING A LINE, where the picker is a control for choosing one.
+# Same mark and rule as every control (§7.1): the prompt is the mark, and the
+# single "row" is a rule to write on, laid UNDER the prompt (--layout=reverse
+# puts the prompt on top). Filtering is DISABLED so the rule stays put beneath
+# the words -- the affordance is the drawing, never a header saying "type":
+# rows mean pick one, a rule means write one.
+#
+# A default arrives already IN the field (--query), where Enter keeps it and
+# typing replaces it -- visible in the control instead of named in prose.
+#
+# The colour overrides keep the rule a rule: fzf styles its one row as the
+# current row, and without them it would sit accent-filled under the prompt
+# like a selection. Roles as null_fzf_flags spells them: line #232c40 on
+# background #05060a.
+null_ask() {  # <prompt> [default] -> the line written; empty if none
+  fzf "${NULL_FZF[@]}" --disabled --print-query --layout=reverse \
+      --prompt="$1 > " --query="${2:-}" --pointer=' ' \
+      --color=fg:#232c40,fg+:#232c40,bg+:#05060a \
+      <<<"$(printf '\u2500%.0s' $(seq 1 24))" | head -1
+}
+
 # A PICKER FOR A LIST OF THINGS. fzf when there is a terminal for it, numbers
 # when there is not, and a typed filter when the list is longer than the
 # screen.

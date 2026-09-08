@@ -229,11 +229,14 @@ for d in json.load(sys.stdin):
       "list       every package in a file")
     case $sel in
       package)
-        q=$(printf '' | fzf "${NULL_FZF[@]}" --prompt='search > ' --print-query \
-              --header='type a term, then Enter' | head -1) || exit 0
+        # A write-control, not an empty filter: the rule under the prompt says
+        # "write here", and no header has to say "type". The install picker's
+        # prompt is the VERB -- "install > vim" reads as the action, so no
+        # header explains what Enter does either.
+        q=$(null_ask search) || exit 0
         [ -n "$q" ] || exit 0
         p=$("$B/pkg" search "$q" 2>/dev/null | fzf "${NULL_FZF[@]}" \
-              --prompt='install > ' --header='Enter installs' | awk '{print $1}')
+              --prompt='install > ' --header='' | awk '{print $1}')
         [ -n "$p" ] || exit 0
         foot -e sudo "$B/pkg" install "$p" ;;
       list)

@@ -61,6 +61,20 @@ else
   note "ok    no surface hedges its plurals"
 fi
 
+# 3. MECHANICS ARE NEVER NARRATED. "type a term, then Enter" and "press the X
+#    key" describe operating the control instead of letting the control show
+#    it -- the write-control (null_ask) draws a rule to write on, and an action
+#    picker's prompt is the verb. If a surface needs one of these strings, the
+#    control is wrong, not underdocumented.
+mech=$(surface_lines $FILES | grep -iE '\btype\b[^|]{0,40}\benter\b|then enter|press [a-z ]{0,20}key' || true)
+if [ -n "$mech" ]; then
+  note "a surface narrates its own mechanics -- make the control show it:"
+  printf '%s\n' "$mech" | sed 's/^/    /'
+  fail=1
+else
+  note "ok    no surface narrates its own mechanics"
+fi
+
 # AND THE SCANNER STILL SEES A VIOLATION (§10.1: a check that cannot fail is
 # not a check). A probe file carrying both faults must be flagged twice.
 probe=$(mktemp --suffix=.sh)
@@ -68,14 +82,16 @@ cat > "$probe" <<'PROBE'
 #!/usr/bin/env bash
 x=$(pick_value stage "later stages are dragged with it (§8.5)")
 notify-send "Setup" "$n thing(s) to look at"
+y=$(null_pick term "type a term, then Enter" "")
 PROBE
 p_cites=$(surface_lines "$probe" | grep -cE '§[0-9]' || true)
 p_plur=$(surface_lines "$probe" | grep -cE '[a-z]\(s\)' || true)
+p_mech=$(surface_lines "$probe" | grep -icE '\btype\b[^|]{0,40}\benter\b|then enter|press [a-z ]{0,20}key' || true)
 rm -f "$probe"
-if [ "${p_cites:-0}" -ge 1 ] && [ "${p_plur:-0}" -ge 1 ]; then
-  note "ok    the scanner flags a planted citation and a planted plural"
+if [ "${p_cites:-0}" -ge 1 ] && [ "${p_plur:-0}" -ge 1 ] && [ "${p_mech:-0}" -ge 1 ]; then
+  note "ok    the scanner flags a planted citation, plural, and narrated mechanics"
 else
-  note "the scanner MISSED a planted violation (cites=$p_cites plurals=$p_plur) -- it proves nothing"
+  note "the scanner MISSED a planted violation (cites=$p_cites plurals=$p_plur mech=$p_mech) -- it proves nothing"
   fail=1
 fi
 
