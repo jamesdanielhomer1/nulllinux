@@ -27,7 +27,7 @@ nmtui:NetworkManager-tui
 wiremix:wiremix
 swaylock:swaylock
 swayidle:swayidle
-thunar:thunar
+thunar:Thunar
 foot:foot
 btop:btop
 cava:cava
