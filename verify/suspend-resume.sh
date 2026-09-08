@@ -115,14 +115,21 @@ after_sway=$(g 'pgrep -u 1000 -x sway | head -1')
   || bad "the compositor did not survive: was ${sway_pid:-none}, now ${after_sway:-none}"
 
 head_ "and it is locked"
-# swaylock is what config/sway/idle.conf's before-sleep line runs. Its presence
-# is the only thing that distinguishes a machine that protects itself from one
-# that merely came back.
-lock=$(g 'pgrep -u 1000 -x swaylock | head -1')
-info "swaylock pid: ${lock:-none}"
-[ -n "$lock" ] \
-  && ok "the screen is locked after resume" \
-  || bad "it woke UNLOCKED -- before-sleep did not run, or null-lock failed"
+# before-sleep runs bin/null-lock, which prefers the session-lock client (comm
+# "lock") and falls back to swaylock. EITHER means the screen is locked; which
+# one answered is worth knowing, because the fallback appearing on a healthy
+# install means the preferred locker failed without a word.
+client=$(g 'pgrep -u 1000 -x lock | head -1')
+fallback=$(g 'pgrep -u 1000 -x swaylock | head -1')
+info "session-lock client pid: ${client:-none}   swaylock pid: ${fallback:-none}"
+if [ -n "$client" ]; then
+  ok "the screen is locked after resume, by the session-lock client"
+elif [ -n "$fallback" ]; then
+  ok "the screen is locked after resume"
+  bad "but by the swaylock FALLBACK -- the preferred locker failed without a word"
+else
+  bad "it woke UNLOCKED -- before-sleep did not run, or both lockers failed"
+fi
 
 echo
 if [ "$fails" -eq 0 ]; then echo "PASS: it suspends, it comes back, and it comes back locked"
