@@ -232,17 +232,38 @@ impl Lock {
 
         // The hero, centred, if this surface has assets. A lock with no hero is
         // still a lock -- the ground and the panel are enough.
+        // Where the hero ends, so the input box can sit just beneath it. A
+        // sensible fallback for a surface with no hero: the middle of the screen.
         if let (Some(cells), Some(atlas)) = (&self.surfaces[i].cells, &self.surfaces[i].atlas) {
             let hero_w = cells.cols as usize * atlas.cell_w;
             let hero_h = cells.rows as usize * atlas.cell_h;
-            // The greeter lifts the hero above centre to make room for the
-            // panel; do the same so the two read as one screen.
+            // Centred and lifted a little, as the greeter draws it, so the input
+            // box has clear room directly beneath it.
             let ox = (w as usize).saturating_sub(hero_w) / 2;
             let oy = (h as usize).saturating_sub(hero_h) / 2;
             let oy = oy.saturating_sub(h as usize / 12);
             raster::blit_frame(cells, atlas, idx, canvas, w as usize, self.bg, (ox, oy), None);
         }
         self.surfaces[i].last_frame = Some(idx);
+
+        // The hero grid carries wide empty margins, so its cell height is no
+        // guide to where the ART ends. Measure what was actually drawn: the
+        // lowest row of the canvas that carries a non-background pixel is the
+        // visible bottom of the hero, and the input box sits just under it.
+        let hero_bottom = {
+            let (bb, bg, br) = (self.bg[2], self.bg[1], self.bg[0]);
+            let mut bottom = (h as usize) / 2; // fallback: mid-screen if nothing drew
+            'scan: for y in (0..h as usize).rev() {
+                let row = y * w as usize;
+                for x in 0..w as usize {
+                    let o = (row + x) * 4;
+                    if canvas[o] != bb || canvas[o + 1] != bg || canvas[o + 2] != br {
+                        bottom = y; break 'scan;
+                    }
+                }
+            }
+            bottom
+        };
 
         // The panel: the greeter's frame, minus the user row. Drawn with the
         // interface atlas if we have one, else skipped (the ground still locks).
@@ -273,8 +294,10 @@ impl Lock {
 
             let panel_w_px = top.chars().count() * cw;
             let px = (w as usize).saturating_sub(panel_w_px) / 2;
-            // Anchored toward the bottom, like the greeter.
-            let base = (h as usize).saturating_sub(h as usize / 8 + 3 * atlas.cell_h);
+            // Just beneath the hero, clear of it -- higher than the old bottom
+            // anchor -- and clamped so the three-row box never runs off screen.
+            let base = (hero_bottom + atlas.cell_h * 3 / 2)
+                .min((h as usize).saturating_sub(3 * atlas.cell_h));
             let ch = atlas.cell_h;
             text(canvas, w as usize, atlas, px, base,            &top, line, self.bg);
             text(canvas, w as usize, atlas, px, base + ch,       "pass", label_fg, self.bg);

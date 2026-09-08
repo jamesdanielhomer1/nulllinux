@@ -184,6 +184,25 @@ def make_sddm(outdir, cells, atlas, count, total_frames, palette):
     import json
     r = {k: v["hex"] for k, v in json.loads(Path(palette).read_text())["roles"].items()}
 
+    # CROP EVERY FRAME to the art's tight bounding box (union across frames),
+    # so the greeter can anchor the input panel to the hero's real bottom edge
+    # instead of to the empty padding the full cell grid carries. Without this
+    # the panel sits a whole grid-margin below the visible hero (§9.7).
+    from PIL import ImageChops
+    bg = tuple(int(r["background"].lstrip("#")[k:k+2], 16) for k in (0, 2, 4))
+    frames = [outdir / f"f{i:02d}.png" for i in range(count)]
+    union = None
+    for f in frames:
+        im = Image.open(f).convert("RGB")
+        bb = ImageChops.difference(im, Image.new("RGB", im.size, bg)).getbbox()
+        if bb:
+            union = bb if union is None else (
+                min(union[0], bb[0]), min(union[1], bb[1]),
+                max(union[2], bb[2]), max(union[3], bb[3]))
+    if union:
+        for f in frames:
+            Image.open(f).convert("RGB").crop(union).save(f, optimize=True)
+
     (outdir / "theme.conf").write_text("[General]\nbackground=f00.png\n")
     (outdir / "metadata.desktop").write_text(
         "[SddmGreeterTheme]\nName=nullLinux\nDescription=One baked asset\n"
@@ -248,8 +267,8 @@ Rectangle {{
     Column {{
         id: panel
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 90
+        anchors.top: hero.bottom
+        anchors.topMargin: 24
         spacing: 4
 
         Text {{
