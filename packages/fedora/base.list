@@ -444,7 +444,7 @@ python3-gobject                 # build-only
 # Every one of these is on nox because something else pulled it in, and every
 # one of them is invoked by a binding, a menu topic or a verification check --
 # so on a fresh machine those failed silently or drew nothing.
-thunar                          # the file manager (§8.7)
+Thunar                          # the file manager (§8.7)
 xfconf                          # xfconf-query, which sets thunar's defaults
 firefox                         # named by a binding; the command check fails without it
 git                             # the diff and status terminal surfaces (§7.6)

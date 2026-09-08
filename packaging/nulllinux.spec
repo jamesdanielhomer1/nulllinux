@@ -53,6 +53,7 @@ BuildRequires:  pam-devel
 # and a distribution packager see.
 Requires:       NetworkManager-tui
 Requires:       NetworkManager-wifi
+Requires:       Thunar
 Requires:       amd-gpu-firmware
 Requires:       atheros-firmware
 Requires:       ax86-terminus-ttf-fonts
@@ -119,7 +120,6 @@ Requires:       system-config-printer
 Requires:       tar
 Requires:       terminus-fonts
 Requires:       terminus-fonts-console
-Requires:       thunar
 Requires:       thunar-archive-plugin
 Requires:       thunar-volman
 Requires:       thunderbird
