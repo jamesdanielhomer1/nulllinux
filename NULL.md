@@ -128,7 +128,7 @@ remains third-party, with what replacing it would buy:
 | spectrum | `cava` | an FFT over a capture we can take ourselves |
 | screen capture | `grim`, `slurp` | one Wayland protocol each |
 | backlight, radios, gamma | `brightnessctl`, `rfkill`, `wlsunset` | sysfs writes and one protocol |
-| idle and lock | `swayidle`, `swaylock` | the lock is security-bearing; take it last |
+| idle and lock | `swayidle`; our own session-lock client, `swaylock` as fallback (§8.5) | the lock is security-bearing; it draws from the atlas like everything else, and swaylock catches the case it cannot lock |
 
 The measure of success is not the count. It is that the desktop starts fewer
 processes, holds less resident memory, and draws every surface from the same

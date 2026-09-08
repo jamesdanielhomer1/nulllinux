@@ -129,5 +129,72 @@ done
 grep -q 'IDLE_OFF' bin/null-idle \
   || { note "bin/null-idle cannot remember that somebody turned the ladder off"; fail=1; }
 
+# 6. THE PREFERRED LOCKER SHIPS AND IS WIRED.
+#
+# swaylock is now the FALLBACK. The lock a booted machine actually shows is the
+# session-lock client (render/src/bin/lock.rs), drawn like the greeter. Four
+# things carry it from source to a working unlock, and each is silent when it
+# breaks: null-lock must reach for the client first, the client must be built and
+# installed, its PAM stack must ship, and the -lpam link must be declared.
+
+# 6a. null-lock prefers the client and waits for its readiness handshake. Without
+#     the LOCKED read it would return before the screen locked; without the
+#     binary path it would never try the client at all.
+if grep -q 'render/target/release/lock' bin/null-lock \
+   && grep -q '= LOCKED' bin/null-lock; then
+  note "ok    null-lock prefers the session-lock client and waits for its LOCKED handshake"
+else
+  note "bin/null-lock no longer reaches for the session-lock client (path or LOCKED handshake gone)"
+  fail=1
+fi
+
+# 6b. lock is a declared render binary, or the package ships four binaries and a
+#     null-lock that always falls back to swaylock.
+if grep -qE '^\[\[bin\]\]' render/Cargo.toml && grep -q 'name = "lock"' render/Cargo.toml; then
+  note "ok    render/Cargo.toml declares the lock binary"
+else
+  note "render/Cargo.toml does not declare the lock binary -- it would never build"
+  fail=1
+fi
+if grep -qE 'for b in .*\block\b.*; do' packaging/nulllinux.spec; then
+  note "ok    the spec installs the lock binary"
+else
+  note "the spec's render-binary install loop does not include lock -- built but not shipped"
+  fail=1
+fi
+
+# 6c. THE PAM STACK MUST SHIP. Named service "null-lock"; with no such file the
+#     handle falls to /etc/pam.d/other, which denies every password -- an
+#     unpassable lock. This is the single most dangerous omission here.
+if [ -r packaging/pam.d/null-lock ] \
+   && grep -qE '^auth[[:space:]]+include[[:space:]]+system-auth' packaging/pam.d/null-lock \
+   && grep -qE '^account[[:space:]]+include[[:space:]]+system-auth' packaging/pam.d/null-lock; then
+  note "ok    packaging/pam.d/null-lock exists and stacks auth+account on system-auth"
+else
+  note "packaging/pam.d/null-lock is missing or does not stack auth+account -- every unlock would be denied"
+  fail=1
+fi
+if grep -q 'pam.d/null-lock' packaging/nulllinux.spec; then
+  note "ok    the spec installs /etc/pam.d/null-lock"
+else
+  note "the spec does not install the PAM stack -- the client would refuse every password on the target"
+  fail=1
+fi
+
+# 6d. THE -lpam LINK IS DECLARED. pam-devel is build-only; pam (libpam.so.0) is
+#     the runtime it links against.
+if grep -qE '^BuildRequires:[[:space:]]+pam-devel' packaging/nulllinux.spec; then
+  note "ok    the spec BuildRequires pam-devel (to link -lpam)"
+else
+  note "the spec does not BuildRequire pam-devel -- the render build would fail to link the locker"
+  fail=1
+fi
+if grep -qE '^pam([[:space:]]|$)' packages/fedora/base.list; then
+  note "ok    base.list carries pam (libpam.so.0 at runtime)"
+else
+  note "base.list does not carry pam -- libpam.so.0 may be absent at runtime"
+  fail=1
+fi
+
 [ $fail = 0 ] && echo "PASS: the lock screen is this system's, not swaylock's"
 exit $fail

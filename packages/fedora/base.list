@@ -476,8 +476,13 @@ power-profiles-daemon           # null-power DISCOVERS ppd or tuned and ships
                                 # the modern desktop standard, and what UPower's
                                 # CriticalPowerAction already expects.
 wiremix                         # the PipeWire mixer the column hosts (bin/null-mixer)
-swaylock                        # the lock the idle ladder calls (§8.5)
-swayidle                        # and the daemon that decides when
+swaylock                        # the FALLBACK lock (§8.5); the session-lock client
+                                # (render/.../lock) is preferred and swaylock catches
+                                # the case where it is unbuilt or cannot lock
+swayidle                        # the daemon that decides when the ladder fires
+pam                             # libpam.so.0: the session-lock client authenticates
+                                # the user through PAM to unlock (§8.5)
+pam-devel                       # build-only: -lpam, to link that client
 playerctl                       # the player topic and the column's now-playing
 wlsunset                        # the night light
 iw                              # wireless signal, where /proc/net/wireless is absent

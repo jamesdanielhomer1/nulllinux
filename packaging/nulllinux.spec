@@ -39,6 +39,7 @@ ExclusiveArch:  x86_64
 BuildRequires:  rust
 BuildRequires:  cargo
 BuildRequires:  systemd-rpm-macros
+BuildRequires:  pam-devel
 
 # Runtime. GENERATED from packages/fedora/base.list by bin/null-package, and
 # checked by verify/check-package-list.sh.
@@ -100,6 +101,7 @@ Requires:       mpv
 Requires:       nano
 Requires:       nftables
 Requires:       ntfs-3g
+Requires:       pam
 Requires:       pipewire
 Requires:       pipewire-pulseaudio
 Requires:       playerctl
@@ -196,10 +198,20 @@ rm -rf %{buildroot}%{_prefix}/%{name}/bake/out \
        %{buildroot}%{_prefix}/%{name}/bake/gpu/target \
        %{buildroot}%{_prefix}/%{name}/bake/__pycache__
 install -d %{buildroot}%{_prefix}/%{name}/render/target/release
-for b in column bar dwindle render; do
+for b in column bar dwindle render lock; do
   [ -x render/target/release/$b ] && \
     install -m 0755 render/target/release/$b %{buildroot}%{_prefix}/%{name}/render/target/release/
 done
+
+# THE SESSION-LOCK CLIENT'S PAM STACK MUST SHIP.
+#
+# Its PAM handle names the service "null-lock". With no /etc/pam.d/null-lock the
+# handle resolves to /etc/pam.d/other, which on Fedora denies every request -- so
+# the locker would refuse every password and the machine could never be unlocked
+# by its own screen lock. null-lock's handshake still reports LOCKED, so it would
+# not fall back to swaylock either: it would just hold, unpassable.
+install -D -m 0644 packaging/pam.d/null-lock \
+  %{buildroot}%{_sysconfdir}/pam.d/null-lock
 
 # The build tree is not shipped: it is 400 MB of object files and is exactly
 # the kind of thing that makes a package larger than the thing it installs.
@@ -267,6 +279,7 @@ fi
 %doc README.md
 %{_prefix}/%{name}
 %{_unitdir}/nulllinux-machine-sync.service
+%config(noreplace) %{_sysconfdir}/pam.d/null-lock
 
 %changelog
 * Wed Sep 03 2026 nullLinux <noreply@anthropic.com> - 0.1.0-1

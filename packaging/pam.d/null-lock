@@ -1,0 +1,16 @@
+# PAM stack for null-lock, the session-lock screen locker (NULL.md §8.5).
+#
+# It authenticates the already-logged-in user to UNLOCK the screen. It opens no
+# session and changes no password, so only `auth` (verify the secret) and
+# `account` (the account is still valid) are stacked -- the two the client calls
+# (pam_authenticate then pam_acct_mgmt, both of which must pass).
+#
+# system-auth is Fedora's shared stack: the same rules that gate a console login
+# gate the unlock. That is deliberate -- a screen lock should be exactly as hard
+# to pass as logging in, no weaker and no stronger.
+#
+# Without this file the client's PAM handle would resolve to /etc/pam.d/other,
+# which on Fedora denies everything -- every password would be refused and the
+# machine could never be unlocked by its own locker. It must ship.
+auth       include      system-auth
+account    include      system-auth
