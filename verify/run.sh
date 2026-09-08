@@ -104,6 +104,14 @@ run "report-first is structural (§8.4)"       python3 verify/check-report-first
 run "every command invoked exists (§10.1)"    python3 verify/check-commands.py /etc/sway/config
 run "... and that check can fail (§10.1)"     ./verify/selftest-report-first.sh
 
+# The LIVE-COMPOSITOR proofs. Each sources lib/host.sh and REFUSES anywhere
+# that is not a test machine (they pkill sway by NAME -- on the build host that
+# is somebody's live session). So on the build host these two print the
+# standard refusal and pass; in the guest, where the machine is genuinely
+# nullLinux, they run for real. LAST, because they take the compositor down.
+run "the wallpaper covers any screen (§6.3)" ./verify/vm-wallpaper-covers.sh
+run "the lock locks, holds, stays (§8.5)"    ./verify/vm-lock.sh
+
 # THE MENU COVERAGE CHECK NOW DOMINATES THIS SUITE'S RUNTIME. It went from 7
 # topics at a 2 s window to 28 at 6 s, so it alone takes about five minutes and
 # the whole suite about twelve. Both changes were correct -- the topic list is

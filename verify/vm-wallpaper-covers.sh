@@ -16,7 +16,7 @@
 set -u
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/0}
 mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
-export NULL_ROOT=${NULL_ROOT:-/opt/nulllinux}
+export NULL_ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 # THIS KILLS AND RESTARTS sway BY NAME. On the build host that is somebody's
 # live session (lib/host.sh knows the history). Refuse anywhere that is not a
 # machine whose state nobody minds.

@@ -27,7 +27,7 @@
 set -u
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/0}
 mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
-export NULL_ROOT=${NULL_ROOT:-/opt/nulllinux}
+export NULL_ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 LOCKBIN="$NULL_ROOT/render/target/release/lock"
 # THIS KILLS AND RESTARTS sway BY NAME. On the build host that is somebody's
 # live session (lib/host.sh knows the history). Refuse anywhere that is not a
@@ -78,7 +78,7 @@ PY
 # ---- 1 & 2: it locks, draws, and HOLDS when killed --------------------------
 start_sway
 USER=${SUDO_USER:-$(id -un)} NULL_ROOT="$NULL_ROOT" "$LOCKBIN" >/tmp/null-vmlock.out 2>/tmp/null-vmlock.err &
-lp=$!
+lp=$!; disown
 sleep 5
 if grep -q '^LOCKED$' /tmp/null-vmlock.out && [ "$(cat /proc/$lp/comm 2>/dev/null)" = lock ]; then
   note "ok    the client locked (LOCKED handshake) and runs as comm 'lock'"
@@ -114,7 +114,7 @@ if grep -aq NULL_LOCK_TEST_PW "$LOCKBIN" 2>/dev/null; then
   run_pw() {  # <pw> -> prints "EXITED" or "ALIVE"
     start_sway
     NULL_LOCK_TEST_PW="$1" USER="$U" NULL_ROOT="$NULL_ROOT" "$LOCKBIN" >/tmp/null-vmlock.out 2>/tmp/null-vmlock.err &
-    local p=$! i
+    local p=$! i; disown
     for i in $(seq 1 24); do kill -0 $p 2>/dev/null || { echo EXITED; stop_sway; return; }; sleep 0.5; done
     kill -9 $p 2>/dev/null; echo ALIVE; stop_sway
   }
