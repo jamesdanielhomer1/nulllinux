@@ -75,7 +75,7 @@ case "${1:-menu}" in
            done)
     [ -n "$list" ] || list="(no devices known)"
     pick=$(fzf "${NULL_FZF[@]}" --prompt='device > ' \
-             --header='mac, name, connected -- Enter connects or disconnects' \
+             --header='Enter connects or disconnects' \
              <<<"$list") || exit 0
     mac=$(awk '{print $1}' <<<"$pick"); [ -n "$mac" ] || exit 0
     case $(awk '{print $NF}' <<<"$pick") in

@@ -269,7 +269,7 @@ cmd_arrange() {
   [ -n "$tsv" ] || { oops "no compositor is answering"; return 1; }
   mapfile -t KEYS < <(cut -f1 <<<"$tsv")
   if [ "${#KEYS[@]}" -lt 2 ]; then
-    say "there is one screen, so there is nothing to arrange"
+    say "one screen -- nothing to arrange"
     return 0
   fi
 

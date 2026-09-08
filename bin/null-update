@@ -199,7 +199,7 @@ echo
 if [ "$APPLY" -eq 1 ]; then
   apply_packages; apply_orphans; apply_cache; apply_fonts
   echo
-  echo "firmware deliberately NOT touched: --apply skips it (§8.4)."
+  echo "firmware not touched: --apply skips it; write it with: null-update --firmware-write"
 fi
 [ "$FIRMWARE" -eq 1 ] && apply_firmware
 echo

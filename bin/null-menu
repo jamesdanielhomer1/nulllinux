@@ -145,7 +145,7 @@ case $topic in
       "$(null_row 'nightlight'    "$("$B/null-nightlight" state 2>/dev/null || echo "$NULL_UNMEASURED")")" \
       "$(null_row 'idle-lock'     "$("$B/null-idle" state 2>/dev/null || echo "$NULL_UNMEASURED")")" \
       "$(null_row 'notifications' "$(dunstctl is-paused 2>/dev/null | sed 's/true/silenced/; s/false/on/' || echo "$NULL_UNMEASURED")")" \
-      "$(null_row 'column'        'pinned or not')")
+      "$(null_row 'column'        'pin')")
     case $sel in
       screensaver)   "$B/null-screensaver" start ;;
       nightlight)    "$B/null-nightlight" toggle ;;
@@ -181,7 +181,7 @@ case $topic in
   # ----------------------------------------------------------------- setup
   setup)
     go "$(choose setup '' \
-      "settings   brightness, power, timers, radios" \
+      "settings   brightness, power, idle, radios" \
       "audio      output device" \
       "network    wireless" \
       "bluetooth  pair and connect" \
@@ -194,7 +194,7 @@ case $topic in
     # socket swaymsg prints nothing and exits non-zero, and feeding that to a
     # JSON parser showed the user a Python traceback in the sidebar.
     if ! have swaymsg || ! out=$(swaymsg -t get_outputs 2>/dev/null) || [ -z "$out" ]; then
-      say "no compositor to ask -- is this running inside the session?"; exit 0
+      say "no compositor is answering -- run this from inside a session"; exit 0
     fi
     printf '%s' "$out" | python3 -c '
 import json,sys
@@ -209,7 +209,7 @@ for o in json.load(sys.stdin):
 
   input)
     if ! have swaymsg || ! out=$(swaymsg -t get_inputs 2>/dev/null) || [ -z "$out" ]; then
-      say "no compositor to ask -- is this running inside the session?"; exit 0
+      say "no compositor is answering -- run this from inside a session"; exit 0
     fi
     printf '%s' "$out" | python3 -c '
 import json,sys
@@ -277,13 +277,17 @@ for d in json.load(sys.stdin):
 
   # ---------------------------------------------------------------- system
   system|power)
+    # BARE NAMES. These carried implementation cues (swaylock, systemctl
+    # suspend, swaymsg exit) -- the cue class the design language forbids, and
+    # 'swaylock' had already gone stale when the lock became our own client.
+    # Every one of these names says itself.
     sel=$(choose system '' \
-      "$(null_row 'screensaver' 'the hero, full screen')" \
-      "$(null_row 'lock'        'swaylock')" \
-      "$(null_row 'suspend'     'systemctl suspend')" \
-      "$(null_row 'logout'      'swaymsg exit')" \
-      "$(null_row 'restart'     'systemctl reboot')" \
-      "$(null_row 'shutdown'    'systemctl poweroff')")
+      "screensaver" \
+      "lock" \
+      "suspend" \
+      "logout" \
+      "restart" \
+      "shutdown")
     case $sel in
       screensaver) exec "$B/null-screensaver" start ;;
       lock)        "$B/null-screensaver" stop; "$B/null-lock" ;;
@@ -304,9 +308,8 @@ for d in json.load(sys.stdin):
       if [ "$(id -u)" -eq 0 ]; then
         say "the audio daemon is not running for this session" \
             "" \
-            "This session is ROOT, and pipewire.service carries" \
-            "ConditionUser=!root, so systemd skips it entirely." \
-            "Log in as an ordinary user."
+            "this session is root, and pipewire carries ConditionUser=!root" \
+            "log in as an ordinary user"
       else
         say "the audio daemon is not running for this user" \
             "" \
@@ -319,11 +322,12 @@ for d in json.load(sys.stdin):
       # An empty picker is indistinguishable from a key that did nothing.
       say "the audio daemon is running, but has no outputs" \
           "" \
-          "Sound devices are granted to whoever holds the seat." \
-          "If another user is logged in on seat0, this session has none."
+          "sound devices go to whoever holds seat0" \
+          "another session on the seat leaves this one none"
       exit 0
     fi
-    fzf "${NULL_FZF[@]}" --prompt='audio > ' --header='choose the output' \
+    fzf "${NULL_FZF[@]}" --prompt='audio > ' \
+        --header='reporting only -- outputs change in the mixer' \
         <<<"$list" >/dev/null || true ;;
 
   network)
@@ -336,8 +340,8 @@ for d in json.load(sys.stdin):
     if [ -z "$list" ]; then
       say "no networks in the last scan" \
           "" \
-          "The radio may be off, or it has not scanned lately." \
-          "Radios are under setup > settings."
+          "the radio may be off, or nothing has scanned lately" \
+          "radios: setup > settings"
       exit 0
     fi
     fzf "${NULL_FZF[@]}" --prompt='network > ' \
@@ -357,11 +361,11 @@ for d in json.load(sys.stdin):
   power-profile)
     if ! "$B/null-power" probe 2>/dev/null; then
       say "no power profile daemon is running" "" \
-          "Neither tuned nor power-profiles-daemon is active." \
-          "null-power backend reports: $("$B/null-power" backend)"; exit 0
+          "neither tuned nor power-profiles-daemon is active" \
+          "backend: $("$B/null-power" backend)"; exit 0
     fi
     now=$("$B/null-power" get)
-    sel=$(choose 'power profile' "now: $now -- $("$B/null-power" backend)'s own names" \
+    sel=$(choose 'power profile' "now $now" \
             $("$B/null-power" list))
     [ -n "$sel" ] || exit 0
     "$B/null-power" set "$sel" ;;

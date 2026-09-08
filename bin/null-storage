@@ -87,7 +87,7 @@ case "${1:-menu}" in
       "$(null_row 'discover' 'look for servers on this network')" \
       "$(null_row 'unmap'    'disconnect a share')" \
       | fzf "${NULL_FZF[@]}" --prompt='storage > ' --no-sort \
-            --header='network drives, through gvfs -- no root, no fstab' \
+            --header='no root, no fstab' \
       | awk '{print $1}')
     [ -n "$sel" ] || exit 0
     exec "$0" "$sel" ;;
@@ -142,7 +142,7 @@ case "${1:-menu}" in
   unmap)
     list=$(mounted)
     [ -n "$list" ] || { echo "nothing mapped"; exit 0; }
-    name=$(fzf "${NULL_FZF[@]}" --prompt='unmap > ' --header='disconnect' <<<"$list")
+    name=$(fzf "${NULL_FZF[@]}" --prompt='unmap > ' --header='' <<<"$list")
     [ -n "$name" ] || exit 0
     uri=$(grep -iF "$(sed -E 's/ on .*//' <<<"$name")" "$BOOK" | head -1 || true)
     if [ -n "$uri" ]; then gio mount -u "$uri" && drop_gtk_bookmark "$uri"; fi

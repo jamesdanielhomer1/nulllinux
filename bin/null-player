@@ -31,7 +31,7 @@ case "${1:-menu}" in
       printf '%s\n' "nothing is playing" "" \
         "No player is on the bus. Start one and this fills in." \
         | fzf "${NULL_FZF[@]}" --prompt='player > ' \
-              --header='read live over MPRIS' >/dev/null || true
+              --header='read live from the player' >/dev/null || true
       exit 0
     fi
     IFS='|' read -r st meta <<<"$(now_playing)"
@@ -42,7 +42,7 @@ case "${1:-menu}" in
       "$(null_row 'next' 'the next track')" \
       "$(null_row 'previous' 'the previous track')" \
       | fzf "${NULL_FZF[@]}" --prompt='player > ' --no-sort \
-            --header="$(players) player(s) on the bus" | awk '{print $1}')
+            --header='' | awk '{print $1}')
     case $sel in
       play-pause) playerctl play-pause ;;
       next)       playerctl next ;;

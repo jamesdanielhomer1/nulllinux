@@ -98,9 +98,9 @@ check_once() {
   level=$(decide "$pct" "$st" "$last")
   case $level in
     critical) notify critical "Battery ${pct}%" \
-                "Save your work. This machine powers off at 2% and cannot hibernate -- it has no swap." ;;
+                "powers off at 2% -- there is no hibernate on this machine" ;;
     low)      notify normal   "Battery ${pct}%" \
-                "About to get short. There is no hibernate on this machine." ;;
+                "there is no hibernate on this machine" ;;
   esac
   # The state records the band we are IN, not the last thing said, so a
   # recovery above the low band re-arms both warnings.

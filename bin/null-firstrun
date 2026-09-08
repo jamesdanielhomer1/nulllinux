@@ -43,16 +43,18 @@ report_trouble() {
   # DISTINCT problems, not lines. One missing D-Bus session produces the same
   # "Failed to init libxfconf" seven times, and "7 things to look at" for one
   # thing is how a notification becomes something people dismiss unread.
-  local n first
+  local n first word
   n=$(grep -iE "$TROUBLE" "$LOG" 2>/dev/null | sed 's/^ *//' | sort -u | grep -c . || echo 0)
   [ "${n:-0}" -gt 0 ] || return 0
   first=$(grep -iE "$TROUBLE" "$LOG" 2>/dev/null | sed 's/^ *//' | sort -u | head -1)
   if command -v notify-send >/dev/null 2>&1; then
-    notify-send -u normal -a nullLinux "First-run setup: $n thing(s) to look at" \
+    word=problems; [ "$n" -eq 1 ] 2>/dev/null && word=problem
+    notify-send -u normal -a nullLinux "First-run setup: $n $word" \
       "$first
 Full transcript: $LOG"
   fi
-  printf '\n%s\n' "  $n thing(s) worth reading in $LOG"
+  word=problems; [ "$n" -eq 1 ] 2>/dev/null && word=problem
+  printf '\n%s\n' "  $n $word in $LOG"
 }
 trap report_trouble EXIT
 

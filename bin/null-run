@@ -52,7 +52,7 @@ PY
 [ -n "$list" ] || { echo "no desktop entries found" >&2; exit 1; }
 
 pick=$(fzf "${NULL_FZF[@]}" --prompt='run > ' \
-         --header='every installed application, read from its desktop entry' \
+         --header='' \
          <<<"$list") || exit 0
 [ -n "$pick" ] || exit 0
 

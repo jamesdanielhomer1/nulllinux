@@ -107,7 +107,7 @@ print("#%02x%02x%02x" % (d[i],d[i+1],d[i+2]))')
     echo "$pid" > "$PIDFILE"; echo "$f" > "$PIDFILE.file"
     # PERSISTS until it stops: a recording nobody can see is the failure mode.
     notify -u critical -t 0 -h string:x-canonical-private-synchronous:null-recording \
-           "Recording" "$f -- press the capture key again to stop" ;;
+           "Recording" "$f -- stops with the same key that started it" ;;
 
   stop)    stop_recording ;;
   state)   recording_pid >/dev/null && echo recording || echo idle ;;
