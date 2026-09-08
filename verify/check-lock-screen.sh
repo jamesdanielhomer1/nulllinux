@@ -166,12 +166,12 @@ fi
 # 6c. THE PAM STACK MUST SHIP. Named service "null-lock"; with no such file the
 #     handle falls to /etc/pam.d/other, which denies every password -- an
 #     unpassable lock. This is the single most dangerous omission here.
-if [ -r packaging/pam.d/null-lock ] \
-   && grep -qE '^auth[[:space:]]+include[[:space:]]+system-auth' packaging/pam.d/null-lock \
-   && grep -qE '^account[[:space:]]+include[[:space:]]+system-auth' packaging/pam.d/null-lock; then
-  note "ok    packaging/pam.d/null-lock exists and stacks auth+account on system-auth"
+if [ -r config/pam.d/null-lock ] \
+   && grep -qE '^auth[[:space:]]+include[[:space:]]+system-auth' config/pam.d/null-lock \
+   && grep -qE '^account[[:space:]]+include[[:space:]]+system-auth' config/pam.d/null-lock; then
+  note "ok    config/pam.d/null-lock exists and stacks auth+account on system-auth"
 else
-  note "packaging/pam.d/null-lock is missing or does not stack auth+account -- every unlock would be denied"
+  note "config/pam.d/null-lock is missing or does not stack auth+account -- every unlock would be denied"
   fail=1
 fi
 if grep -q 'pam.d/null-lock' packaging/nulllinux.spec; then

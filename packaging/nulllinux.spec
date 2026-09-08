@@ -210,7 +210,7 @@ done
 # the locker would refuse every password and the machine could never be unlocked
 # by its own screen lock. null-lock's handshake still reports LOCKED, so it would
 # not fall back to swaylock either: it would just hold, unpassable.
-install -D -m 0644 packaging/pam.d/null-lock \
+install -D -m 0644 config/pam.d/null-lock \
   %{buildroot}%{_sysconfdir}/pam.d/null-lock
 
 # The build tree is not shipped: it is 400 MB of object files and is exactly

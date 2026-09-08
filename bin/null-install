@@ -461,6 +461,27 @@ else
   say "no $SESSION_SRC -- the greeter will offer Fedora's Sway instead"
 fi
 
+head_ "the screen lock's PAM stack"
+# The session-lock client authenticates through PAM as the service "null-lock".
+# With no /etc/pam.d/null-lock the handle falls to /etc/pam.d/other, which on
+# Fedora denies every request -- so the locker refuses every password and the
+# machine cannot be unlocked by its own screen lock. The RPM ships this via
+# %files; the in-place install has to do it too, or a machine set up this way
+# locks and never opens. (Found doing exactly that on the build host.)
+pamsrc="$ROOT/config/pam.d/null-lock"
+if [ -r "$pamsrc" ]; then
+  if [ "$APPLY" -eq 1 ]; then
+    mkdir -p /etc/pam.d; backup /etc/pam.d/null-lock
+    cp -a "$pamsrc" /etc/pam.d/null-lock
+    restore_selinux /etc/pam.d/null-lock
+    say "installed /etc/pam.d/null-lock"
+  else
+    say "would install /etc/pam.d/null-lock"
+  fi
+else
+  say "no PAM stack at $pamsrc -- the lock would deny every password"
+fi
+
 head_ "file manager defaults"
 xd=/etc/xdg/xfce4/xfconf/xfce-perchannel-xml
 if [ "$APPLY" -eq 1 ]; then
