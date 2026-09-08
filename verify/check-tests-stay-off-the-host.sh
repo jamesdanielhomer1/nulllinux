@@ -56,11 +56,12 @@ fi
   && note "ok    NULL_TEST_MACHINE=1 makes a machine expendable" \
   || { note "NULL_TEST_MACHINE=1 does not work, so there is no way to opt a scratch box in"; fail=1; }
 
-if ! null_is_nulllinux; then
+  # WITHOUT the opt-in, NOTHING is expendable -- not even a nullLinux machine,
+  # because the build host is one now and it is the daily driver. This is the
+  # property that keeps a destructive test off it.
   ( unset NULL_TEST_MACHINE; null_machine_is_expendable ) \
-    && { note "a machine that is neither nullLinux nor opted in was called expendable"; fail=1; } \
-    || note "ok    an unopted machine that is not nullLinux is not expendable"
-fi
+    && { note "a machine with no NULL_TEST_MACHINE=1 was called expendable -- the daily driver is unprotected"; fail=1; } \
+    || note "ok    without NULL_TEST_MACHINE=1 no machine is expendable, daily driver included"
 
 # 2. EVERY DESTRUCTIVE CHECK IS GUARDED OR RESTORES.
 #

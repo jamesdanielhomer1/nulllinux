@@ -10,8 +10,8 @@
 #
 # This is the somewhere else. It copies the WORKING TREE -- not the installed
 # package, so uncommitted changes are what gets tested -- into a nullLinux guest
-# and runs the suite there, where NULL_TEST_MACHINE is redundant because the
-# machine genuinely is nullLinux.
+# and runs the suite there, opting the guest in with NULL_TEST_MACHINE=1 because
+# guest is a real, disposable test machine (a nullLinux daily driver is not).
 #
 #   verify/in-guest.sh                     the whole suite
 #   verify/in-guest.sh check-drive.sh      one check
@@ -103,7 +103,7 @@ fi
 # 5. RUN IT THERE.
 if [ "${1:-}" = "--" ]; then
   shift
-  guest "cd $DEST && $*"
+  guest "cd $DEST && NULL_TEST_MACHINE=1 $*"
   exit $?
 fi
 
@@ -112,10 +112,10 @@ if [ $# -gt 0 ]; then
   for c in "$@"; do
     case $c in verify/*) c=${c#verify/} ;; esac
     say "running $c in the guest"
-    guest "cd $DEST && ./verify/$c" || rc=1
+    guest "cd $DEST && NULL_TEST_MACHINE=1 ./verify/$c" || rc=1
   done
   exit $rc
 fi
 
 say "running the whole suite in the guest"
-guest "cd $DEST && ./verify/run.sh"
+guest "cd $DEST && NULL_TEST_MACHINE=1 ./verify/run.sh"

@@ -43,8 +43,12 @@ null_host_description() {
 
 # May this run do something to the machine that outlives it?
 null_machine_is_expendable() {
-  [ "${NULL_TEST_MACHINE:-0}" = 1 ] && return 0
-  null_is_nulllinux
+  # OPT-IN ONLY. This once also returned true for any nullLinux machine, on the
+  # assumption that the only nullLinux around was the disposable VM guest. That
+  # stopped being true the day the build host itself became nullLinux: a daily
+  # driver must NOT be expendable, or `verify/run.sh` would kill its desktop.
+  # The guest opts in explicitly (verify/in-guest.sh sets NULL_TEST_MACHINE=1).
+  [ "${NULL_TEST_MACHINE:-0}" = 1 ]
 }
 
 # The one place that phrases the refusal, so it reads the same everywhere and
