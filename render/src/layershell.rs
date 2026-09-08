@@ -96,7 +96,12 @@ pub fn run(cells: Cells, atlas: Atlas, layer_name: &str, overlay: bool,
     layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
     layer.set_exclusive_zone(-1);
     layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-    layer.set_size(w, h);
+    // 0,0 with all four anchors = the FULL output, not the asset. Sizing to
+    // the asset (w,h) left the surface smaller than the screen on every panel
+    // the asset does not exactly fill, and the compositor's own background --
+    // black -- showed in the gap. The hero is drawn centred into the full
+    // surface, its margin painted the palette background (§6.3).
+    layer.set_size(0, 0);
     layer.commit();
 
     // Room for two full buffers, by design (§6.3).
@@ -233,9 +238,16 @@ impl Wallpaper {
         let prev = self.slots[i].shows.clone();
         let stride_px = self.width as usize;
 
+        // Centre the hero in the full-output surface: the asset is chosen to be
+        // no larger than the screen, so half the slack goes on each side and the
+        // background fills the rest evenly rather than banding one edge.
+        let hero_w = self.cells.cols as usize * self.atlas.cell_w;
+        let hero_h = self.cells.rows as usize * self.atlas.cell_h;
+        let ox = (self.width as usize).saturating_sub(hero_w) / 2;
+        let oy = (self.height as usize).saturating_sub(hero_h) / 2;
         let canvas = self.slots[i].buffer.canvas(&mut self.pool).unwrap();
         let touched = raster::blit_frame(
-            &self.cells, &self.atlas, idx, canvas, stride_px, self.bg,
+            &self.cells, &self.atlas, idx, canvas, stride_px, self.bg, (ox, oy),
             prev.as_ref().map(|(pg, pc)| (pg.as_slice(), pc.as_slice())),
         );
         self.slots[i].shows = Some((g, c));

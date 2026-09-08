@@ -16,7 +16,7 @@ pub fn frame_to_bgra(c: &Cells, a: &Atlas, frame: usize, bg: [u8; 3]) -> (usize,
     for px in buf.chunks_exact_mut(4) {
         px[0] = bg[2]; px[1] = bg[1]; px[2] = bg[0]; px[3] = 0xff;
     }
-    blit_frame(c, a, frame, &mut buf, w, bg, None);
+    blit_frame(c, a, frame, &mut buf, w, bg, (0, 0), None);
     (w, h, buf)
 }
 
@@ -25,7 +25,7 @@ pub fn frame_to_bgra(c: &Cells, a: &Atlas, frame: usize, bg: [u8; 3]) -> (usize,
 /// If `prev` is given, only cells whose glyph or colour changed are touched --
 /// the delta property the whole design rests on.
 pub fn blit_frame(c: &Cells, a: &Atlas, frame: usize, buf: &mut [u8], stride_px: usize,
-                  bg: [u8; 3], prev: Option<(&[u8], &[u8])>) -> usize {
+                  bg: [u8; 3], origin: (usize, usize), prev: Option<(&[u8], &[u8])>) -> usize {
     let g = c.glyphs(frame);
     let col = c.colours(frame);
     let mut touched = 0usize;
@@ -44,8 +44,8 @@ pub fn blit_frame(c: &Cells, a: &Atlas, frame: usize, buf: &mut [u8], stride_px:
             // loop is not.
             let rgb = c.palette.get(col[i] as usize).copied().unwrap_or([0, 0, 0]);
             let bits = a.glyph(ch as u32);
-            let x0 = x * a.cell_w;
-            let y0 = row * a.cell_h;
+            let x0 = origin.0 + x * a.cell_w;
+            let y0 = origin.1 + row * a.cell_h;
 
             for cy in 0..a.cell_h {
                 let dst_row = (y0 + cy) * stride_px;
@@ -120,7 +120,7 @@ mod tests {
         let (c, a) = (cells(3, 2), atlas());
         let (w, h) = (6usize, 4usize);
         let mut buf = vec![0u8; w * h * 4];
-        blit_frame(&c, &a, 0, &mut buf, w, [9, 8, 7], None);
+        blit_frame(&c, &a, 0, &mut buf, w, [9, 8, 7], (0, 0), None);
         for (i, px) in buf.chunks_exact(4).enumerate() {
             assert_eq!([px[0], px[1], px[2], px[3]], [7, 8, 9, 0xff], "pixel {i}");
         }
@@ -133,7 +133,7 @@ mod tests {
         let (c, a) = (cells(50, 40), atlas());     // needs 100x80 px
         for (w, h) in [(30usize, 20usize), (7, 3), (1, 1), (99, 79), (101, 81)] {
             let mut buf = vec![0u8; w * h * 4];
-            blit_frame(&c, &a, 0, &mut buf, w, [1, 2, 3], None);
+            blit_frame(&c, &a, 0, &mut buf, w, [1, 2, 3], (0, 0), None);
         }
     }
 
@@ -149,11 +149,41 @@ mod tests {
             for px in buf.chunks_exact_mut(4) {
                 px[0] = bg[2]; px[1] = bg[1]; px[2] = bg[0]; px[3] = 0xff;
             }
-            blit_frame(&c, &a, 0, &mut buf, w, bg, None);
+            blit_frame(&c, &a, 0, &mut buf, w, bg, (0, 0), None);
             for (i, px) in buf.chunks_exact(4).enumerate() {
                 assert_eq!(px[3], 0xff, "{w}x{h}: pixel {i} transparent");
                 assert_eq!([px[2], px[1], px[0]], bg, "{w}x{h}: pixel {i} not bg");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod centering_tests {
+    use super::*;
+
+    #[test]
+    fn an_origin_offsets_the_hero_and_leaves_bg_around_it() {
+        // A grid smaller than the buffer, drawn at an origin, must leave the
+        // margin the background on every side -- the centred-wallpaper case on
+        // a panel the asset does not fill.
+        let cols = 2u16; let rows = 2u16;                     // 4x4 px hero (2x2 cells)
+        let cells = Cells::synthetic(cols, rows, 1, vec!['#'],  // ramp[0]='#': all lit
+                                     vec![[200, 50, 25]], vec![0u8; (cols*rows) as usize * 2]);
+        // atlas: one glyph '#', 2x2, all lit
+        let mut d = b"RATL".to_vec(); d.extend_from_slice(&[0,0]);
+        d.extend_from_slice(&2u16.to_le_bytes()); d.extend_from_slice(&2u16.to_le_bytes());
+        d.extend_from_slice(&1u16.to_le_bytes()); d.extend_from_slice(&[0u8;32]);
+        d.extend_from_slice(&1u16.to_le_bytes());
+        d.extend_from_slice(&[b'#',0,0,0,0,0]); d.extend_from_slice(&[1u8;4]);
+        let a = Atlas::from_bytes(&d, "syn").unwrap();
+        let bg=[5,6,10]; let (w,h)=(8usize,8usize);          // hero 4x4 centred in 8x8 -> origin (2,2)
+        let mut buf=vec![0u8;w*h*4];
+        for px in buf.chunks_exact_mut(4){px[0]=bg[2];px[1]=bg[1];px[2]=bg[0];px[3]=0xff;}
+        blit_frame(&cells,&a,0,&mut buf,w,bg,(2,2),None);
+        let at=|x:usize,y:usize|{let o=(y*w+x)*4;(buf[o+2],buf[o+1],buf[o])};
+        assert_eq!(at(0,0),(5,6,10),"top-left margin is bg");
+        assert_eq!(at(7,7),(5,6,10),"bottom-right margin is bg");
+        assert_eq!(at(3,3),(200,50,25),"hero centre is the lit glyph colour");
     }
 }
