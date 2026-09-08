@@ -445,7 +445,7 @@ fn main() {
             .and_then(|v| v.get("ramp").and_then(|r| r.as_str()).map(|s| s.chars().collect()))
             .unwrap_or_else(|| " .:-=+*#%@".chars().collect()),
         hint_menu: chord_for(&root, "The menu").unwrap_or_else(|| "?".into()),
-        hint_keys: chord_for(&root, "Every key binding, read live")
+        hint_keys: chord_for(&root, "Every key binding")
                        .unwrap_or_else(|| "?".into()),
         windows_present: {
             let f = Arc::new(AtomicBool::new(false));
