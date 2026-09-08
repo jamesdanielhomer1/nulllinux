@@ -1,37 +1,101 @@
 #!/usr/bin/env bash
-# Start the column (NULL.md §7.3).
+# Start AND KEEP the column (NULL.md §7.3).
 #
-# Stops any instance of ITSELF first, matched on the executable rather than the
-# command line -- a command-line match catches any shell that merely mentions
-# the name, including the one doing the matching (§8.6).
-set -euo pipefail
+# The column is the persistent sidebar, one per desktop. It must ALWAYS be
+# there: a crash, or a close that exits the process, has to bring it straight
+# back, for as long as the session is up. So this is not an `exec` into the
+# binary -- it is a supervisor that respawns it.
+#
+# ONE SUPERVISOR PER SESSION. The compositor starts this with `exec_always`,
+# which re-runs on every reload, so a fresh copy must displace the previous
+# supervisor and its column rather than stack on top. A pidfile identifies the
+# supervisor (matched on the executable would catch this very shell, §8.6); the
+# column binary is matched on its exe.
+set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 
-# THIS TAKES NO ARGUMENTS, AND SAYS SO.
-#
-# It used to take any and ignore all of them. `null-column --help` therefore did
-# not print help: it displaced the running component and supervised for ever,
-# so asking a question restarted a piece of the desktop and then hung. A typo'd
-# flag did the same thing in silence, which is the failure this project keeps
-# finding in other clothes.
+# THIS TAKES NO ARGUMENTS, AND SAYS SO (a typo'd flag must not silently restart
+# a piece of the desktop and supervise for ever).
 case "${1:-}" in
   '') ;;
   -h|--help)
     echo "usage: null-column"
     echo
-    echo "  the column, one per desktop, on the focused output. Takes no arguments."
-    echo "  The compositor starts it (config/sway/config); starting it again"
-    echo "  displaces the copy that is already running."
+    echo "  The column, one per desktop, on the focused output. Takes no arguments."
+    echo "  The compositor starts it (config/sway/config) and it stays up: if the"
+    echo "  column crashes or is closed, this brings it back. Starting it again"
+    echo "  displaces the copy already running."
     exit 0 ;;
   *)
     echo "null-column: unknown argument '$1' -- this command takes none" >&2
     exit 2 ;;
 esac
+
 BIN="$ROOT/render/target/release/column"
 [ -x "$BIN" ] || { echo "null-column: $BIN not built" >&2; exit 1; }
+PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/null-column.pid"
+RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+# 1. DISPLACE THE PREVIOUS SUPERVISOR, if any, via its pidfile -- and confirm it
+#    is one of ours before signalling, since pids are recycled. Killing it makes
+#    its trap take its column down, so there is nothing left to respawn behind us.
+if [ -r "$PIDFILE" ]; then
+  old=$(cat "$PIDFILE" 2>/dev/null || true)
+  if [ -n "${old:-}" ] && [ "$old" != "$$" ] && kill -0 "$old" 2>/dev/null \
+     && tr '\0' ' ' < "/proc/$old/cmdline" 2>/dev/null | grep -q 'null-column'; then
+    kill "$old" 2>/dev/null || true
+  fi
+fi
+
+# 2. AND ANY STRAY COLUMN BINARY not under a supervisor (matched on the exe, not
+#    the command line). The supervisor above is gone by now, so these are orphans.
 SELF=$(readlink -f "$BIN")
 for pid in $(pgrep -x -u "$(id -u)" column 2>/dev/null || true); do
   exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || continue
   [ "$exe" = "$SELF" ] && kill "$pid" 2>/dev/null || true
 done
-exec env NULL_ROOT="$ROOT" "$BIN"
+
+echo $$ > "$PIDFILE"
+
+# 3. SUPERVISE. Respawn the column whenever it exits, while the session lives.
+child=""
+cleanup() {
+  [ -n "$child" ] && kill "$child" 2>/dev/null || true
+  # Remove the pidfile only if it is still OURS: a newer supervisor that just
+  # displaced us already owns it, and must not have it deleted from under it.
+  [ "$(cat "$PIDFILE" 2>/dev/null || true)" = "$$" ] && rm -f "$PIDFILE"
+  exit 0
+}
+trap cleanup INT TERM HUP
+
+fast=0
+while :; do
+  start=$(date +%s)
+  env NULL_ROOT="$ROOT" "$BIN" &
+  child=$!
+  wait "$child" 2>/dev/null || true
+  child=""
+
+  # SESSION GONE? Stop trying -- a supervisor has no reason to outlive its
+  # compositor. Ask the compositor directly: sway answers get_version while it
+  # lives and fails the instant it does not. (The Wayland socket FILE lingers
+  # after sway exits, so its mere existence is not the test.) A non-sway
+  # compositor has no swaymsg; there the fast-death backstop below stops us.
+  if [ -n "${SWAYSOCK:-}" ] && command -v swaymsg >/dev/null 2>&1; then
+    swaymsg -t get_version >/dev/null 2>&1 || break
+  elif [ -n "${WAYLAND_DISPLAY:-}" ] && [ ! -S "$RUNTIME/$WAYLAND_DISPLAY" ]; then
+    break
+  fi
+
+  # CRASH-LOOP / DEAD-DISPLAY BACKSTOP. A column that exits almost immediately did
+  # not really run -- a crash on startup, or a display that is gone behind a stale
+  # socket. Back off so it cannot spin, and after several in a row, give up
+  # (nothing to draw on). A close or a crash after real use resets the count and
+  # comes back at once.
+  if [ $(( $(date +%s) - start )) -lt 2 ]; then
+    fast=$((fast + 1)); [ "$fast" -ge 5 ] && break; sleep 2
+  else
+    fast=0
+  fi
+done
+cleanup

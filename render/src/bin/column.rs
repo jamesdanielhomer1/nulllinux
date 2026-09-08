@@ -516,10 +516,18 @@ fn main() {
         };
         unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout.max(0)) };
 
+        // The compositor going away must END the column, not spin or hang it: a
+        // dead Wayland fd polls ready for ever, and a client that ignores the
+        // hangup becomes an orphan its supervisor never sees exit (§7.3). A
+        // hangup, a failed read, or a dispatch error all mean the display is gone.
+        let mut lost = fds[0].revents & (libc::POLLHUP | libc::POLLERR) != 0;
         if let Some(g) = read_guard {
-            if fds[0].revents & libc::POLLIN != 0 { let _ = g.read(); }
+            if fds[0].revents & libc::POLLIN != 0 {
+                if g.read().is_err() { lost = true; }
+            }
         }
-        queue.dispatch_pending(&mut col).ok();
+        if queue.dispatch_pending(&mut col).is_err() { lost = true; }
+        if lost { col.exit = true; }
 
         if fds[1].revents & libc::POLLIN != 0 {
             while let Ok((n, _)) = ctrl.recv_from(&mut buf) {
