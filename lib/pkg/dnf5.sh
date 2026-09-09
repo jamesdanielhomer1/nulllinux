@@ -11,7 +11,13 @@ backend_detect() { [ -r /etc/fedora-release ] && command -v dnf >/dev/null 2>&1;
 
 # --- read verbs ---------------------------------------------------------
 
-backend_search() { dnf -q search -- "$@"; }
+backend_search() {
+  # dnf5 prints "Matched fields: ..." section headers and blank lines among the
+  # package rows. Left in, a header became a selectable row in the install
+  # picker and `pkg install Matched` was the result. Emit only the package rows
+  # (the ones dnf5 indents), so `awk '{print $1}'` downstream gets a real name.
+  dnf -q search -- "$@" | grep -vE '^Matched fields|^[[:space:]]*$'
+}
 
 backend_is_installed() { rpm -q -- "$1" >/dev/null 2>&1; }
 
