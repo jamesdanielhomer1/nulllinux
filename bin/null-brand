@@ -13,8 +13,50 @@
 # the Fedora relationship is stated as a relationship, and no Fedora mark is
 # used as if it were this project's own.
 set -euo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 
-VERSION=${NULL_VERSION:-0.1.0}
+# THE VERSION HAS ONE SOURCE, AND THIS TOOL IS NOT IT.
+#
+# This said VERSION=0.1.0, while bin/null-iso and bin/null-installer-iso read
+# the version from packaging/nulllinux.spec. Two sources agree exactly until the
+# first bump -- after which the medium is named nulllinux-0.2.0.iso and the
+# system inside it says "nullLinux 0.1.0", and nothing notices, because each
+# tool is consistent with itself. So the version is RESOLVED, in this order:
+#
+#   NULL_VERSION      the package's own %post passes %{version}, so an installed
+#                     system is branded with the version that installed it --
+#                     no lookup, and nothing to drift
+#   installed package bin/pkg installed-version: the machine's real identity,
+#                     for a later `null-brand apply` on an installed system,
+#                     where the spec is not present (packaging/ does not ship)
+#   the spec          a development checkout, where the package is not
+#                     installed and the spec is the truth being built
+#   last resort       so branding never fails outright. verify/check-branding.sh
+#                     proves the chain above agrees with the spec, so the last
+#                     resort is never silently what ships.
+NAME=nulllinux
+VERSION=""
+VERSION_FROM=""
+resolve_version() {
+  local v nevra
+  if [ -n "${NULL_VERSION:-}" ]; then
+    VERSION=$NULL_VERSION; VERSION_FROM="NULL_VERSION"; return 0
+  fi
+  # installed-version prints the full NEVRA -- name-[epoch:]version-release.arch
+  # -- and fails when the package is not installed.
+  if nevra=$("$ROOT/bin/pkg" installed-version "$NAME" 2>/dev/null) \
+     && [ "${nevra#"$NAME"-}" != "$nevra" ]; then
+    v=${nevra#"$NAME"-}; v=${v#*:}; v=${v%%-*}
+    if [ -n "$v" ]; then VERSION=$v; VERSION_FROM="installed package"; return 0; fi
+  fi
+  if [ -r "$ROOT/packaging/$NAME.spec" ] && command -v rpmspec >/dev/null 2>&1; then
+    v=$(rpmspec -q --qf '%{version}\n' "$ROOT/packaging/$NAME.spec" 2>/dev/null | head -1)
+    if [ -n "$v" ]; then VERSION=$v; VERSION_FROM="packaging/$NAME.spec"; return 0; fi
+  fi
+  VERSION=0.1.0; VERSION_FROM="last resort"
+  return 0
+}
+resolve_version
 URL=https://github.com/jamesdanielhomer/nulllinux
 SAVED=/usr/lib/os-release.fedora
 
@@ -27,6 +69,7 @@ usage: null-brand [report|apply|revert]
   report   say what is set and what would change (default)
   apply    replace the /etc/os-release symlink with nullLinux branding
   revert   restore the distribution's own /etc/os-release
+  version  print the version apply would brand with (report says where from)
 USAGE
 }
 
@@ -79,6 +122,7 @@ do_report() {
   printf '  %-16s %s\n' "PRETTY_NAME" "$(current_pretty)"
   printf '  %-16s %s\n' "ID" "$(current_id)"
   printf '  %-16s %s\n' "upstream" "$(upstream_name) $(upstream_rel)"
+  printf '  %-16s %s\n' "version" "$VERSION ($VERSION_FROM)"
   if branded; then
     echo "  branded; 'null-brand revert' restores $(upstream_name)"
   else
@@ -109,6 +153,7 @@ case ${1:-report} in
   report) do_report ;;
   apply)  do_apply ;;
   revert) do_revert ;;
+  version) printf '%s\n' "$VERSION" ;;
   -h|--help|help) usage ;;
   *) usage; exit 2 ;;
 esac

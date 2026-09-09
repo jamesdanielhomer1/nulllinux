@@ -258,7 +258,11 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 # ISO, a live image and a plain `dnf install nulllinux` must all end up saying
 # the same thing.  It only rewrites /etc, never the fedora-release-owned file
 # in /usr, and %postun on final removal puts the distribution's own back.
-%{_prefix}/%{name}/bin/null-brand apply >/dev/null 2>&1 || :
+#
+# THE VERSION IS HANDED OVER, not looked up. This package IS the version the
+# machine is getting, so it says so: null-brand once carried its own copy of
+# the number, which agreed with this file exactly until the first bump.
+NULL_VERSION=%{version} %{_prefix}/%{name}/bin/null-brand apply >/dev/null 2>&1 || :
 
 %preun
 %systemd_preun nulllinux-machine-sync.service
@@ -282,7 +286,7 @@ fi
 %config(noreplace) %{_sysconfdir}/pam.d/null-lock
 
 %changelog
-* Wed Sep 03 2026 nullLinux <noreply@anthropic.com> - 0.1.0-1
+* Thu Sep 03 2026 nullLinux <noreply@anthropic.com> - 0.1.0-1
 - First package. Ships the raytraced hero prebuilt for the four bake strikes
   real panels select, and every strike's atlas, so no installed machine needs
   a GPU or a compiler.

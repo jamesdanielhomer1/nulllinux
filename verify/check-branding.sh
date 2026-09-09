@@ -56,5 +56,36 @@ grep -q 'ID_LIKE=' "$ROOT/bin/null-brand" && ok "null-brand emits ID_LIKE" \
                                           || bad "null-brand omits ID_LIKE"
 
 echo
+echo "== the version that brands is the version that ships (one source)"
+# null-brand once hardcoded 0.1.0 while the ISO tools read the spec: each
+# consistent with itself, and with each other only until the first bump. The
+# package's %post must hand null-brand the version it is installing; and on a
+# machine where the package is not installed -- this checkout -- null-brand
+# must resolve the spec's number, not a copy of its own.
+grep -q 'NULL_VERSION=%{version}.*null-brand apply' "$ROOT/packaging/nulllinux.spec" \
+  && ok "the package's %post passes its own version to null-brand" \
+  || bad "the package's %post does not pass %{version} to null-brand -- an installed system can brand with a stale version"
+resolved=$("$ROOT/bin/null-brand" version 2>/dev/null || true)
+from=$("$ROOT/bin/null-brand" report 2>/dev/null | sed -n 's/^ *version *[^(]*(\(.*\))$/\1/p')
+if "$ROOT/bin/pkg" is-installed nulllinux >/dev/null 2>&1; then
+  want=$("$ROOT/bin/pkg" installed-version nulllinux 2>/dev/null || true)
+  want=${want#nulllinux-}; want=${want#*:}; want=${want%%-*}
+  if [ -n "$resolved" ] && [ "$resolved" = "$want" ]; then
+    ok "null-brand resolves the installed package's version ($resolved, from ${from:-?})"
+  else
+    bad "null-brand resolves '${resolved:-nothing}' but the installed package is ${want:-?}"
+  fi
+elif command -v rpmspec >/dev/null 2>&1; then
+  want=$(rpmspec -q --qf '%{version}\n' "$ROOT/packaging/nulllinux.spec" 2>/dev/null | head -1)
+  if [ -n "$resolved" ] && [ "$resolved" = "$want" ]; then
+    ok "null-brand resolves the spec's version ($resolved, from ${from:-?})"
+  else
+    bad "null-brand resolves '${resolved:-nothing}' but packaging/nulllinux.spec says ${want:-?} (from ${from:-?})"
+  fi
+else
+  ok "(no package installed and no rpmspec here; the version chain is not measured)"
+fi
+
+echo
 [ $fail = 0 ] && echo "PASS: branding is safe" || echo "FAIL: branding is not safe"
 exit $fail
