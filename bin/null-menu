@@ -70,7 +70,13 @@ case $topic in
   # §8.4 calls this component `run`; Omarchy's menu calls it `apps`. Both
   # names reach it, because the specification and the muscle memory disagree
   # and neither is wrong.
-  apps|run) exec "$B/null-run" ;;
+  #
+  # The launcher is a FLOATING foot window, the same one $mod+space opens (see
+  # config/sway/bindings.conf) -- not fzf hosted in the column, which rendered
+  # its list wrong whenever a window was open. Spawned detached so this menu
+  # (itself hosted in the column) can exit and hand the column back.
+  apps|run) setsid foot --app-id=null-launcher "$B/null-run" </dev/null >/dev/null 2>&1 &
+            exit 0 ;;
   browse)   exec "$B/null-browse" ;;
   clipboard) exec "$B/null-clipboard" list ;;
   player)    exec "$B/null-player" ;;
