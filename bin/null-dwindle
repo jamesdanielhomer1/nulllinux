@@ -1,37 +1,100 @@
 #!/usr/bin/env bash
-# Start dwindle, the layout daemon (NULL.md §8.2).
+# Start AND KEEP dwindle, the layout daemon (NULL.md §8.2).
 #
-# Stops any instance of ITSELF first, matched on the executable rather than the
-# command line -- a command-line match catches any shell that merely mentions
-# the name, including the one doing the matching (§8.6).
-set -euo pipefail
+# dwindle must always be there, or new windows stop splitting along the longer
+# axis. It EXITS cleanly when the compositor goes away (render/src/bin/dwindle.rs
+# says "it restarts us") -- but nothing did: it was started with `exec_always ...
+# null-dwindle`, and null-dwindle `exec`ed the binary, so once dwindle exited --
+# a crash, or the compositor blinking -- nothing brought it back until the next
+# compositor reload. So this is a supervisor, not an exec, exactly like the
+# column (bin/null-column).
+#
+# ONE SUPERVISOR PER SESSION. exec_always re-runs on every reload, so a fresh
+# copy must displace the previous supervisor and its daemon rather than stack. A
+# pidfile identifies the supervisor (matched on the executable would catch this
+# very shell, §8.6); the daemon binary is matched on its exe.
+set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 
-# THIS TAKES NO ARGUMENTS, AND SAYS SO.
-#
-# It used to take any and ignore all of them. `null-dwindle --help` therefore did
-# not print help: it displaced the running component and supervised for ever,
-# so asking a question restarted a piece of the desktop and then hung. A typo'd
-# flag did the same thing in silence, which is the failure this project keeps
-# finding in other clothes.
+# THIS TAKES NO ARGUMENTS, AND SAYS SO (a typo'd flag must not silently restart
+# a piece of the desktop and supervise for ever).
 case "${1:-}" in
   '') ;;
   -h|--help)
     echo "usage: null-dwindle"
     echo
-    echo "  the dwindle layout helper. Takes no arguments."
-    echo "  The compositor starts it (config/sway/config); starting it again"
-    echo "  displaces the copy that is already running."
+    echo "  The dwindle layout helper. Takes no arguments. The compositor starts"
+    echo "  it (config/sway/config) and it stays up: if dwindle crashes or exits,"
+    echo "  this brings it back. Starting it again displaces the copy already"
+    echo "  running."
     exit 0 ;;
   *)
     echo "null-dwindle: unknown argument '$1' -- this command takes none" >&2
     exit 2 ;;
 esac
+
 BIN="$ROOT/render/target/release/dwindle"
 [ -x "$BIN" ] || { echo "null-dwindle: $BIN not built" >&2; exit 1; }
+PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/null-dwindle.pid"
+RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+# 1. DISPLACE THE PREVIOUS SUPERVISOR, if any, via its pidfile -- and confirm it
+#    is one of ours before signalling, since pids are recycled. Killing it makes
+#    its trap take its daemon down, so there is nothing left to respawn behind us.
+if [ -r "$PIDFILE" ]; then
+  old=$(cat "$PIDFILE" 2>/dev/null || true)
+  if [ -n "${old:-}" ] && [ "$old" != "$$" ] && kill -0 "$old" 2>/dev/null \
+     && tr '\0' ' ' < "/proc/$old/cmdline" 2>/dev/null | grep -q 'null-dwindle'; then
+    kill "$old" 2>/dev/null || true
+  fi
+fi
+
+# 2. AND ANY STRAY DAEMON not under a supervisor (matched on the exe, not the
+#    command line). The supervisor above is gone by now, so these are orphans.
 SELF=$(readlink -f "$BIN")
 for pid in $(pgrep -x -u "$(id -u)" dwindle 2>/dev/null || true); do
   exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || continue
   [ "$exe" = "$SELF" ] && kill "$pid" 2>/dev/null || true
 done
-exec env NULL_ROOT="$ROOT" "$BIN"
+
+echo $$ > "$PIDFILE"
+
+# 3. SUPERVISE. Respawn dwindle whenever it exits, while the session lives.
+child=""
+cleanup() {
+  [ -n "$child" ] && kill "$child" 2>/dev/null || true
+  # Remove the pidfile only if it is still OURS: a newer supervisor that just
+  # displaced us already owns it, and must not have it deleted from under it.
+  [ "$(cat "$PIDFILE" 2>/dev/null || true)" = "$$" ] && rm -f "$PIDFILE"
+  exit 0
+}
+trap cleanup INT TERM HUP
+
+fast=0
+while :; do
+  start=$(date +%s)
+  env NULL_ROOT="$ROOT" "$BIN" &
+  child=$!
+  wait "$child" 2>/dev/null || true
+  child=""
+
+  # SESSION GONE? Stop trying -- a supervisor has no reason to outlive its
+  # compositor. Ask the compositor directly: sway answers get_version while it
+  # lives and fails the instant it does not. A non-sway compositor has no
+  # swaymsg; there the fast-death backstop below stops us.
+  if [ -n "${SWAYSOCK:-}" ] && command -v swaymsg >/dev/null 2>&1; then
+    swaymsg -t get_version >/dev/null 2>&1 || break
+  elif [ -n "${WAYLAND_DISPLAY:-}" ] && [ ! -S "$RUNTIME/$WAYLAND_DISPLAY" ]; then
+    break
+  fi
+
+  # CRASH-LOOP / DEAD-COMPOSITOR BACKSTOP. A daemon that exits almost immediately
+  # did not really run. Back off so it cannot spin, and after several in a row,
+  # give up. A crash after real use resets the count and comes back at once.
+  if [ $(( $(date +%s) - start )) -lt 2 ]; then
+    fast=$((fast + 1)); [ "$fast" -ge 5 ] && break; sleep 2
+  else
+    fast=0
+  fi
+done
+cleanup
