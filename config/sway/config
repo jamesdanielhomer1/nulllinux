@@ -27,7 +27,13 @@ set $font pango:Terminus 12
 font $font
 
 include colours.conf
+# The shipped keyboard/pointer baseline, then a person's OWN changes over the
+# top. null-input writes the per-user file (an ordinary user cannot write the
+# checkout under /opt); it is seeded by null-firstrun so this include does not
+# miss. sway merges input blocks, last assignment winning, so the per-user file
+# overrides the baseline. include expands $HOME via wordexp.
 include input.conf
+include $HOME/.config/nulllinux/input.conf
 include layout.conf
 
 # ---------------------------------------------------------------- window rules

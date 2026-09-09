@@ -144,6 +144,21 @@ for pair in "btop|btop.conf"; do
   fi
 done
 
+# THE PER-USER KEYBOARD/POINTER FILE that sway includes over the shipped
+# baseline (config/sway/config). null-input writes a person's OWN input settings
+# here because the checkout under /opt is not user-writable; seeding it from the
+# baseline means sway's include never misses and this account can change its
+# keyboard and pointer from the settings panel. Only when absent -- a person's
+# own settings are never clobbered.
+inp="${XDG_CONFIG_HOME:-$HOME/.config}/nulllinux/input.conf"
+if [ -e "$inp" ]; then
+  echo "  input: $inp exists already -- left alone"
+elif [ -r "$ROOT/config/sway/input.conf" ]; then
+  mkdir -p "$(dirname "$inp")"
+  if cp -a "$ROOT/config/sway/input.conf" "$inp"; then echo "  input: seeded $inp"
+  else echo "  input: could not write $inp" >&2; fi
+fi
+
 if [ "$(id -u)" -eq 0 ]; then
   echo
   echo "The browser chrome is NOT applied: it lives inside a browser profile,"
