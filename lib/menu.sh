@@ -106,6 +106,29 @@ null_ask() {  # <prompt> [default] -> the line written; empty if none
       <<<"$(printf '\u2500%.0s' $(seq 1 24))" | head -1
 }
 
+# A CONTROL FOR WRITING A SECRET. The write-control above echoes what is
+# written, which is right for a name and wrong for a password: the Wi-Fi
+# passphrase was drawn in clear text in the column, and a new account's
+# password would have been. This reads with echo off, from the terminal, and
+# asks twice when told `again` (a password being SET) so a mistyped one is
+# caught here rather than at the next login. Same mark as every control -- the
+# prompt, in the dim role as the pickers draw theirs -- and no rule, because
+# nothing is drawn on it. Empty means none was given (status 1).
+null_ask_secret() {  # <prompt> [again] -> the secret on stdout
+  local p=$1 again=${2:-} a b tty=/dev/tty
+  [ -r "$tty" ] && [ -w "$tty" ] || tty=/dev/stdin
+  while :; do
+    printf '\033[33m%s > \033[0m' "$p" >/dev/tty 2>/dev/null || printf '%s > ' "$p" >&2
+    IFS= read -rs a <"$tty" || return 1; echo >/dev/tty 2>/dev/null || echo >&2
+    [ -n "$a" ] || return 1
+    [ "$again" = again ] || { printf '%s\n' "$a"; return 0; }
+    printf '\033[33m%s again > \033[0m' "$p" >/dev/tty 2>/dev/null || printf '%s again > ' "$p" >&2
+    IFS= read -rs b <"$tty" || return 1; echo >/dev/tty 2>/dev/null || echo >&2
+    [ "$a" = "$b" ] && { printf '%s\n' "$a"; return 0; }
+    printf '\033[33mthey differ\033[0m\n' >/dev/tty 2>/dev/null || echo "they differ" >&2
+  done
+}
+
 # A CONTROL FOR SHOWING A READING that has nothing to pick -- a battery's cells,
 # why a value cannot be changed here. Same picker chrome as every other control,
 # so it reads as part of the same surface rather than a dialog. Lives here, not

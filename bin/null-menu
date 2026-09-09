@@ -380,7 +380,7 @@ for ln in sys.stdin:
       elif nmcli -t -g NAME connection show 2>/dev/null | grep -qxF "$ssid"; then
         nmcli connection up id "$ssid" >/dev/null 2>&1 || say "could not connect to $ssid"
       else
-        pw=$(null_ask "$ssid") || exit 0
+        pw=$(null_ask_secret "$ssid") || exit 0
         [ -n "$pw" ] || exit 0
         nmcli device wifi connect "$ssid" password "$pw" >/dev/null 2>&1 \
           || say "$ssid did not accept that password"
