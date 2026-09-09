@@ -89,37 +89,64 @@ grep -q "set timeout=60' 'set timeout=5'" bin/null-installer-iso \
 
 #    MEASURED ON THE ARTEFACT, where there is one. -R claims to rewrite every
 #    grub.cfg on the medium; this reads them back rather than believing it.
-iso=$(ls -t /var/lib/nulllinux-iso/nulllinux-installer-*.iso 2>/dev/null | head -1)
-if [ -n "$iso" ] && [ "$(id -u)" = 0 ] && command -v mount >/dev/null 2>&1; then
+#    One function for both media -- the installer's and (§8) the live image's --
+#    because a second copy of this is how one of them stops being measured.
+REL=$(./bin/pkg distro-version 2>/dev/null || echo 44)
+measure_medium() {  # <iso> <what entry 0 does>
+  local iso=$1 what=$2 m n=0 bad=0 cfg t d
+  if [ "$(id -u)" != 0 ] || ! command -v mount >/dev/null 2>&1; then
+    note "(not root; $(basename "$iso")'s own menu is not measured)"; return 0
+  fi
   m=$(mktemp -d)
   # A TRAP, because a check that leaves a mount behind has changed the machine
   # it ran on (verify/check-tests-stay-off-the-host.sh).
   trap 'umount "$m" 2>/dev/null; rmdir "$m" 2>/dev/null' EXIT
   if mount -o loop,ro "$iso" "$m" 2>/dev/null; then
-    n=0 bad=0
     while IFS= read -r cfg; do
       n=$((n+1))
       t=$(sed -n 's/^[[:space:]]*set timeout=\([0-9]*\).*/\1/p' "$cfg" | head -1)
       d=$(sed -n 's/^[[:space:]]*set default="\([0-9]*\)".*/\1/p' "$cfg" | head -1)
       [ "${t:-99}" -le 5 ] 2>/dev/null || { note "${cfg#$m} waits ${t}s"; bad=1; }
-      [ "${d:-9}" = 0 ] || { note "${cfg#$m} defaults to entry ${d} rather than Install"; bad=1; }
+      [ "${d:-9}" = 0 ] || { note "${cfg#$m} defaults to entry ${d} rather than $what"; bad=1; }
+      # Fedora's release number is not this product's version (§0.1): a title
+      # reading "nullLinux 44" is the upstream number standing in for 0.1.0.
+      grep -qE "menuentry '[^']*nullLinux $REL( |')" "$cfg" \
+        && { note "${cfg#$m} titles the product 'nullLinux $REL' -- Fedora's release, not the version"; bad=1; }
     done < <(find "$m" \( -iname 'grub.cfg' -o -iname 'BOOT.conf' \) 2>/dev/null)
     if [ "$n" = 0 ]; then
-      note "(no grub config found on $iso)"
+      note "(no grub config found on $(basename "$iso"))"
     elif [ "$bad" = 0 ]; then
-      note "ok    all $n boot config(s) on the medium: entry 0, 5s or less"
+      note "ok    $(basename "$iso"): all $n boot config(s): entry 0 ($what), 5s or less, the product's own version"
     else
       fail=1
     fi
     umount "$m" 2>/dev/null
   else
-    note "(could not mount $iso; the medium's own menu is not measured)"
+    note "(could not mount $(basename "$iso"); its menu is not measured)"
   fi
   rmdir "$m" 2>/dev/null
   trap - EXIT
-else
-  note "(no built ISO, or not root; the medium's own menu is not measured)"
-fi
+}
+iso=$(ls -t /var/lib/nulllinux-iso/nulllinux-installer-*.iso 2>/dev/null | head -1)
+if [ -n "$iso" ]; then measure_medium "$iso" Install
+else note "(no built installer ISO; its menu is not measured)"; fi
+
+# 8. AND THE LIVE MEDIUM, which has the same menu and one defect more. lorax
+#    titles its entries "$product $releasever" -- "Start nullLinux 44" -- because
+#    livemedia-creator has no separate product version and --releasever has to
+#    stay Fedora's for the package repos. The installer says "Install nullLinux
+#    0.1.0"; the live image must say the same version, default to Start rather
+#    than to reading three gigabytes first, and not count to sixty.
+#    bin/null-iso rewrites the built image for all three; this holds it to that.
+grep -q "'set default=\"0\"'" bin/null-iso \
+  || { note "bin/null-iso does not select entry 0 (Start) -- the live medium verifies 3 GB before a desktop"; fail=1; }
+grep -q "'set timeout=5'" bin/null-iso \
+  || { note "bin/null-iso does not shorten the live medium's 60s menu"; fail=1; }
+grep -qE '"nullLinux \$REL" +"nullLinux \$VERSION"' bin/null-iso \
+  || { note "bin/null-iso leaves Fedora's release number in the live menu titles"; fail=1; }
+iso=$(ls -t /var/lib/nulllinux-iso/nulllinux-[0-9]*.iso 2>/dev/null | head -1)
+if [ -n "$iso" ]; then measure_medium "$iso" Start
+else note "(no built live ISO; its menu is not measured)"; fi
 
 [ $fail = 0 ] && echo "PASS: the boot menu is quiet, and says how to summon it"
 exit $fail

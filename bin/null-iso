@@ -96,12 +96,16 @@ echo
 # --no-virt: build in a chroot on this machine rather than by booting a virtual
 # machine. It is the faster path and the one that works on a host that is
 # already inside a hypervisor, which a build machine often is.
+# Fedora's release, for the package repos -- and, because livemedia-creator has
+# no separate product version, the number lorax puts in the boot-menu titles.
+# The post-build step below puts the product's own version there instead.
+REL=$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)
 livemedia-creator \
   --ks "$KS" \
   --no-virt \
   --resultdir "$WORK/results" \
   --project "nullLinux" \
-  --releasever "$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)" \
+  --releasever "$REL" \
   --volid "nullLinux-$VERSION" \
   --iso-name "$NAME-$VERSION.iso" \
   --make-iso \
@@ -120,6 +124,34 @@ if [ $st -eq 0 ] && built=$(find "$WORK/results" -name '*.iso' | head -1) && [ -
   # the file on disk is called.
   iso="$WORK/$NAME-$VERSION.iso"
   mv -f "$built" "$iso"
+
+  # THE MEDIUM'S OWN MENU, given the installer's opinion (bin/null-installer-iso;
+  # verify/check-boot-menu.sh §6-8). lorax writes `set default="1"` -- the media
+  # check, a full read of three gigabytes before a desktop appears -- and
+  # `set timeout=60`, and titles every entry "$product $releasever":
+  # "Start nullLinux 44". That last is Fedora's release number standing in for
+  # the product's version, which this distribution is never to do (the installer
+  # says "Install nullLinux 0.1.0"); it happens because --releasever must stay
+  # Fedora's for the package repos and livemedia-creator has no other knob.
+  #
+  # So the built image is rewritten: entry 0 (Start) by default, five seconds,
+  # and the product's own version in the titles. mkksiso does the rewrite
+  # properly -- both grub.cfg copies AND the grub.cfg inside the EFI boot image
+  # -- and re-implants the md5 the media check relies on. With no --ks it embeds
+  # nothing; it only edits. A failure here is a failure of the build: an image
+  # that announces the wrong version is not shippable.
+  if mkksiso -R 'set default="1"' 'set default="0"' \
+            -R 'set timeout=60'   'set timeout=5' \
+            -R "nullLinux $REL"   "nullLinux $VERSION" \
+            "$iso" "$iso.menu" >"$WORK/mkksiso-live.log" 2>&1; then
+    mv -f "$iso.menu" "$iso"
+    echo "  boot menu: starts nullLinux $VERSION in 5s (entry 0, not the media check)"
+  else
+    echo "null-iso: mkksiso FAILED to rewrite the boot menu -- $WORK/mkksiso-live.log" >&2
+    tail -10 "$WORK/mkksiso-live.log" >&2
+    rm -f "$iso.menu"
+    st=1
+  fi
   echo "built: $iso"
   echo "  $(du -h "$iso" | cut -f1)"
   echo
