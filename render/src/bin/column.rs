@@ -681,14 +681,6 @@ impl Column {
         let inner_cols = w.saturating_sub(2);
         let inner_rows = self.rows.saturating_sub(2);
 
-        // btop rewrites its own configuration on exit, so it is pointed at a
-        // copy rather than at anything this repository owns (§10.5).
-        let cfg = format!("{}/null-column-config",
-                          std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into()));
-        std::fs::create_dir_all(format!("{cfg}/btop")).ok();
-        std::fs::copy(format!("{root}/config/btop/btop.conf"),
-                      format!("{cfg}/btop/btop.conf")).ok();
-
         // newt reads its whole colour scheme from one environment variable, in
         // ANSI colour NAMES -- so it inherits this palette through the same
         // remap every other hosted program now does, and there is no second
@@ -711,9 +703,25 @@ impl Column {
             "compactbutton=white,black",
         ].join(":");
 
-        match Pty::spawn(&argv, inner_cols as u16, inner_rows as u16,
-                         &[("XDG_CONFIG_HOME".into(), cfg),
-                           ("NEWT_COLORS".into(), newt)]) {
+        // btop rewrites its own configuration on exit, so it is pointed at a
+        // throwaway copy rather than at anything this repository owns (§10.5).
+        // SCOPED TO btop -- a bug fixed the hard way. This once set
+        // XDG_CONFIG_HOME for EVERY hosted program, so null-idle's "off" marker
+        // and its idle.conf -- and any other per-user config a hosted menu
+        // writes -- landed under XDG_RUNTIME_DIR, a tmpfs wiped on logout that
+        // null-idle start (reading the real ~/.config) never looks in. The idle
+        // ladder came back on at every login as a result. Only btop needs the
+        // redirect; everything else inherits the session's real config home.
+        let mut env: Vec<(String, String)> = vec![("NEWT_COLORS".into(), newt)];
+        if topic == "monitor" {
+            let cfg = format!("{}/null-column-config",
+                              std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into()));
+            std::fs::create_dir_all(format!("{cfg}/btop")).ok();
+            std::fs::copy(format!("{root}/config/btop/btop.conf"),
+                          format!("{cfg}/btop/btop.conf")).ok();
+            env.push(("XDG_CONFIG_HOME".into(), cfg));
+        }
+        match Pty::spawn(&argv, inner_cols as u16, inner_rows as u16, &env) {
             Ok(pty) => {
                 self.host = Some(Host {
                     pty,
