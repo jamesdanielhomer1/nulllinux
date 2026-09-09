@@ -93,7 +93,7 @@ change to retitle a row. After the name, a value or a short cue, aligned; the
 column of names reads as a list at a glance.
 
 A cue is **earned, not default**. Add one only where the name is this system's
-own vocabulary (`learn`, `netconfig`, `trigger`, `setup`, `system`) or where a
+own vocabulary (`learn`, `netconfig`, `capture`, `software`, `system`) or where a
 value belongs there (a volume, a state). `apps`, `files`, `clipboard`, `player`,
 `update` say themselves — leave them bare. A cue never describes implementation
 ("the PipeWire mixer — per-stream volume and routing" is three words of noise

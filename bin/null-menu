@@ -55,16 +55,10 @@ case $topic in
       "clipboard" \
       "player" \
       "calendar" \
+      "settings   everything configurable" \
+      "capture    screenshots and recording" \
+      "software   install, remove, update" \
       "learn      keys and docs" \
-      "settings   brightness, power, idle, radios" \
-      "netconfig  IPs and VPNs" \
-      "mixer" \
-      "trigger    capture, toggles, hardware" \
-      "setup      audio, network, displays, storage, input" \
-      "install" \
-      "remove" \
-      "update" \
-      "about" \
       "system     lock, exit, power")" ;;
 
   # §8.4 calls this component `run`; Omarchy's menu calls it `apps`. Both
@@ -108,13 +102,10 @@ case $topic in
   about)
     "$B/machine" show 2>/dev/null | fzf "${NULL_FZF[@]}" --prompt='about > ' >/dev/null || true ;;
 
-  # --------------------------------------------------------------- trigger
-  trigger)
-    go "$(choose trigger '' \
-      "capture    stills and recordings" \
-      "toggle     switches" \
-      "hardware")" ;;
-
+  # capture, toggle and hardware are their own topics (each has a key, and the
+  # main menu lists capture directly). They were once gathered under a `trigger`
+  # entry that only added a hop; the settings panel and the keys reach the same
+  # controls, so the extra door was removed (2026-09-09).
   capture)
     sel=$(choose capture '' \
       "screenshot   the whole screen" \
@@ -175,16 +166,10 @@ case $topic in
       gpu)       "$B/machine" capabilities | fzf "${NULL_FZF[@]}" --prompt='gpu > ' >/dev/null || true ;;
     esac ;;
 
-  # ----------------------------------------------------------------- setup
-  setup)
-    go "$(choose setup '' \
-      "settings   brightness, power, idle, radios" \
-      "audio      output device" \
-      "network    wireless" \
-      "bluetooth  pair and connect" \
-      "displays   arrangement" \
-      "storage    network drives" \
-      "input      keyboard and pointer")" ;;
+  # `setup` was an aggregator whose every item -- audio, network, bluetooth,
+  # displays, storage, input -- already lives inside the settings panel, so it
+  # was two doors to one room. Removed (2026-09-09); its items remain their own
+  # topics below and are reached through settings (and their keys).
 
   displays)
     # The QUERY must succeed, not just the command exist. Without a compositor
@@ -217,7 +202,16 @@ for d in json.load(sys.stdin):
   storage)  exec "$B/null-storage" ;;
   bluetooth) exec "$B/null-bluetooth" ;;
 
-  # ---------------------------------------------------- install and remove
+  # ------------------------------------------------------------- software
+  # One door for the three things a person does to software. install, remove and
+  # update stay their own topics (each is a real component, §8.4); this groups
+  # them so the main menu carries one word, not three.
+  software)
+    go "$(choose software '' \
+      "install    search and add" \
+      "remove     uninstall something" \
+      "update     what is out of date")" ;;
+
   install)
     sel=$(choose install '' \
       "package    search and install" \
