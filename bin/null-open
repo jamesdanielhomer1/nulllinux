@@ -69,6 +69,16 @@ if [ "$role" = file ]; then
 fi
 
 case $role in
+  # THE DEFAULT BROWSER, not a hard-coded `firefox`. The $mod+Shift+b binding
+  # was `exec firefox`, which is a bare name that does not exist when the browser
+  # is a Flatpak (no /usr/bin/firefox) or anything but Firefox -- the key did
+  # nothing. This launches whatever answers for the web (bin/null-defaults, the
+  # registry), with a URL if one was given.
+  browser)
+    cmd=$(prefer browser) || cmd=$(first "firefox" "chromium" "chromium-browser" "epiphany" "brave-browser" "org.mozilla.firefox")
+    [ -n "${cmd:-}" ] || { echo "null-open: no browser installed" >&2; exit 1; }
+    [ -n "$target" ] && exec $cmd "$target"
+    exec $cmd ;;
   dir)    cmd=$(prefer dir)    || cmd=$(first "thunar" "nemo" "dolphin" "nautilus" "yazi" "foot -e ls -la") ;;
   reveal) # Selecting a file is a DIFFERENT verb from opening it, and the tools
           # that can do it say so with a flag.
