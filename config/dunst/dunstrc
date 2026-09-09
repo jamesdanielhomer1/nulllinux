@@ -21,7 +21,7 @@
     enable_recursive_icon_lookup = false
     width = 420
     origin = top-right
-    offset = 8x8
+    offset = (8, 8)
     padding = 6
     horizontal_padding = 8
     layer = overlay
