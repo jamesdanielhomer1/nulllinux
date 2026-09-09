@@ -122,8 +122,7 @@ case $topic in
   record)
     sel=$(choose record 'a recording stops with the same key that started it' \
       "silent     no audio" \
-      "desktop    desktop audio" \
-      "both       desktop and microphone")
+      "desktop    what you hear")
     [ -n "$sel" ] || exit 0
     exec "$B/null-capture" record "$sel" ;;
 

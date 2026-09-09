@@ -94,9 +94,19 @@ print("#%02x%02x%02x" % (d[i],d[i+1],d[i+2]))')
     f="$VID/record-$(stamp).mp4"
     case "${2:-silent}" in
       silent)  setsid wf-recorder -f "$f" >/dev/null 2>&1 & ;;
-      desktop) setsid wf-recorder -f "$f" --audio >/dev/null 2>&1 & ;;
-      both)    setsid wf-recorder -f "$f" --audio >/dev/null 2>&1 & ;;
-      *) echo "null-capture: record takes silent|desktop|both" >&2; exit 2 ;;
+      desktop) # The system's OWN output, captured from the default sink's
+               # MONITOR -- not `--audio` alone, which records whatever the
+               # default SOURCE is (usually the microphone), so "desktop audio"
+               # recorded the mic. There is no honest desktop+mic option:
+               # wf-recorder records one source, and mixing two needs a combined
+               # PipeWire source set up first -- so `both`, which did exactly the
+               # same as this and captured neither the pair, was removed.
+               mon=""
+               command -v pactl >/dev/null 2>&1 && mon=$(pactl get-default-sink 2>/dev/null)
+               [ -n "$mon" ] && mon="$mon.monitor"
+               if [ -n "$mon" ]; then setsid wf-recorder -f "$f" --audio="$mon" >/dev/null 2>&1 &
+               else setsid wf-recorder -f "$f" --audio >/dev/null 2>&1 & fi ;;
+      *) echo "null-capture: record takes silent|desktop" >&2; exit 2 ;;
     esac
     pid=$!
     sleep 0.6
@@ -111,5 +121,5 @@ print("#%02x%02x%02x" % (d[i],d[i+1],d[i+2]))')
 
   stop)    stop_recording ;;
   state)   recording_pid >/dev/null && echo recording || echo idle ;;
-  *) echo "usage: null-capture screenshot|region|window|colour|record [silent|desktop|both]|stop|state" >&2; exit 2 ;;
+  *) echo "usage: null-capture screenshot|region|window|colour|record [silent|desktop]|stop|state" >&2; exit 2 ;;
 esac
