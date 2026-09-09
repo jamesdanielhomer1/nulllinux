@@ -61,7 +61,15 @@ read_notifications() {
 }
 read_wifi_radio() { nmcli radio wifi 2>/dev/null || echo "$NULL_UNMEASURED"; }
 read_bt_radio()   {
-  if rfkill list bluetooth 2>/dev/null | grep -q 'Soft blocked: yes'; then echo off; else echo on; fi
+  # THE CONTROLLER'S POWER, the same reading null-bluetooth shows -- not rfkill.
+  # rfkill is the master switch BENEATH the controller (a soft block forces it
+  # off), but reading rfkill alone disagreed with the bluetooth panel: rfkill
+  # could say "on" (radio allowed) while the controller was powered off and
+  # bluetooth plainly did not work. Read what actually governs use.
+  command -v bluetoothctl >/dev/null 2>&1 || { echo "$NULL_UNMEASURED"; return; }
+  local out; out=$(timeout 5 bluetoothctl show 2>/dev/null) || { echo "$NULL_UNMEASURED"; return; }
+  [ -n "$out" ] || { echo "$NULL_UNMEASURED"; return; }   # no controller
+  grep -q 'Powered: yes' <<<"$out" && echo on || echo off
 }
 read_ssid() { nmcli -t -f NAME,TYPE con show --active 2>/dev/null |
                 awk -F: '$2 ~ /wireless/ {print $1; exit}'; }
@@ -327,7 +335,14 @@ rows_BLUETOOTH() {
 act_BLUETOOTH() {
   case $1 in
     BLUETOOTH) local c; c=$(pick_value bluetooth "the radio itself, not a device" on off) || return 0
-               case $c in on) rfkill unblock bluetooth ;; off) rfkill block bluetooth ;; esac >/dev/null 2>&1 ;;
+               # Match null-bluetooth: toggle the CONTROLLER. "on" clears any
+               # rfkill soft block first, since a blocked controller cannot be
+               # powered on; "off" powers the controller down, which is exactly
+               # what the bluetooth panel's toggle does, so the two now agree.
+               case $c in
+                 on)  rfkill unblock bluetooth 2>/dev/null; bluetoothctl power on ;;
+                 off) bluetoothctl power off ;;
+               esac >/dev/null 2>&1 ;;
     DEVICES)   exec "$B/null-bluetooth" ;;
   esac
 }
