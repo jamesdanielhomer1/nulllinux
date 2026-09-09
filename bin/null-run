@@ -6,6 +6,14 @@
 # first time anything changed.
 #
 # NoDisplay entries are omitted: they exist precisely to say "do not offer me".
+#
+# THE APP IS LAUNCHED DETACHED, AND THE LAUNCHER THEN EXITS. This runs hosted in
+# the column, so an `exec` into the app made the app the column's host process:
+# it "stayed open" tied to the column, closing the column killed it, and a name
+# with a space broke the command it built. Instead the command rides a hidden
+# field (so a spaced name cannot corrupt it), the app is started in its own
+# session with its streams detached, and this returns -- which frees the column
+# and lets you open it again for the next app.
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 . "$ROOT/lib/menu.sh"
@@ -16,6 +24,11 @@ DIRS=(/usr/share/applications /usr/local/share/applications
 
 # Built into a variable BEFORE the picker starts (§7.4): a slow producer piped
 # into fzf leaves it in its loading state, and its spinner is braille.
+#
+# Each row is THREE tab-separated fields: the display (what the eye reads), a
+# kind (term|gui), and the exec command. Only the display is shown; the command
+# is returned from the hidden fields, so a name containing spaces can never be
+# mistaken for part of the command.
 list=$(python3 - "${DIRS[@]}" <<'PY'
 import configparser, os, sys
 seen, rows = set(), []
@@ -44,21 +57,27 @@ for d in sys.argv[1:]:
         if not exe:
             continue
         term = e.get("Terminal", "false").lower() == "true"
-        rows.append("%-30s %s%s" % (name[:30], "[term] " if term else "", exe))
+        display = "%-30s %s%s" % (name[:30], "[term] " if term else "", exe)
+        rows.append("%s\t%s\t%s" % (display, "term" if term else "gui", exe))
 for r in sorted(rows):
     print(r)
 PY
 )
 [ -n "$list" ] || { echo "no desktop entries found" >&2; exit 1; }
 
-pick=$(fzf "${NULL_FZF[@]}" --prompt='run > ' \
-         --header='' \
-         <<<"$list") || exit 0
+pick=$(printf '%s\n' "$list" | fzf "${NULL_FZF[@]}" --prompt='run > ' \
+         --delimiter='\t' --with-nth=1 --accept-nth=2,3) || exit 0
 [ -n "$pick" ] || exit 0
 
-cmd=${pick#* }
-cmd=$(sed -E 's/^ +//' <<<"$cmd")
-case $cmd in
-  '[term] '*) exec foot -e ${cmd#'[term] '} ;;
-  *)          exec setsid $cmd ;;
+IFS=$'\t' read -r kind cmd <<<"$pick"
+[ -n "${cmd:-}" ] || exit 0
+
+# DETACHED, so it outlives this launcher and the column that hosted it: its own
+# session (setsid), its streams to /dev/null, backgrounded and disowned. A
+# terminal app is wrapped in a foot window; a GUI app is run directly.
+case $kind in
+  term) setsid foot -e $cmd </dev/null >/dev/null 2>&1 & ;;
+  *)    setsid $cmd        </dev/null >/dev/null 2>&1 & ;;
 esac
+disown 2>/dev/null || true
+exit 0
