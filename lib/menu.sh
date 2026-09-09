@@ -28,6 +28,15 @@ null_fzf_flags() {
     --no-scrollbar
     --no-mouse
 
+    # TOP-ANCHORED. fzf's default lays the list out from the BOTTOM up, with the
+    # prompt at the very bottom -- so in the column (a tall, narrow strip) the
+    # apps sat crammed against the bottom edge under a wide empty gap, which
+    # reads as "the launcher does not display properly". reverse puts the prompt
+    # at the top and the list directly under it, filling the column top-down from
+    # beneath the topic header -- the reading order every menu here already
+    # assumes (null_ask sets it too, for the same reason).
+    --layout=reverse
+
     # THE PALETTE, NOT fzf's SIXTEEN.
     #
     # This was --color=16, which hands the picker fzf's own scheme -- and the
