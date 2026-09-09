@@ -110,7 +110,16 @@ livemedia-creator \
 st=$?
 
 echo
-if [ $st -eq 0 ] && iso=$(find "$WORK/results" -name '*.iso' | head -1) && [ -n "$iso" ]; then
+if [ $st -eq 0 ] && built=$(find "$WORK/results" -name '*.iso' | head -1) && [ -n "$built" ]; then
+  # A SHIPPABLE NAME. In --no-virt mode livemedia-creator writes the live image
+  # as results/images/boot.iso and does NOT honour --iso-name, so left alone the
+  # artefact ships as "boot.iso". It is moved to the product's own name, beside
+  # the installer ISO which is named the same way. The filename does not affect
+  # booting: root=live:CDLABEL finds the squashfs by the VOLUME ID
+  # (nullLinux-$VERSION), which is baked into the image and independent of what
+  # the file on disk is called.
+  iso="$WORK/$NAME-$VERSION.iso"
+  mv -f "$built" "$iso"
   echo "built: $iso"
   echo "  $(du -h "$iso" | cut -f1)"
   echo
