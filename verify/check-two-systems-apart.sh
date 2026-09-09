@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # THE RICE AND THE DISTRIBUTION ARE TWO SYSTEMS.
 #
-# `nox` is a machine. It runs `/opt/rice`, a Fedora rice, and it is where
-# nullLinux is developed. nullLinux is a distribution that will one day be
-# installed onto that machine, erasing the other one.
+# `nox` was a machine that ran `/opt/rice`, a Fedora rice, and it was where
+# nullLinux was developed. On 2026-09-08 nullLinux was installed onto that
+# machine in place, erasing the other one; it is hostnamed `null` now. The rice
+# is gone, and this check is what keeps it gone: nothing of it, and nothing of
+# the build host's own identity, may ride along in the shipped tree.
 #
-# They share a person, a palette's ancestry and a hostname, and nothing else.
+# They shared a person, a palette's ancestry and a hostname, and nothing else.
 # Every way they have leaked into each other so far has been silent:
 #
 #   machines/nox.conf shipped inside the package. `bin/machine` selects a

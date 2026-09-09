@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # A CHECK MAY NOT DAMAGE THE MACHINE IT IS RUN FROM.
 #
-# nullLinux is developed on a machine that is not nullLinux. nox runs the system
-# this one replaces; the tree is a checkout on it. So every check runs, by
+# nullLinux is developed on the machine that runs it: the build host (hostname
+# `null`, once `nox`) has been nullLinux since 2026-09-08 and is the daily
+# driver, so the tree is the live system, not a checkout beside one. Before
+# that it ran the system this one replaced. Either way every check runs, by
 # default, against somebody's desktop.
 #
 # Twice in one evening that cost real damage, and neither was the shipped code

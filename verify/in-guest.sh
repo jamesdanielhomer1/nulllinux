@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Run the checks on nullLinux, not on the machine that builds it.
 #
-# The development machine is not the product. nox runs the system nullLinux
-# replaces, and this tree is a checkout on it -- so a check that touches
+# The development machine is somebody's desktop. Since 2026-09-08 it IS the
+# product -- nullLinux, converted in place, the daily driver -- and this tree is
+# its live system, not a checkout beside one; before that it ran the system
+# nullLinux replaced. Either way, a check that touches
 # anything outside the repository is aimed at somebody's desktop unless
 # something points it somewhere else. Twice in one evening that cost real
 # damage: a session ended by a `pkill -x sway` meant for a test instance, and an

@@ -1,4 +1,4 @@
-# nox -- compositor configuration
+# nullLinux -- compositor configuration
 #
 # NULL.md §8.2 (window management) and §8.3 (the keys).
 #
@@ -169,9 +169,9 @@ include bindings.conf
 # and no lock screen. A laptop that wakes unlocked hands its contents to
 # whoever opened it.
 #
-# The request itself is untouched. nox runs /opt/rice, whose own config carries
-# the same commented-out line, so his machine is unaffected by this one --
-# checked, not assumed.
+# The request itself is untouched. (When this was written the build host still
+# ran /opt/rice, whose own config carried the same commented-out line, so that
+# machine was unaffected -- checked, not assumed. It runs this file now.)
 #
 # `bin/null-idle start` decides rather than this file: it runs swayidle unless
 # the person has said not to, and `null-idle toggle` REMEMBERS that in

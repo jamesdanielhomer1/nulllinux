@@ -1,10 +1,12 @@
 # Am I the product, or the machine that builds it? Sourced, never executed.
 #
-# nullLinux is developed on a machine that is NOT nullLinux. nox runs /opt/rice,
-# the system this one replaces, and the tree at /opt/nulllinux is a checkout on
-# it. Every tool here therefore runs in two places that look alike from inside a
-# shell and are not alike at all: one is a scratch machine whose state nobody
-# minds, and the other is somebody's desktop.
+# nullLinux is developed on the machine that RUNS it. Since 2026-09-08 the build
+# host (hostname `null`, once `nox`) is nullLinux, converted in place, and it is
+# the daily driver: the tree at /opt/nulllinux is not a checkout beside the
+# product, it IS the live system. Before that it ran /opt/rice, the system this
+# one replaced. Either way every tool here runs in two places that look alike
+# from inside a shell and are not alike at all: a scratch guest whose state
+# nobody minds, and somebody's desktop.
 #
 # WHY THIS FILE EXISTS. Twice in one evening a test run damaged the build host:
 #
@@ -23,13 +25,14 @@
 #
 # WHAT COUNTS AS EXPENDABLE:
 #
-#   an installed nullLinux    -- ID or NAME in /etc/os-release. The product's
-#                                own machines are where the product is tested.
 #   NULL_TEST_MACHINE=1       -- a deliberate, explicit statement that this box
-#                                is scratch. A VM guest, a spare laptop.
+#                                is scratch. The VM guest (verify/in-guest.sh
+#                                sets it), a spare laptop.
 #
-# Everything else -- a Fedora build host, somebody's desktop, an unknown box --
-# is not, and a destructive check reports that it skipped rather than running.
+# And nothing else. An installed nullLinux is NOT expendable for being one --
+# the daily driver is an installed nullLinux -- and neither is a build host,
+# somebody's desktop or an unknown box: a destructive check reports that it
+# skipped rather than running.
 
 # Is the machine we are ON an installed nullLinux?
 null_is_nulllinux() {
