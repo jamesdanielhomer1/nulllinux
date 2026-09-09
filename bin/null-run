@@ -7,13 +7,14 @@
 #
 # NoDisplay entries are omitted: they exist precisely to say "do not offer me".
 #
-# THE APP IS LAUNCHED DETACHED, AND THE LAUNCHER THEN EXITS. This runs hosted in
-# the column, so an `exec` into the app made the app the column's host process:
-# it "stayed open" tied to the column, closing the column killed it, and a name
-# with a space broke the command it built. Instead the command rides a hidden
-# field (so a spaced name cannot corrupt it), the app is started in its own
-# session with its streams detached, and this returns -- which frees the column
-# and lets you open it again for the next app.
+# THE APP IS LAUNCHED BY THE COMPOSITOR, AND THE LAUNCHER THEN EXITS. This runs
+# hosted in the column, so an `exec` into the app made the app the column's host
+# process: it stayed tied to the column and died when the column closed. The
+# command is read from the picked line by position (never a fragile hidden fzf
+# field a spaced name could corrupt), the app is handed to sway to start as its
+# OWN child (see the launch note below -- the column's pty environment and its
+# teardown are then nothing to do with the app), and this returns, which frees
+# the column and lets you open it again for the next app.
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 . "$ROOT/lib/menu.sh"
@@ -85,12 +86,29 @@ exe=${pick##*"$tab"}
 rest=${pick%"$tab"*}; kind=${rest##*"$tab"}
 [ -n "${exe:-}" ] || exit 0
 
-# DETACHED, so it outlives this launcher and the column that hosted it: its own
-# session (setsid), its streams to /dev/null, backgrounded and disowned. A
-# terminal app is wrapped in a foot window; a GUI app is run directly.
+# LAUNCHED BY THE COMPOSITOR, not from this process. null-run runs hosted in the
+# column's pty, and that host is a session the column TEARS DOWN the instant this
+# returns -- and Pty::spawn hands it XDG_CONFIG_HOME pointing at the column's own
+# (btop) config dir. An app started with `setsid` here therefore inherited the
+# wrong config home and had to win a race against the teardown to survive at all,
+# which is how "select an app and nothing opens" happened.
+#
+# `swaymsg exec` gives the command to sway, which starts it as ITS OWN child in
+# the session environment -- clean config home, fully detached, nothing to race.
+# Verified end to end: an app picked here launches and survives the teardown.
+# Where there is no sway (the promise is any compositor) it falls back to setsid
+# with the config home put back to the user's own.
+launch() {
+  if command -v swaymsg >/dev/null 2>&1 && [ -n "${SWAYSOCK:-}" ]; then
+    swaymsg -q exec "$1"
+  else
+    setsid env XDG_CONFIG_HOME="$HOME/.config" sh -c "$1" </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+  fi
+}
+# A terminal app is wrapped in a foot window; a GUI app is run directly.
 case $kind in
-  term) setsid foot -e $exe </dev/null >/dev/null 2>&1 & ;;
-  *)    setsid $exe        </dev/null >/dev/null 2>&1 & ;;
+  term) launch "foot -e $exe" ;;
+  *)    launch "$exe" ;;
 esac
-disown 2>/dev/null || true
 exit 0
