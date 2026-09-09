@@ -56,6 +56,7 @@ Requires:       NetworkManager-wifi
 Requires:       Thunar
 Requires:       amd-gpu-firmware
 Requires:       atheros-firmware
+Requires:       avahi
 Requires:       ax86-terminus-ttf-fonts
 Requires:       bc
 Requires:       bluez
@@ -83,7 +84,9 @@ Requires:       google-noto-sans-fonts
 Requires:       google-noto-serif-fonts
 Requires:       grim
 Requires:       gvfs
+Requires:       gvfs-fuse
 Requires:       gvfs-mtp
+Requires:       gvfs-smb
 Requires:       gzip
 Requires:       imv
 Requires:       iw
@@ -111,6 +114,7 @@ Requires:       polkit
 Requires:       power-profiles-daemon
 Requires:       qcom-firmware
 Requires:       realtek-firmware
+Requires:       samba-client
 Requires:       sddm
 Requires:       slurp
 Requires:       sway
