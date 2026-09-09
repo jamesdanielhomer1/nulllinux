@@ -36,10 +36,9 @@ choose() {
 }
 
 # Absent is STATED, never drawn as an empty list (§8.4).
-say() {
-  printf '%s\n' "$@" | fzf "${NULL_FZF[@]}" --prompt='note > ' \
-    --header='nothing to pick here' >/dev/null || true
-}
+# say() is shared chrome now, in lib/menu.sh (sourced above) -- null-settings
+# needs it too, and a second copy here is how it came to exist in only one of
+# the two tools that call it.
 
 have() { command -v "$1" >/dev/null 2>&1; }
 go()   { [ -n "$1" ] && exec "$0" "$1" || exit 0; }

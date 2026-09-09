@@ -97,6 +97,17 @@ null_ask() {  # <prompt> [default] -> the line written; empty if none
       <<<"$(printf '\u2500%.0s' $(seq 1 24))" | head -1
 }
 
+# A CONTROL FOR SHOWING A READING that has nothing to pick -- a battery's cells,
+# why a value cannot be changed here. Same picker chrome as every other control,
+# so it reads as part of the same surface rather than a dialog. Lives here, not
+# in one tool: null-settings calls it (DISPLAY mode, HOSTNAME, BATTERY) and so
+# does null-menu, and when it lived only in null-menu those three settings rows
+# died with "say: command not found".
+say() {
+  printf '%s\n' "$@" | fzf "${NULL_FZF[@]}" --prompt='note > ' \
+    --header='nothing to pick here' >/dev/null || true
+}
+
 # A PICKER FOR A LIST OF THINGS. fzf when there is a terminal for it, numbers
 # when there is not, and a typed filter when the list is longer than the
 # screen.
