@@ -67,8 +67,28 @@ read_ssid() { nmcli -t -f NAME,TYPE con show --active 2>/dev/null |
                 awk -F: '$2 ~ /wireless/ {print $1; exit}'; }
 read_idle_stage() { "$B/null-idle" show | awk -v s="$1" '$1==s {print $2}'; }
 read_lid() {
-  local v; v=$(sed -n 's/^ *HandleLidSwitch=//p' /etc/systemd/logind.conf 2>/dev/null | tail -1)
-  # An unset key is not "nothing" -- it is systemd's default, which is suspend.
+  # The EFFECTIVE value logind is enforcing, not whatever the shipped file says.
+  # act_POWER changes the lid by writing a drop-in (50-null-lid.conf), and
+  # logind merges every drop-in over /etc/systemd/logind.conf -- so reading only
+  # the main file reported a value that never moved however the setting was
+  # changed, which read as "it does nothing". Ask logind itself for the value it
+  # is actually running with; fall back to merging the files the way systemd
+  # does (main first, then drop-ins by filename, last assignment wins) only if
+  # the bus is unreachable.
+  local v
+  v=$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+        org.freedesktop.login1.Manager HandleLidSwitch 2>/dev/null \
+        | awk 'NR==1 {gsub(/"/,"",$NF); print $NF}')
+  if [ -z "$v" ]; then
+    local f hit
+    for f in /etc/systemd/logind.conf \
+             $(printf '%s\n' /etc/systemd/logind.conf.d/*.conf | sort); do
+      [ -r "$f" ] || continue
+      hit=$(sed -n 's/^ *HandleLidSwitch=//p' "$f" 2>/dev/null | tail -1)
+      [ -n "$hit" ] && v=$hit
+    done
+  fi
+  # An unset key everywhere is not "nothing" -- it is systemd's default, suspend.
   echo "${v:-suspend (default)}"
 }
 read_output() {
