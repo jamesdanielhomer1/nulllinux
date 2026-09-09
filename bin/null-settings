@@ -249,7 +249,20 @@ rows_PEOPLE() {
   [ "$n" = 0 ] && null_row "PEOPLE" "none"
   return 0
 }
-act_PEOPLE() { "$B/null-users" list; }
+# A WINDOW, not the column. Managing people is a run of prompts ending in a
+# password (null-users manage), which a thirty-column strip cannot host -- the
+# same reason the package flows open a window rather than being hosted. It used
+# to run `null-users list` here, which drew the list and returned straight into
+# the panel's redraw loop: no way to add anyone, and a flash that read as being
+# kicked back. Launched through the compositor so the column stays live.
+act_PEOPLE() {
+  if [ -n "${SWAYSOCK:-}" ] && command -v swaymsg >/dev/null 2>&1; then
+    swaymsg -q exec "foot -e $B/null-users manage"
+  else
+    setsid foot -e "$B/null-users" manage </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+  fi
+}
 
 rows_SOUND() {
   local v m; v=$(read_volume) || v="$NULL_UNMEASURED"; m=$(read_mic) || m="$NULL_UNMEASURED"

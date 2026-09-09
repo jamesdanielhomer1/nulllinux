@@ -289,8 +289,47 @@ do_remove() {  # <name> <keep|delete>
   return 0
 }
 
+# AN INTERACTIVE SESSION, for the settings panel to open in a WINDOW.
+#
+# The panel used to run `null-users list` and nothing else -- there was no way
+# to CREATE an account from the desktop at all, and re-listing inside the
+# panel's own loop read as being kicked back to the previous page. Adding a
+# person is a run of questions ending in a password, which is a window's job,
+# not a thirty-column strip's -- the package flows already open a window for
+# exactly this. So the panel opens `null-users manage` in a foot window, and
+# this loops: it shows who is here, offers the actions, and stays open until
+# `quit`, so the result of each action is read before the window closes.
+#
+# ELEVATED ONCE, at the top. Each verb can elevate itself, but that re-execs
+# and would replace this loop with a single action; asking for root once keeps
+# the session whole, and on this system's own machine (root session) it is a
+# no-op anyway.
+cmd_manage() {
+  need_root manage "$@"
+  while :; do
+    cmd_list
+    echo
+    local sel
+    sel=$(null_pick people "add, or pick what to change -- quit closes this" quit \
+      "add        create an account" \
+      "passwd     set a password" \
+      "admin      grant or withdraw sudo" \
+      "remove     delete an account" \
+      "quit       close this") || return 0
+    case ${sel%% *} in
+      add)    cmd_add ;;
+      passwd) cmd_passwd ;;
+      admin)  cmd_admin ;;
+      remove) cmd_remove ;;
+      quit|'') return 0 ;;
+    esac
+    echo
+  done
+}
+
 case "${1:-list}" in
   list)     cmd_list ;;
+  manage)   cmd_manage ;;
   records)  cmd_records ;;
   add)      cmd_add "${2:-}" ;;
   passwd)   cmd_passwd "${2:-}" ;;
@@ -298,8 +337,9 @@ case "${1:-list}" in
   remove)   cmd_remove "${2:-}" ;;
 
   -h|--help|help)
-    echo "usage: null-users [list|add|passwd|admin|remove] [name]"
+    echo "usage: null-users [list|manage|add|passwd|admin|remove] [name]"
     echo "  list      who can log in, and who can administer (changes nothing)"
+    echo "  manage    an interactive session: add, passwd, admin, remove, in a loop"
     echo "  records   the same people, tab separated, for another program"
     echo "  add       create an account, with a password, optionally an admin"
     echo "  passwd    set somebody's password"
