@@ -156,7 +156,7 @@ pick_from() {  # prompt header  < lines on stdin
 
 # --------------------------------------------------------------- categories
 
-CATEGORIES="DISPLAY SOUND NETWORK BLUETOOTH DRIVES PEOPLE POWER KEYBOARD NOTIFICATIONS CLOCK SYSTEM"
+CATEGORIES="DISPLAY SOUND NETWORK BLUETOOTH DRIVES PEOPLE POWER KEYBOARD NOTIFICATIONS REGION DEFAULTS SYSTEM"
 
 rows_DISPLAY() {
   if "$MACHINE" probe backlight 2>/dev/null; then
@@ -432,13 +432,25 @@ act_NOTIFICATIONS() {
   esac
 }
 
-rows_CLOCK() {
+# REGION was CLOCK. Language belongs with the timezone and the clock -- it is
+# the same question ("where, and in what tongue") -- and "no options for
+# changing locales" was a real gap: the system language could not be set from
+# the desktop at all. null-locale owns it (systemd-localed, /etc/locale.conf).
+rows_REGION() {
+  null_row "LANGUAGE" "$("$B/null-locale" get 2>/dev/null || echo "$NULL_UNMEASURED")"
   null_row "NOW" "$(date '+%Y-%m-%d %H:%M %Z')"
   null_row "TIMEZONE" "$("$B/null-datetime" timezone)"
   null_row "SYNCHRONISE" "$("$B/null-datetime" ntp) -- $("$B/null-datetime" state)"
 }
-act_CLOCK() {
+act_REGION() {
   case $1 in
+    LANGUAGE) # code<TAB>name; show the name, keep the code. Takes effect at the
+              # next login, and localed asks polkit to write it.
+              local c; c=$("$B/null-locale" list 2>/dev/null | fzf "${NULL_FZF[@]}" \
+                --delimiter='\t' --with-nth=2.. \
+                --prompt='language > ' --header="now $("$B/null-locale" get) -- from the next login" \
+                | cut -f1)
+              [ -n "$c" ] && "$B/null-locale" set "$c" >/dev/null 2>&1 ;;
     NOW) : ;;
     TIMEZONE) local c; c=$("$B/null-datetime" zones |
                 pick_from timezone "now $("$B/null-datetime" timezone)")
@@ -446,6 +458,31 @@ act_CLOCK() {
     SYNCHRONISE) local c; c=$(pick_value clock "network time" on off) || return 0
               [ -n "$c" ] && "$B/null-datetime" set-ntp "$c" >/dev/null 2>&1 ;;
   esac
+}
+
+# WHAT OPENS WHAT. "No options for changing defaults" was the other gap: images
+# and PDFs opened in the browser (the distribution's mimeapps.list names viewers
+# this system does not ship, and Firefox claims the type after them), with
+# nothing in the desktop to say so or change it. null-defaults reads and writes
+# the registry; config/mimeapps.list ships the right answer.
+rows_DEFAULTS() {
+  local r v
+  while IFS=$'\t' read -r r v; do
+    [ -n "$r" ] || continue
+    null_row "${r^^}" "$v"
+  done < <("$B/null-defaults" show 2>/dev/null)
+}
+act_DEFAULTS() {
+  # The row's name is null-defaults' label; map the three that read oddly back
+  # to the role key it takes.
+  local role; role=$(tr '[:upper:]' '[:lower:]' <<<"$1")
+  case $role in files) role=dir ;; images) role=image ;; music) role=audio ;; esac
+  # id<TAB>name (a MIME role) or program<TAB>program (terminal, editor). Show the
+  # name, set by the id.
+  local pick; pick=$("$B/null-defaults" candidates "$role" 2>/dev/null | fzf "${NULL_FZF[@]}" \
+    --delimiter='\t' --with-nth=2.. --prompt="$role > " --header="what opens ${1,,}") || return 0
+  [ -n "$pick" ] || return 0
+  "$B/null-defaults" set "$role" "${pick%%$'\t'*}" >/dev/null 2>&1
 }
 
 rows_SYSTEM() {
@@ -505,7 +542,8 @@ while true; do
     "$(null_row POWER         'profile, battery, lid, idle ladder')" \
     "$(null_row KEYBOARD      'layout, repeat, touchpad, pointer')" \
     "$(null_row NOTIFICATIONS 'show or hold back')" \
-    "$(null_row CLOCK         'timezone and synchronisation')" \
+    "$(null_row REGION        'language, timezone, clock')" \
+    "$(null_row DEFAULTS      'what opens what')" \
     "$(null_row SYSTEM        'machine, updates, storage, about')" \
     | fzf "${NULL_FZF[@]}" --prompt='settings > ' --no-sort) || exit 0
   [ -n "$sel" ] || exit 0

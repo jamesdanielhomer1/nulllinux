@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# The language (NULL.md §8.4).
+#
+# IT OWNS NOTHING: systemd-localed owns the system locale (/etc/locale.conf),
+# and this reads and writes that. There is no local copy. The keyboard layout
+# is null-input's, because it has to reach the console, the greeter and the
+# compositor at once; the timezone and the clock are null-datetime's.
+#
+# WHAT A LOCALE IS CALLED. localectl lists codes -- en_GB.UTF-8 -- and a code
+# is not what anyone chooses a language by. iso-codes ships the names of
+# languages and territories, so a row reads "en_GB.UTF-8  English (United
+# Kingdom)"; where iso-codes is absent the code stands alone rather than being
+# guessed at.
+#
+# ONLY INSTALLED LANGUAGES ARE OFFERED. glibc ships each language as its own
+# package (glibc-langpack-XX), and setting LANG to one that is not installed
+# leaves every program falling back to C and complaining on every start.
+# `packs` lists the ones that could be installed, through bin/pkg like anything
+# else.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+U="--"
+
+lang() {
+  # /etc/locale.conf IS the source of truth -- it is what the login shell and
+  # every session read. localectl's D-Bus Locale property was found EMPTY on a
+  # machine whose /etc/locale.conf plainly said LANG="en_GB.UTF-8" (localed had
+  # never been poked over the bus), so reading the file is both more correct and
+  # works with no bus at all. The value may be quoted; strip them.
+  local v
+  v=$(sed -n 's/^[[:space:]]*LANG=//p' /etc/locale.conf 2>/dev/null | tail -1)
+  [ -n "$v" ] || v=$(localectl show -p Locale --value 2>/dev/null | tr ' ' '\n' | sed -n 's/^LANG=//p' | head -1)
+  [ -n "$v" ] || v=${LANG:-}
+  v=${v#\"}; v=${v%\"}
+  printf '%s\n' "$v"
+}
+
+name() {  # <code> -> "English (United Kingdom)", or nothing when unknown
+  python3 - "$1" <<'PY'
+import json, sys
+code = sys.argv[1].split('.')[0].split('@')[0]
+lang, _, terr = code.partition('_')
+try:
+    l = {e['alpha_2']: e['name']
+         for e in json.load(open('/usr/share/iso-codes/json/iso_639-2.json'))['639-2']
+         if e.get('alpha_2')}
+    t = {e['alpha_2']: e.get('common_name') or e['name']
+         for e in json.load(open('/usr/share/iso-codes/json/iso_3166-1.json'))['3166-1']}
+except Exception:
+    sys.exit(0)
+ln = l.get(lang)
+if not ln:
+    sys.exit(0)
+print(f"{ln} ({t[terr]})" if terr in t else ln)
+PY
+}
+
+installed() { localectl list-locales 2>/dev/null; }
+
+case "${1:-show}" in
+  show)
+    c=$(lang)
+    printf '%-14s %s\n' language "${c:-$U}"
+    [ -n "$c" ] && printf '%-14s %s\n' name "$(name "$c")"
+    printf '%-14s %s\n' installed "$(installed | wc -l)" ;;
+  get)  c=$(lang); echo "${c:-$U}" ;;
+  name) name "${2:?code}" ;;
+  # code<TAB>name, one per installed locale, for a picker.
+  list)
+    installed | while read -r c; do printf '%s\t%s\n' "$c" "$(name "$c")"; done ;;
+  set)
+    c=${2:?locale}
+    # Checked against the installed list rather than passed through, so a
+    # language that is not here is refused in these words, not glibc's.
+    if ! installed | grep -qx -- "$c"; then
+      echo "null-locale: '$c' is not an installed locale" >&2
+      echo "  installed: $(installed | tr '\n' ' ')" >&2
+      echo "  another language is a package: glibc-langpack-XX (null-locale packs)" >&2
+      exit 2
+    fi
+    localectl set-locale LANG="$c" && echo "language is now $c -- from the next login" ;;
+  # Languages that could be installed, from the package backend's own view.
+  packs)
+    "$ROOT/bin/pkg" search glibc-langpack 2>/dev/null | awk '{print $1}' | sed 's/\.[a-z0-9_]*$//' \
+      | grep -E '^glibc-langpack-' | sort -u ;;
+  -h|--help|help)
+    cat <<'USAGE'
+usage: null-locale [show|get|name CODE|list|set CODE|packs]
+  show    the language, its name, how many locales are installed
+  get     the locale code (LANG)
+  name    the readable name of a locale code
+  list    installed locales, code and name, tab separated
+  set     set the system language (takes effect at the next login)
+  packs   language packages that could be installed
+USAGE
+    ;;
+  *) echo "null-locale: unknown verb '$1'" >&2; exit 2 ;;
+esac
