@@ -66,6 +66,31 @@ read_bt_radio()   {
 read_ssid() { nmcli -t -f NAME,TYPE con show --active 2>/dev/null |
                 awk -F: '$2 ~ /wireless/ {print $1; exit}'; }
 read_idle_stage() { "$B/null-idle" show | awk -v s="$1" '$1==s {print $2}'; }
+read_battery() {
+  # EVERY cell, not the first. A T480 has two (internal + hot-swap); this read
+  # only BAT0 while the bar (render/src/sysinfo.rs) aggregated both, so the panel
+  # and the bar disagreed on the very same machine. Sum charge across them.
+  local now=0 full=0 st= b n f s
+  for b in /sys/class/power_supply/BAT*/; do
+    [ -d "$b" ] || continue
+    n=$(cat "$b/energy_now"  2>/dev/null || cat "$b/charge_now"  2>/dev/null || echo 0)
+    f=$(cat "$b/energy_full" 2>/dev/null || cat "$b/charge_full" 2>/dev/null || echo 0)
+    now=$((now + ${n:-0})); full=$((full + ${f:-0}))
+    s=$(cat "$b/status" 2>/dev/null)
+    case $s in Charging) st=Charging ;;
+               Discharging) [ "$st" = Charging ] || st=Discharging ;;
+               *) [ -n "$st" ] || st=$s ;; esac
+  done
+  [ "$full" -gt 0 ] && printf '%d%%  %s' "$(( now * 100 / full ))" "$st" || echo "$NULL_UNMEASURED"
+}
+read_firewall() {
+  # The PRODUCT'S firewall is nftables (null-system installs a static ruleset and
+  # disables firewalld), so asking firewall-cmd -- as this row used to -- reported
+  # "--" on every installed machine. Report what is actually enforcing.
+  if systemctl is-active --quiet nftables 2>/dev/null; then echo on
+  elif command -v firewall-cmd >/dev/null 2>&1 && z=$(firewall-cmd --get-default-zone 2>/dev/null) && [ -n "$z" ]; then echo "$z"
+  else echo off; fi
+}
 read_lid() {
   # The EFFECTIVE value logind is enforcing, not whatever the shipped file says.
   # act_POWER changes the lid by writing a drop-in (50-null-lid.conf), and
@@ -109,9 +134,14 @@ except Exception:
 
 human_secs() {
   local s=${1:-0}
-  if   [ "$s" -eq 0 ]          2>/dev/null; then echo "off"
-  elif [ $((s % 3600)) -eq 0 ] 2>/dev/null && [ "$s" -ge 3600 ]; then echo "$((s/3600))h"
-  elif [ $((s % 60)) -eq 0 ]   2>/dev/null && [ "$s" -ge 60 ];   then echo "$((s/60))m"
+  # A non-numeric value passes straight through: "--" for an unmeasured stage,
+  # or a word already. $((s % 3600)) on it is an arithmetic error that, under
+  # set -e, took down the subshell building the rows -- so every POWER row after
+  # IDLE-SUSPEND vanished on a machine with no battery (where suspend reads --).
+  case $s in ''|*[!0-9]*) echo "$s"; return ;; esac
+  if   [ "$s" -eq 0 ]; then echo "off"
+  elif [ $((s % 3600)) -eq 0 ] && [ "$s" -ge 3600 ]; then echo "$((s/3600))h"
+  elif [ $((s % 60)) -eq 0 ]   && [ "$s" -ge 60 ];   then echo "$((s/60))m"
   else echo "${s}s"; fi
 }
 
@@ -249,7 +279,7 @@ rows_NETWORK() {
     null_row "NETWORK" "$(read_ssid || echo "not connected")"
   fi
   null_row "HOSTNAME" "$(hostnamectl hostname 2>/dev/null || hostname)"
-  null_row "FIREWALL" "$(firewall-cmd --get-default-zone 2>/dev/null || echo "$NULL_UNMEASURED")"
+  null_row "FIREWALL" "$(read_firewall)"
   null_row "ADVANCED" "static IPs, VPNs"
 }
 act_NETWORK() {
@@ -261,9 +291,18 @@ act_NETWORK() {
                   "machines/<hostname>.conf is chosen by it, so the two must" \
                   "move together. Change it with:" "" \
                   "  hostnamectl set-hostname NAME" ;;
-    FIREWALL) local c; c=$(firewall-cmd --get-zones 2>/dev/null | tr ' ' '\n' |
-                           pick_from firewall "default zone -- now $(firewall-cmd --get-default-zone 2>/dev/null)")
-              [ -n "$c" ] && firewall-cmd --set-default-zone="$c" >/dev/null 2>&1 ;;
+    FIREWALL) if systemctl is-active --quiet nftables 2>/dev/null; then
+                # A static ruleset, not firewalld zones: show what it enforces
+                # rather than offer a zone picker that would be empty here.
+                say "firewall" "" \
+                  "nftables is active -- a static ruleset from null-system, not" \
+                  "firewalld. What the input chain enforces:" "" \
+                  "$(nft list chain inet filter input 2>/dev/null | grep -E 'policy|accept' | sed 's/^[[:space:]]*/  /' | head -12)"
+              elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+                local c; c=$(firewall-cmd --get-zones 2>/dev/null | tr ' ' '\n' |
+                             pick_from firewall "default zone -- now $(firewall-cmd --get-default-zone 2>/dev/null)")
+                [ -n "$c" ] && firewall-cmd --set-default-zone="$c" >/dev/null 2>&1
+              else say "firewall" "" "no firewall is running on this machine"; fi ;;
     ADVANCED) exec "$COLUMN" --send open netconfig ;;
   esac
 }
@@ -286,8 +325,7 @@ rows_POWER() {
     null_row "PROFILE" "$("$B/null-power" get 2>/dev/null || echo "$NULL_UNMEASURED")"
   fi
   if "$MACHINE" probe battery 2>/dev/null; then
-    local p; p=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1)
-    null_row "BATTERY" "${p:-$NULL_UNMEASURED}%  $(cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -1)"
+    null_row "BATTERY" "$(read_battery)"
   fi
   "$MACHINE" probe lid 2>/dev/null && null_row "LID-CLOSE" "$(read_lid)"
   null_row "IDLE" "$("$B/null-idle" state 2>/dev/null || echo "$NULL_UNMEASURED")"
