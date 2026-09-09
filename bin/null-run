@@ -26,9 +26,10 @@ DIRS=(/usr/share/applications /usr/local/share/applications
 # into fzf leaves it in its loading state, and its spinner is braille.
 #
 # Each row is THREE tab-separated fields: the display (what the eye reads), a
-# kind (term|gui), and the exec command. Only the display is shown; the command
-# is returned from the hidden fields, so a name containing spaces can never be
-# mistaken for part of the command.
+# kind (term|gui), and the exec command. Only the display is shown (--with-nth),
+# and the whole line comes back on accept, so the command is read from the line
+# by position (after the last tab) -- a name with spaces cannot be mistaken for
+# part of the command, and no fragile hidden-field return is relied on.
 list=$(python3 - "${DIRS[@]}" <<'PY'
 import configparser, os, sys
 seen, rows = set(), []
@@ -66,18 +67,30 @@ PY
 [ -n "$list" ] || { echo "no desktop entries found" >&2; exit 1; }
 
 pick=$(printf '%s\n' "$list" | fzf "${NULL_FZF[@]}" --prompt='run > ' \
-         --delimiter='\t' --with-nth=1 --accept-nth=2,3) || exit 0
+         --delimiter='\t' --with-nth=1) || exit 0
 [ -n "$pick" ] || exit 0
 
-IFS=$'\t' read -r kind cmd <<<"$pick"
-[ -n "${cmd:-}" ] || exit 0
+# fzf returns the WHOLE original line -- --with-nth changes only what is SHOWN,
+# not what comes back. The line is  display<TAB>kind<TAB>exe , so the exe is
+# everything after the last tab and the kind is the field before it, parsed with
+# ${##}/${%} so a name or a command containing spaces is safe.
+#
+# NOT --accept-nth: with --with-nth in play, fzf evaluates accept-nth's field
+# numbers against the SHOWN line -- which is field 1 alone -- so --accept-nth=2,3
+# returned an empty string and the launcher exited having started nothing. That
+# was "the launcher does not work": it drew, it took a pick, and then silently
+# did nothing.
+tab=$'\t'
+exe=${pick##*"$tab"}
+rest=${pick%"$tab"*}; kind=${rest##*"$tab"}
+[ -n "${exe:-}" ] || exit 0
 
 # DETACHED, so it outlives this launcher and the column that hosted it: its own
 # session (setsid), its streams to /dev/null, backgrounded and disowned. A
 # terminal app is wrapped in a foot window; a GUI app is run directly.
 case $kind in
-  term) setsid foot -e $cmd </dev/null >/dev/null 2>&1 & ;;
-  *)    setsid $cmd        </dev/null >/dev/null 2>&1 & ;;
+  term) setsid foot -e $exe </dev/null >/dev/null 2>&1 & ;;
+  *)    setsid $exe        </dev/null >/dev/null 2>&1 & ;;
 esac
 disown 2>/dev/null || true
 exit 0
