@@ -252,7 +252,22 @@ case "${1:-show}" in
     echo "the idle ladder is on" ;;
   apply) load_stages; write_conf; echo "wrote $CONF"
          pkill -x -u "$(id -u)" swayidle 2>/dev/null || true
-         (swayidle -w -C "$CONF" >/dev/null 2>&1 &) ; echo "swayidle restarted" ;;
+         # setsid, LIKE start AND toggle. Without it the new swayidle stays in
+         # the caller's session -- and the caller is the settings panel hosted
+         # in the column, whose PTY is the controlling terminal. When the panel
+         # closes, the kernel hangs up the foreground group and swayidle dies:
+         # changing ANY idle timing from the panel left the machine with no dim,
+         # no lock and no suspend until the next login. Measured on the daily
+         # driver: idle.conf freshly written by the panel, no swayidle running.
+         #
+         # AND RESPECT "OFF". apply is run after every `set`, so a timing change
+         # while the ladder is deliberately off must not silently switch it on.
+         if [ -e "$IDLE_OFF" ]; then
+           echo "the idle ladder is off ($IDLE_OFF); timings saved, not started"
+         else
+           setsid swayidle -w -C "$CONF" >/dev/null 2>&1 &
+           echo "swayidle restarted"
+         fi ;;
   state)
     # Read from the process, not from a flag. A remembered flag and a dead
     # daemon disagree the moment anything restarts.
