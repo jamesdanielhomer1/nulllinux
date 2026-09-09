@@ -125,17 +125,24 @@ read_lid() {
   echo "${v:-suspend (default)}"
 }
 read_output() {
-  # No f-strings with quotes inside a shell single-quoted heredoc: the first
-  # version of this line was unparseable python and reported "--" for a display
-  # that was working perfectly.
+  # The FOCUSED output, named -- not outputs[0]. This read the first output
+  # unconditionally, so on a machine with two screens the MODE row reported the
+  # wrong one and never changed when you moved between them; nullLinux must
+  # assume nothing about how many screens there are. The name is included so it
+  # is clear which screen the mode belongs to. (No f-strings with quotes inside
+  # this single-quoted heredoc: an earlier version was unparseable python and
+  # reported "--" for a display that was working perfectly.)
   swaymsg -t get_outputs -r 2>/dev/null | python3 -c '
 import json, sys
 try:
-    o = json.load(sys.stdin)[0]
+    outs = [o for o in json.load(sys.stdin) if o.get("active", True)]
+    o = next((x for x in outs if x.get("focused")), None) or outs[0]
     m = o.get("current_mode") or {}
     w = m.get("width", "?"); h = m.get("height", "?")
     hz = round(m.get("refresh", 0) / 1000)
-    print("%sx%s @%sHz  scale %s" % (w, h, hz, o.get("scale", 1)))
+    name = o.get("name", "?")
+    extra = "" if len(outs) < 2 else "  (of %d)" % len(outs)
+    print("%s  %sx%s @%sHz  scale %s%s" % (name, w, h, hz, o.get("scale", 1), extra))
 except Exception:
     print("--")' 2>/dev/null || echo "$NULL_UNMEASURED"
 }
