@@ -472,6 +472,10 @@ bluez                           # bluetoothctl, for the bluetooth menu topic
 # these are reached through the menu, so it never saw them. And on this build
 # host they happen to be installed, which is why nobody noticed.
 NetworkManager-tui              # nmtui, the network topic in the settings menu
+iso-codes                       # language and territory names, so settings' LANGUAGE
+                                # row reads "English (United Kingdom)", not a bare
+                                # code (bin/null-locale). Present transitively today;
+                                # declared so the picker is readable without luck.
 NetworkManager-wifi             # the device plugin without which NM sees no
                                 # wireless card at all -- a separate subpackage
 wpa_supplicant                  # THE ASSOCIATION BACKEND. Firmware present, iw

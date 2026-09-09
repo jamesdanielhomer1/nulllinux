@@ -281,6 +281,10 @@ cmd_remove() {
 
 do_remove() {  # <name> <keep|delete>
   local name=$1 keep=$2
+  # Captured BEFORE userdel: the "their files are still in ..." hint below ran
+  # getent AFTER the account was gone, so it always fell back to the generic
+  # "their home directory" and never named the real path.
+  local home; home=$(getent passwd "$name" | cut -d: -f6)
   # ANY LIVE SESSION FIRST, or userdel refuses with "currently used by process".
   if have loginctl; then
     loginctl terminate-user "$name" >/dev/null 2>&1 || true
@@ -290,7 +294,7 @@ do_remove() {  # <name> <keep|delete>
   else userdel "$name" || { oops "userdel failed"; return 1; }; fi
   if exists "$name"; then oops "$name is still there"; return 1; fi
   say "$name is gone"
-  [ "$keep" = keep ] && hint "their files are still in $(getent passwd "$name" >/dev/null || echo 'their home directory')"
+  [ "$keep" = keep ] && hint "their files are still in ${home:-their home directory}"
   return 0
 }
 

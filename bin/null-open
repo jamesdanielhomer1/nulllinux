@@ -75,11 +75,11 @@ case $role in
   # nothing. This launches whatever answers for the web (bin/null-defaults, the
   # registry), with a URL if one was given.
   browser)
-    cmd=$(prefer browser) || cmd=$(first "firefox" "chromium" "chromium-browser" "epiphany" "brave-browser" "org.mozilla.firefox")
+    cmd=$(prefer browser) || cmd=$(first "firefox" "chromium" "chromium-browser" "epiphany" "brave-browser" "org.mozilla.firefox") || :
     [ -n "${cmd:-}" ] || { echo "null-open: no browser installed" >&2; exit 1; }
     [ -n "$target" ] && exec $cmd "$target"
     exec $cmd ;;
-  dir)    cmd=$(prefer dir)    || cmd=$(first "thunar" "nemo" "dolphin" "nautilus" "yazi" "foot -e ls -la") ;;
+  dir)    cmd=$(prefer dir)    || cmd=$(first "thunar" "nemo" "dolphin" "nautilus" "yazi" "foot -e ls -la") || : ;;
   reveal) # Selecting a file is a DIFFERENT verb from opening it, and the tools
           # that can do it say so with a flag.
           if command -v nemo   >/dev/null; then exec nemo   --no-desktop "$target"; fi
@@ -98,25 +98,31 @@ case $role in
   # like every other surface, so this one is now.
   #
   # The others stay as fallbacks for a machine that has them and not nano.
-  editor) cmd=$(prefer editor) || cmd=$(first "nano" "nvim" "vim" "vi") ;;
-  image)  cmd=$(prefer image)  || cmd=$(first "imv" "imv-wayland" "swayimg" "nsxiv" "feh") ;;
-  pdf)    cmd=$(prefer pdf)     || cmd=$(first "zathura" "mupdf" "evince" "okular") ;;
-  video)  cmd=$(prefer video)  || cmd=$(first "mpv" "vlc" "ffplay") ;;
+  # `|| :` on each: `cmd=$(prefer) || cmd=$(first)` exits the script under set -e
+  # when BOTH fail (the last assignment's non-zero status propagates), which
+  # skipped the "nothing installed" message below and left a silent exit. The
+  # trailing no-op keeps cmd empty and lets that guard speak.
+  editor) cmd=$(prefer editor) || cmd=$(first "nano" "nvim" "vim" "vi") || : ;;
+  image)  cmd=$(prefer image)  || cmd=$(first "imv" "imv-wayland" "swayimg" "nsxiv" "feh") || : ;;
+  pdf)    cmd=$(prefer pdf)     || cmd=$(first "zathura" "mupdf" "evince" "okular") || : ;;
+  video)  cmd=$(prefer video)  || cmd=$(first "mpv" "vlc" "ffplay") || : ;;
   # Audio opens in the same player. A video player with nothing to show is a
   # player, and a second program for the same verb is a second thing to style.
-  audio)  cmd=$(prefer audio)  || cmd=$(first "mpv" "vlc" "ffplay") ;;
-  archive) cmd=$(prefer archive) || cmd=$(first "xarchiver" "file-roller" "ark") ;;
+  audio)  cmd=$(prefer audio)  || cmd=$(first "mpv" "vlc" "ffplay") || : ;;
+  archive) cmd=$(prefer archive) || cmd=$(first "xarchiver" "file-roller" "ark") || : ;;
   *) echo "null-open: unknown role $role" >&2; exit 2 ;;
 esac
 [ -n "${cmd:-}" ] || { echo "null-open: nothing installed for role $role" >&2; exit 1; }
 
 # A TERMINAL PROGRAM NEEDS A TERMINAL.
 #
-# nvim, vim, vi and nano are terminal programs. Exec'ing one from a keybinding,
-# where there is no terminal attached, is a process that exits without drawing
-# anything -- indistinguishable from the binding not working at all.
+# nvim, vim, vi, nano, micro and hx are terminal programs. Exec'ing one from a
+# keybinding, where there is no terminal attached, is a process that exits
+# without drawing anything -- indistinguishable from the binding not working at
+# all. null-defaults can resolve any of these (its editor list offers them); the
+# GUI-capable emacs is deliberately left unwrapped.
 case $cmd in
-  nvim|vim|vi|nano)
+  nvim|vim|vi|nano|micro|hx)
     [ -t 1 ] && exec $cmd "$target"
     exec foot -e $cmd "$target" ;;
 esac

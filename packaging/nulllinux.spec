@@ -89,6 +89,7 @@ Requires:       gvfs-mtp
 Requires:       gvfs-smb
 Requires:       gzip
 Requires:       imv
+Requires:       iso-codes
 Requires:       iw
 Requires:       iwlwifi-dvm-firmware
 Requires:       iwlwifi-mld-firmware

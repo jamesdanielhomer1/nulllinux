@@ -357,7 +357,7 @@ for ln in sys.stdin:
         say "no networks in the last scan" \
             "" \
             "the radio may be off, or nothing has scanned lately" \
-            "radios: setup > settings"
+            "radios: settings > network"
         exit 0
       fi
       rows=$(while IFS=$'\t' read -r ssid disp _s sec; do

@@ -67,7 +67,10 @@ case "${1:-show}" in
   name) name "${2:?code}" ;;
   # code<TAB>name, one per installed locale, for a picker.
   list)
-    installed | while read -r c; do printf '%s\t%s\n' "$c" "$(name "$c")"; done ;;
+    # code<TAB>name -- the name FALLS BACK to the code so a locale with no
+    # iso-codes name (C.UTF-8, or any if iso-codes is absent) is not a blank row
+    # in a picker that shows only the name.
+    installed | while read -r c; do n=$(name "$c"); printf '%s\t%s\n' "$c" "${n:-$c}"; done ;;
   set)
     c=${2:?locale}
     # Checked against the installed list rather than passed through, so a
