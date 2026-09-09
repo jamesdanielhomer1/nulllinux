@@ -46,10 +46,6 @@ for_window [window_type="dialog"]      floating enable
 #: (rule) Picture-in-Picture: being above everything else is the entire feature
 for_window [title="^Picture-in-Picture$"] floating enable, sticky enable
 
-#: (rule) The application launcher floats, centred, over whatever is open --
-#: a real foot window running the picker, not a column topic (see bindings.conf).
-for_window [app_id="null-launcher"] floating enable, resize set 760 560, move position center
-
 # A control is a mark and a rule, not a box (§7.1). No title bars, no gaps:
 # line art is fine, filled chrome is not.
 default_border none
