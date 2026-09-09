@@ -141,6 +141,15 @@ write_conf() {
         echo "# null-stage $n $secs   (omitted: no battery on this machine)"
         continue
       fi
+      # OFF fires never: record the 0 so it survives a reload, and write NO
+      # timeout line, so swayidle simply has one stage fewer. The marker stays a
+      # bare number so it round-trips; the note on the next line is for a person
+      # and the parser ignores it.
+      if [ "$secs" -eq 0 ]; then
+        echo "# null-stage $n 0"
+        echo "#   (off -- this stage does not fire)"
+        continue
+      fi
       echo "# null-stage $n $secs"
       case $n in
         dim)         echo "timeout $secs 'brightnessctl -s set 10%' resume 'brightnessctl -r'" ;;
@@ -170,6 +179,16 @@ set_stage() {
   for n in "${names[@]}"; do
     local v; v=$(current "$n")
     if [ "$n" = "$target" ]; then v=$secs; seen=1; fi
+    # OFF (0) means this stage does not fire. It LEAVES the ladder rather than
+    # taking a place in it: it is not dragged forward, and it does not carry
+    # `prev`, so the next stage that DOES fire is measured against the last one
+    # that fires, not against a stage that never will. Without this, asking for
+    # off hit the `<= prev` rule below and came back as prev+30 -- the panel
+    # offered "off" and the ladder quietly refused it.
+    if [ "$v" -eq 0 ]; then
+      newvals+=("$n:0")
+      continue
+    fi
     if [ "$v" -le "$prev" ]; then
       v=$(( prev + 30 ))
       changed+=("$n -> ${v}s")
@@ -185,7 +204,9 @@ set_stage() {
   # request rather than the result said "set lock to 120s" about a lock that
   # was then 270s, which is the panel lying about the thing it just did.
   local final; final=$(printf '%s\n' "${newvals[@]}" | sed -n "s/^$target://p")
-  if [ "$final" = "$secs" ]; then
+  if [ "$final" = 0 ]; then
+    echo "set $target off"
+  elif [ "$final" = "$secs" ]; then
     echo "set $target to ${secs}s"
   else
     echo "set $target to ${final}s (asked for ${secs}s; the ladder allows no earlier)"
@@ -262,6 +283,9 @@ case "${1:-show}" in
         if ! has_battery; then continue; fi
       fi
       v=$(current "$n")
+      # An off stage (0) is not in the ladder: neither out of order, nor a rung
+      # the next stage has to clear.
+      if [ "$v" -eq 0 ]; then continue; fi
       if [ "$v" -le "$prev" ]; then
         echo "OUT OF ORDER: $n at ${v}s is not after the previous stage at ${prev}s"
         bad=1

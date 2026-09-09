@@ -328,7 +328,7 @@ act_POWER() {
     IDLE-*)
       local stage; stage=$(tr '[:upper:]' '[:lower:]' <<<"${1#IDLE-}")
       local cur; cur=$(read_idle_stage "$stage")
-      local c; c=$(pick_value "$stage" "now ${cur}s -- later stages are dragged with it" \
+      local c; c=$(pick_value "$stage" "now $(human_secs "$cur") -- later stages are dragged with it" \
         "off        never" "30         30 seconds" "60         1 minute" "120        2 minutes" \
         "300        5 minutes" "600        10 minutes" "900        15 minutes" \
         "1800       30 minutes" "3600       1 hour") || return 0
