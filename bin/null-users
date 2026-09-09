@@ -99,10 +99,15 @@ exists() { getent passwd "$1" >/dev/null 2>&1; }
 need_root() {  # <verb> [args...]
   [ "$(id -u)" = 0 ] && return 0
   local self; self=$(readlink -f -- "$0")
+  # WHO ASKED, carried across the elevation. After pkexec, `id -un` is root and
+  # SUDO_USER is unset -- so the "you cannot remove the account you are logged in
+  # as" guard, which compared the target to the current user, compared it to root
+  # and never fired: an admin could delete their OWN logged-in account through
+  # the panel. The real invoker is passed through so the guard sees them.
   if have pkexec && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
-    exec pkexec env NULL_ROOT="$ROOT" "$self" "$@"
+    exec pkexec env NULL_ROOT="$ROOT" NULL_INVOKER="${NULL_INVOKER:-$(id -un)}" "$self" "$@"
   elif have sudo; then
-    exec sudo -E env NULL_ROOT="$ROOT" "$self" "$@"
+    exec sudo -E env NULL_ROOT="$ROOT" NULL_INVOKER="${NULL_INVOKER:-$(id -un)}" "$self" "$@"
   fi
   oops "this needs root, and neither pkexec nor sudo is here"
   exit 1
@@ -239,7 +244,7 @@ cmd_remove() {
   if [ "${u:-0}" -lt "$UID_MIN" ]; then
     oops "$name is a system account (uid $u), not a person"; return 2
   fi
-  if [ "$name" = "${SUDO_USER:-$(id -un)}" ]; then
+  if [ "$name" = "${NULL_INVOKER:-${SUDO_USER:-$(id -un)}}" ]; then
     oops "$name is you."
     hint "Removing the account you are logged in as leaves a running session"
     hint "belonging to nobody. Do it from another account."
