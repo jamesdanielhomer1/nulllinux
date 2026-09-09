@@ -338,6 +338,17 @@ system-config-printer
 udisks2
 gvfs
 thunar-volman
+# NETWORK DRIVES (bin/null-storage, §8.7). null-storage maps a share with
+# `gio mount smb://…` and then reads it back at $XDG_RUNTIME_DIR/gvfs -- so plain
+# gvfs is not enough: the smb BACKEND and the FUSE bridge that exposes the mount
+# as a real path are separate packages, and without them "map a network drive"
+# failed with no backend on a freshly installed machine. samba-client is
+# smbclient, for browsing a server's shares; avahi is how they are discovered on
+# the network at all.
+gvfs-smb                        # the smb:// backend `gio mount` needs
+gvfs-fuse                       # exposes the gvfs mount at $XDG_RUNTIME_DIR/gvfs
+samba-client                    # smbclient, to list a server's shares
+avahi                           # mDNS, so shares are discoverable by name
 
 # AND THE FILESYSTEMS A STICK ACTUALLY HAS ON IT. A drive over 32 GB is
 # formatted exFAT out of the box and anything from a Windows machine is NTFS.
