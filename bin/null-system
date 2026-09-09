@@ -19,7 +19,6 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 STAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP=/root/.null-system-backup-$STAMP
 APPLY=0
-SNAPDIR=/.null-snapshots
 
 say()  { printf '  %s\n' "$*"; }
 head_() { printf '\n== %s\n' "$*"; }
@@ -27,20 +26,10 @@ refuse() { printf 'REFUSING: %s\n' "$*" >&2; exit 1; }
 
 need_root() { [ "$(id -u)" -eq 0 ] || refuse "must run as root"; }
 
-snapshot() {  # <label>
-  [ "$APPLY" -eq 1 ] || { say "would snapshot / before changing anything"; return 0; }
-  if ! command -v btrfs >/dev/null 2>&1; then
-    say "no btrfs tooling; skipping the snapshot"; return 0
-  fi
-  mkdir -p "$SNAPDIR"
-  local snap="$SNAPDIR/$1-$STAMP"
-  if btrfs subvolume snapshot -r / "$snap" >/dev/null 2>&1; then
-    say "snapshot: $snap"
-    say "  roll back with:  btrfs subvolume delete /  &&  btrfs subvolume snapshot $snap /"
-  else
-    say "snapshot failed (not a btrfs subvolume?) -- continuing without one"
-  fi
-}
+# Snapshots, and their pruning, are shared with bin/null-install (lib/snapshot.sh)
+# -- one copy, and the one that keeps the pile bounded.
+. "$ROOT/lib/snapshot.sh"
+snapshot() { null_snapshot "$1"; }  # <label>
 
 backup() {  # <path>
   [ -e "$1" ] || return 0

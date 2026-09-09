@@ -290,7 +290,22 @@ fi
 %config(noreplace) %{_sysconfdir}/pam.d/null-lock
 
 %changelog
-* Thu Sep 03 2026 nullLinux <noreply@anthropic.com> - 0.1.0-1
+* Wed Sep 09 2026 nullLinux <noreply@anthropic.com> - 0.1.0-1
 - First package. Ships the raytraced hero prebuilt for the four bake strikes
   real panels select, and every strike's atlas, so no installed machine needs
   a GPU or a compiler.
+- The launcher hands apps to the compositor, so they open and stay open.
+- Settings can add and manage accounts (a window with polkit), set the
+  system language (REGION) and choose what opens what (DEFAULTS); images
+  and PDFs open in imv and zathura rather than the browser.
+- Keyboard and pointer settings live in the user's home and work for any
+  account, not only root.
+- The main menu is ten entries, not sixteen: setup and trigger folded into
+  settings, install/remove/update grouped under software.
+- The browser key opens the default browser; the new tab is Firefox's own.
+- Network drives mount on a fresh install (gvfs-smb, gvfs-fuse, samba-client,
+  avahi are dependencies now).
+- Password prompts no longer echo; screen recording records what you hear;
+  the Bluetooth toggle and the Bluetooth panel agree; the display row names
+  the focused screen; removing your own account is refused through pkexec.
+- Snapshots taken before a change are pruned to the newest five.

@@ -36,14 +36,10 @@ backup() {
   [ "$APPLY" -eq 1 ] || { say "would back up $1"; return 0; }
   mkdir -p "$BACKUP$(dirname "$1")"; cp -a "$1" "$BACKUP$1"; say "backed up $1"
 }
-snapshot() {
-  [ "$APPLY" -eq 1 ] || { say "would snapshot / first"; return 0; }
-  command -v btrfs >/dev/null || { say "no btrfs; skipping the snapshot"; return 0; }
-  mkdir -p /.null-snapshots
-  local s=/.null-snapshots/install-$STAMP
-  btrfs subvolume snapshot -r / "$s" >/dev/null 2>&1 && say "snapshot: $s" \
-    || say "snapshot failed; continuing without one"
-}
+# Snapshots, and their pruning, are shared with bin/null-system (lib/snapshot.sh)
+# -- one copy, and the one that keeps the pile bounded.
+. "$ROOT/lib/snapshot.sh"
+snapshot() { null_snapshot install; }
 restore_selinux() { command -v restorecon >/dev/null && restorecon -RF "$1" 2>/dev/null || true; }
 
 # The checkout must be readable by every user, or none of this works.
