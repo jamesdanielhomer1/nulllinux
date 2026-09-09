@@ -51,7 +51,13 @@ case "${1:-open}" in
     # first so a fresh profile opens configured rather than opening wrong once.
     "$0" apply >/dev/null 2>&1 || true
     shift || true
-    exec thunar "$@"
+    # DETACHED. Reached two ways: the $mod+Shift+f binding (sway execs this
+    # directly) and the column's files->window entry, which runs HOSTED in the
+    # column's pty -- there an `exec thunar` made thunar the column's host
+    # process, so closing or toggling the column killed the file manager. setsid
+    # cuts it loose into its own session, a real window either way.
+    setsid thunar "$@" </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
     ;;
   apply)
     # Details view: name, size, type, date -- not icons.
