@@ -34,7 +34,11 @@ while :; do
     '../')  dir=$(dirname "$dir") ;;
     */)     dir="$dir/${pick%/}" ;;
     *)      # Opening a file is the file's business, not this component's.
-            setsid "$B/null-open" "$dir/$pick" >/dev/null 2>&1 &
+            # THE `file` ROLE, not the bare path: null-open takes ROLE TARGET
+            # and dispatches `file` on the bytes' MIME type. Passing the path
+            # as the role hit null-open's "unknown role" and picking a file in
+            # the browser did nothing, silently.
+            setsid "$B/null-open" file "$dir/$pick" >/dev/null 2>&1 &
             exit 0 ;;
   esac
 done
