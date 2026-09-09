@@ -74,10 +74,12 @@ font-bold=Terminus:pixelsize=18:weight=bold
 font-italic=Terminus:pixelsize=18
 font-bold-italic=Terminus:pixelsize=18:weight=bold
 
-[cursor]
-color={bare("background")} {bare("accent")}
-
-[colors]
+[colors-dark]
+# foot 1.27 deprecated the bare [colors] section in favour of [colors-dark]
+# (the default theme) / [colors-light]. nullLinux is one dark palette, so the
+# dark section is all that is needed. Cursor colours also moved here from
+# [cursor].color: two RRGGBB, text-under-cursor then the cursor (§9.3).
+cursor={bare("background")} {bare("accent")}
 background={bare("background")}
 foreground={bare("neutral")}
 
