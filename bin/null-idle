@@ -23,9 +23,15 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 # screen timeout. The tool worked perfectly on the developer's checkout and
 # not at all on the product.
 #
-# So: root edits the system default in the checkout, and anyone else edits
-# their own copy. The user file is seeded from the system one on first write,
-# so changing one stage does not silently reset the other four to defaults.
+# So: every session edits its own copy, seeded from the system default on the
+# first write, so changing one stage does not silently reset the other four.
+#
+# ROOT TOO. This once let root write the shipped file, on the theory that root
+# on the build host is a developer editing the default. Then the build host
+# became a nullLinux daily driver whose session runs as root, and every idle
+# change made from its panel landed in a TRACKED file: the shipped default
+# drifted with one person's habits, and the tree was never clean. The shipped
+# default changes only when asked to, explicitly: NULL_IDLE_SYSTEM=1.
 SYSTEM_CONF="$ROOT/config/sway/idle.conf"
 USER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/nulllinux/idle.conf"
 
@@ -44,7 +50,7 @@ USER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/nulllinux/idle.conf"
 # A marker file instead. One person's machine, one person's choice, and it
 # outlives a reload without editing anything that ships.
 IDLE_OFF="${XDG_CONFIG_HOME:-$HOME/.config}/nulllinux/idle-off"
-if [ "$(id -u)" -eq 0 ] && [ "${NULL_IDLE_USER:-0}" != 1 ]; then
+if [ "${NULL_IDLE_SYSTEM:-0}" = 1 ]; then
   CONF="$SYSTEM_CONF"
 else
   CONF="$USER_CONF"
