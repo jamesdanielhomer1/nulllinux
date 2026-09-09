@@ -23,6 +23,20 @@ target=${2:-}
 
 first() { for c in "$@"; do if command -v "${c%% *}" >/dev/null 2>&1; then echo "$c"; return 0; fi; done; return 1; }
 
+# A PERSON'S OWN CHOICE COMES FIRST. bin/null-defaults reads the desktop's
+# registry (what the settings panel and every other app consult), so a default
+# changed there must change what opens HERE too -- otherwise the file browser
+# would keep opening this file's built-in preference while the file manager
+# opened the chosen one. `prefer` returns the chosen command when it names
+# something installed; the `first` lists below stay as the fallback when nothing
+# is set, and as the whole answer where null-defaults is somehow absent.
+SELF_DIR=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
+prefer() {  # <role> -> a command, or nothing
+  local c
+  c=$("$SELF_DIR/null-defaults" resolve "$1" 2>/dev/null) || return 1
+  [ -n "$c" ] && command -v "${c%% *}" >/dev/null 2>&1 && printf '%s\n' "$c"
+}
+
 # `file` DISPATCHES ON WHAT THE FILE IS, not on what it is called.
 #
 # An extension is a hint a user can get wrong and a download can lose; the MIME
@@ -55,7 +69,7 @@ if [ "$role" = file ]; then
 fi
 
 case $role in
-  dir)    cmd=$(first "thunar" "nemo" "dolphin" "nautilus" "yazi" "foot -e ls -la") ;;
+  dir)    cmd=$(prefer dir)    || cmd=$(first "thunar" "nemo" "dolphin" "nautilus" "yazi" "foot -e ls -la") ;;
   reveal) # Selecting a file is a DIFFERENT verb from opening it, and the tools
           # that can do it say so with a flag.
           if command -v nemo   >/dev/null; then exec nemo   --no-desktop "$target"; fi
@@ -74,14 +88,14 @@ case $role in
   # like every other surface, so this one is now.
   #
   # The others stay as fallbacks for a machine that has them and not nano.
-  editor) cmd=$(first "nano" "nvim" "vim" "vi") ;;
-  image)  cmd=$(first "imv" "imv-wayland" "swayimg" "nsxiv" "feh") ;;
-  pdf)    cmd=$(first "zathura" "mupdf" "evince" "okular") ;;
-  video)  cmd=$(first "mpv" "vlc" "ffplay") ;;
+  editor) cmd=$(prefer editor) || cmd=$(first "nano" "nvim" "vim" "vi") ;;
+  image)  cmd=$(prefer image)  || cmd=$(first "imv" "imv-wayland" "swayimg" "nsxiv" "feh") ;;
+  pdf)    cmd=$(prefer pdf)     || cmd=$(first "zathura" "mupdf" "evince" "okular") ;;
+  video)  cmd=$(prefer video)  || cmd=$(first "mpv" "vlc" "ffplay") ;;
   # Audio opens in the same player. A video player with nothing to show is a
   # player, and a second program for the same verb is a second thing to style.
-  audio)  cmd=$(first "mpv" "vlc" "ffplay") ;;
-  archive) cmd=$(first "xarchiver" "file-roller" "ark") ;;
+  audio)  cmd=$(prefer audio)  || cmd=$(first "mpv" "vlc" "ffplay") ;;
+  archive) cmd=$(prefer archive) || cmd=$(first "xarchiver" "file-roller" "ark") ;;
   *) echo "null-open: unknown role $role" >&2; exit 2 ;;
 esac
 [ -n "${cmd:-}" ] || { echo "null-open: nothing installed for role $role" >&2; exit 1; }

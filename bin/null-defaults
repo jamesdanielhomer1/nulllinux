@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# What opens what (NULL.md §8.4).
+#
+# IT OWNS ALMOST NOTHING. For a kind of file the desktop's own registry has the
+# answer: xdg-mime reads and writes ~/.config/mimeapps.list, and the file
+# manager, the browser and every picker consult that same file -- so this asks
+# it and tells it. Two roles have no MIME type, because they are not files: the
+# terminal and the editor. Those two are one line each in
+# ~/.config/nulllinux/defaults, and bin/null-open reads them.
+#
+# THE ROLE KEYS ARE null-open's ROLES (dir, editor, image, pdf, video, audio,
+# archive), so null-open can ask `null-defaults resolve <role>` and honour a
+# person's choice before its own order of preference. The two extra keys --
+# browser and terminal -- are things the desktop opens that null-open does not.
+# A friendlier word is shown for the three whose role key reads oddly (dir is
+# "files", image is "images", audio is "music").
+#
+# WHY THIS EXISTS. On the build host a PDF or a screenshot opened from the file
+# manager landed in the BROWSER: the distribution's mimeapps.list names viewers
+# this system does not install (eog, evince), and the fallback after those is
+# whichever entry claims the type first -- Firefox. Nothing in the desktop said
+# so, and nothing let a person change it. config/mimeapps.list now ships the
+# right answer system-wide, and this reads and changes a person's own.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/nulllinux/defaults"
+APPDIRS=(/usr/share/applications /usr/local/share/applications
+         "$HOME/.local/share/applications" /var/lib/flatpak/exports/share/applications)
+# Order is the order they are shown: the everyday ones first.
+ROLES="browser dir terminal editor image pdf video audio archive"
+U="--"
+
+# The word a person reads for a role whose key reads oddly.
+label() {
+  case $1 in dir) echo files ;; image) echo images ;; audio) echo music ;; *) echo "$1" ;; esac
+}
+
+# The MIME types a role answers for. The FIRST is the one asked about; a default
+# is written for ALL of them, because a viewer set for application/pdf alone
+# leaves the next kind of document opening somewhere else. terminal and editor
+# have none -- they are not files.
+mimes() {
+  case $1 in
+    browser) echo "text/html x-scheme-handler/http x-scheme-handler/https" ;;
+    dir)     echo "inode/directory" ;;
+    image)   echo "image/png image/jpeg image/gif image/webp image/bmp image/tiff image/svg+xml" ;;
+    pdf)     echo "application/pdf" ;;
+    video)   echo "video/mp4 video/x-matroska video/webm video/quicktime video/x-msvideo" ;;
+    audio)   echo "audio/mpeg audio/flac audio/ogg audio/x-wav audio/mp4 audio/aac" ;;
+    archive) echo "application/zip application/x-tar application/gzip application/x-xz application/zstd application/x-7z-compressed application/vnd.rar" ;;
+    *) return 1 ;;
+  esac
+}
+
+# The programs that could be the terminal or the editor, in null-open's order of
+# preference. vi is here because vim-minimal from @core provides it and no
+# `vim`; nano first because it is the one the package list declares.
+progs() {
+  case $1 in
+    terminal) echo "foot alacritty kitty wezterm gnome-terminal xterm" ;;
+    editor)   echo "nano nvim vim vi micro hx emacs" ;;
+  esac
+}
+
+# A field of a desktop entry, read from the file rather than guessed from its id.
+entry_field() {  # <id.desktop> <Key>
+  local d f
+  for d in "${APPDIRS[@]}"; do
+    f="$d/$1"; [ -r "$f" ] || continue
+    awk -F= -v k="$2" '/^\[Desktop Entry\]/{s=1;next} /^\[/{s=0} s&&$1==k{sub(/^[^=]*=/,""); print; exit}' "$f"
+    return 0
+  done
+  return 1
+}
+
+# A desktop entry's command with the field codes removed: %f %u and friends are
+# placeholders for the file the caller appends, and flatpak's @@ markers bracket
+# them.
+entry_exec() {  # <id.desktop>
+  local e; e=$(entry_field "$1" Exec) || return 1
+  local w out=
+  for w in $e; do case $w in %*|@@*) ;; *) out="$out${out:+ }$w" ;; esac; done
+  printf '%s\n' "$out"
+}
+
+get() {  # <role> -> what is SET: a desktop id, or a program; nothing when unset
+  case $1 in
+    terminal|editor) sed -n "s/^${1^^}=//p" "$CONF" 2>/dev/null | tail -1 ;;
+    *) local m; m=$(mimes "$1") || return 2
+       xdg-mime query default "${m%% *}" 2>/dev/null ;;
+  esac
+}
+
+# What would OPEN: the setting when it names something installed, else the first
+# installed candidate. null-open runs exactly this before its own list.
+resolve() {  # <role> -> a command
+  local role=$1 v p
+  case $role in
+    terminal|editor)
+      v=$(get "$role")
+      [ -n "$v" ] && command -v "$v" >/dev/null 2>&1 && { echo "$v"; return 0; }
+      for p in $(progs "$role"); do command -v "$p" >/dev/null 2>&1 && { echo "$p"; return 0; }; done
+      return 1 ;;
+    *)
+      v=$(get "$role") || return 2
+      [ -n "$v" ] || return 1
+      entry_exec "$v" ;;
+  esac
+}
+
+# What could answer for a role. For a MIME role, every desktop entry whose
+# MimeType names the role's first type -- NoDisplay entries INCLUDED: imv and
+# zathura hide themselves from the launcher because they want a file argument,
+# and they are exactly the handlers wanted here. Rows are id<TAB>name.
+candidates() {  # <role>
+  case $1 in
+    terminal|editor)
+      local p; for p in $(progs "$1"); do
+        command -v "$p" >/dev/null 2>&1 && printf '%s\t%s\n' "$p" "$p"
+      done ;;
+    *)
+      local m; m=$(mimes "$1") || return 2
+      python3 - "${m%% *}" "${APPDIRS[@]}" <<'PY'
+import configparser, os, sys
+mime, dirs = sys.argv[1], sys.argv[2:]
+seen = set()
+for d in dirs:
+    if not os.path.isdir(d):
+        continue
+    for f in sorted(os.listdir(d)):
+        if not f.endswith('.desktop') or f in seen:
+            continue
+        c = configparser.RawConfigParser(strict=False, interpolation=None)
+        try:
+            c.read(os.path.join(d, f), encoding='utf-8')
+            e = c['Desktop Entry']
+        except Exception:
+            continue
+        if mime in [m for m in e.get('MimeType', '').split(';') if m]:
+            seen.add(f)
+            print('%s\t%s' % (f, e.get('Name', f[:-8])))
+PY
+      ;;
+  esac
+}
+
+shown() {  # <role> -> the name a person reads for what is set
+  local role=$1 v
+  case $role in
+    terminal|editor) resolve "$role" 2>/dev/null || echo "$U" ;;
+    *) v=$(get "$role" 2>/dev/null)
+       [ -n "$v" ] && { entry_field "$v" Name 2>/dev/null || echo "$v"; } || echo "$U" ;;
+  esac
+}
+
+set_default() {  # <role> <id.desktop | program>
+  local role=$1 pick=$2 m
+  case $role in
+    terminal|editor)
+      command -v "$pick" >/dev/null 2>&1 || { echo "null-defaults: $pick is not installed" >&2; return 1; }
+      mkdir -p "$(dirname "$CONF")"
+      { grep -v "^${role^^}=" "$CONF" 2>/dev/null; echo "${role^^}=$pick"; } > "$CONF.tmp" \
+        && mv -f "$CONF.tmp" "$CONF"
+      echo "$(label "$role") is $pick" ;;
+    browser)
+      # The browser is also every http and https link, and xdg-settings knows
+      # all the places that has to be written.
+      xdg-settings set default-web-browser "$pick" 2>/dev/null \
+        || { echo "null-defaults: could not make $pick the browser" >&2; return 1; }
+      echo "browser is $(entry_field "$pick" Name 2>/dev/null || echo "$pick")" ;;
+    *)
+      m=$(mimes "$role") || { echo "null-defaults: no such role '$role'" >&2; return 2; }
+      # shellcheck disable=SC2086
+      xdg-mime default "$pick" $m 2>/dev/null \
+        || { echo "null-defaults: xdg-mime refused $pick for $role" >&2; return 1; }
+      echo "$(label "$role") is $(entry_field "$pick" Name 2>/dev/null || echo "$pick")" ;;
+  esac
+}
+
+case "${1:-show}" in
+  show)       for r in $ROLES; do printf '%s\t%s\n' "$(label "$r")" "$(shown "$r")"; done ;;
+  roles)      echo "$ROLES" ;;
+  label)      label "${2:?role}" ;;
+  get)        get "${2:?role}" ;;
+  shown)      shown "${2:?role}" ;;
+  resolve)    resolve "${2:?role}" ;;
+  candidates) candidates "${2:?role}" ;;
+  set)        set_default "${2:?role}" "${3:?what}" ;;
+  -h|--help|help)
+    cat <<USAGE
+usage: null-defaults [show|roles|get ROLE|shown ROLE|resolve ROLE|candidates ROLE|set ROLE WHAT]
+  roles: $ROLES
+  show        every role and what opens it
+  get         what is set for a role (a desktop id, or a program)
+  shown       the same, as a name a person reads
+  resolve     the command that would open the role (what null-open runs)
+  candidates  what is installed that could, id and name, tab separated
+  set         make WHAT the default for ROLE
+USAGE
+    ;;
+  *) echo "null-defaults: unknown verb '$1'" >&2; exit 2 ;;
+esac

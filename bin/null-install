@@ -372,6 +372,8 @@ for entry in \
     "systemd/10-null-lid.conf|/etc/systemd/logind.conf.d/10-null-lid.conf" \
     "vconsole/vtrgb|/etc/vconsole/vtrgb" \
     "nano/nanorc|/etc/nanorc" \
+    "firefox/policies.json|/etc/firefox/policies/policies.json" \
+    "mimeapps.list|/etc/xdg/mimeapps.list" \
   ; do
   from=${entry%%|*}; to=${entry##*|}
   src="$ROOT/config/$from"
