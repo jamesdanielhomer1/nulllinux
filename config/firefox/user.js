@@ -4,12 +4,8 @@
 // Without this the chrome stylesheet is ignored ENTIRELY and in silence.
 user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
 
-// The empty state, drawn as text from the same crop as every other still.
-user_pref("browser.startup.homepage", "file:///opt/nulllinux/config/firefox/newtab.html");
-user_pref("browser.newtabpage.enabled", false);
-user_pref("browser.newtab.url", "file:///opt/nulllinux/config/firefox/newtab.html");
-
-// Slop the chrome rules cannot reach, because it is generated content.
+// The new tab is the browser's STOCK page (James's choice, 2026-09-09): no
+// homepage or newtab override here. The prefs below only deslop that stock page.
 user_pref("browser.newtabpage.activity-stream.feeds.topsites", false);
 user_pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);
 user_pref("browser.newtabpage.activity-stream.showSponsored", false);

@@ -23,8 +23,6 @@ sticker with its own.
 """
 
 import json
-import re
-import subprocess
 from pathlib import Path
 
 # The repository root from THIS file's location, not the working directory.
@@ -33,48 +31,7 @@ from pathlib import Path
 # pointing at a path that no longer existed.
 ROOT = Path(__file__).resolve().parent.parent
 
-RENDER = "render/target/release/render"
-SGR = re.compile(r"\x1b\[38;2;(\d+);(\d+);(\d+)m")
-# Everything else the renderer emits -- resets above all. Matching only the
-# colour sequences leaves the resets in the output as literal "[0m", because
-# the ESC itself is non-printing and the bracket is not.
-OTHER_ESC = re.compile(r"\x1b\[[0-9;]*m")
 FONT = '"Terminus (TTF)", "Terminus", monospace'
-
-
-def hero_html(cells="assets/logo.cells"):
-    """One frame of the hero, as coloured HTML text."""
-    out = "/tmp/null-web-still.ans"
-    subprocess.run([RENDER, "--file", cells, "still", "--frame", "0", "--out", out],
-                   check=True, capture_output=True)
-    raw = Path(out).read_text()
-    Path(out).unlink(missing_ok=True)
-
-    lines = []
-    for row in raw.split("\n"):
-        parts, pos, cur = [], 0, None
-        for m in SGR.finditer(row):
-            text = row[pos:m.start()]
-            if text:
-                parts.append((cur, text))
-            cur = "#%02x%02x%02x" % tuple(int(g) for g in m.groups())
-            pos = m.end()
-        if row[pos:]:
-            parts.append((cur, row[pos:]))
-        html = "".join(
-            (f'<span style="color:{c}">{esc(OTHER_ESC.sub("", t))}</span>'
-             if c else esc(OTHER_ESC.sub("", t)))
-            for c, t in parts)
-        lines.append(html)
-    while lines and not lines[0].strip():
-        lines.pop(0)
-    while lines and not lines[-1].strip():
-        lines.pop()
-    return "\n".join(lines)
-
-
-def esc(s):
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def main():
@@ -83,17 +40,12 @@ def main():
     out = Path("config/firefox")
     (out / "chrome").mkdir(parents=True, exist_ok=True)
 
-    # ------------------------------------------------------------ empty state
-    (out / "newtab.html").write_text(f"""<!doctype html>
-<meta charset="utf-8"><title>nullLinux</title>
-<style>
-  html, body {{ margin:0; height:100%; background:{r['background']}; }}
-  body {{ display:flex; align-items:center; justify-content:center; }}
-  pre  {{ font-family:{FONT}; font-size:15px; line-height:1.0;
-          margin:0; color:{r['neutral']}; }}
-</style>
-<body><pre>{hero_html()}</pre></body>
-""")
+    # NO CUSTOM NEW TAB. This once wrote a newtab.html (the hero, as text) and
+    # wired it as both the home page and the new-tab page. James asked for the
+    # STOCK new tab instead (2026-09-09) -- the browser's own page is the one his
+    # muscle memory expects -- so the file is not generated and the prefs below
+    # do not point at it. The chrome theming (userChrome/userContent) and the
+    # deslopping prefs stay; only the page override is gone.
 
     # ---------------------------------------------------------------- chrome
     (out / "chrome" / "userChrome.css").write_text(f"""\
@@ -173,12 +125,8 @@ def main():
 // Without this the chrome stylesheet is ignored ENTIRELY and in silence.
 user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
 
-// The empty state, drawn as text from the same crop as every other still.
-user_pref("browser.startup.homepage", "file://{ROOT}/config/firefox/newtab.html");
-user_pref("browser.newtabpage.enabled", false);
-user_pref("browser.newtab.url", "file://{ROOT}/config/firefox/newtab.html");
-
-// Slop the chrome rules cannot reach, because it is generated content.
+// The new tab is the browser's STOCK page (James's choice, 2026-09-09): no
+// homepage or newtab override here. The prefs below only deslop that stock page.
 user_pref("browser.newtabpage.activity-stream.feeds.topsites", false);
 user_pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);
 user_pref("browser.newtabpage.activity-stream.showSponsored", false);
@@ -308,8 +256,6 @@ user_pref("font.default.x-western", "monospace");
 user_pref("font.size.monospace.x-western", 14);
 """)
 
-    n = len((out / "newtab.html").read_text().split("\n"))
-    print(f"  config/firefox/newtab.html          {n} lines, hero as text")
     print("  config/firefox/chrome/userChrome.css  default-deny chrome")
     print("  config/firefox/chrome/userContent.css scoped to about: pages")
     print("  config/firefox/user.js                prefs")
