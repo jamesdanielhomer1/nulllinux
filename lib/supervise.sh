@@ -20,6 +20,10 @@ declare -A GEOM=()       # output name -> WxH it was started for
 _supervise_cleanup() {
   local p
   for p in "${CHILD[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
+  # Remove the pidfile only if it is still OURS -- a newer supervisor that just
+  # displaced us already owns it and must not have it deleted from under it.
+  [ "$(cat "${XDG_RUNTIME_DIR:-/tmp}/$TAG.pid" 2>/dev/null || true)" = "$$" ] \
+    && rm -f "${XDG_RUNTIME_DIR:-/tmp}/$TAG.pid"
   exit 0
 }
 
@@ -75,6 +79,25 @@ reconcile() {
 }
 
 supervise() {
+  # ONE SUPERVISOR PER SESSION. exec_always re-runs the caller on EVERY
+  # compositor reload, and killing the stray daemons (as the caller does) is not
+  # enough: the PREVIOUS supervisor is still alive, so it reconciles and respawns
+  # its surfaces, and each reload stacks another set -- the bar drawn four times
+  # after four reloads. So a fresh copy displaces the previous supervisor by
+  # pidfile (per $TAG); killing it fires the EXIT trap that takes its surfaces
+  # down. The cmdline is checked too, since pids are recycled, and it is exactly
+  # the displacement the column and dwindle supervisors already do.
+  local pidfile="${XDG_RUNTIME_DIR:-/tmp}/$TAG.pid" old i
+  if [ -r "$pidfile" ]; then
+    old=$(cat "$pidfile" 2>/dev/null || true)
+    if [ -n "${old:-}" ] && [ "$old" != "$$" ] && kill -0 "$old" 2>/dev/null \
+       && tr '\0' ' ' < "/proc/$old/cmdline" 2>/dev/null | grep -q "$TAG"; then
+      kill "$old" 2>/dev/null || true
+      for i in 1 2 3 4 5; do kill -0 "$old" 2>/dev/null || break; sleep 0.1; done
+    fi
+  fi
+  echo $$ > "$pidfile"
+
   trap _supervise_cleanup EXIT INT TERM
   reconcile
 
