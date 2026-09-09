@@ -322,8 +322,8 @@ act_POWER() {
       systemctl kill -s HUP systemd-logind 2>/dev/null || true ;;
     IDLE) local c; c=$(pick_value idle "the whole ladder -- timings are kept either way" on off) || return 0
           case $c in
-            on)  [ "$("$B/null-idle" state)" = off ] && "$B/null-idle" toggle >/dev/null 2>&1 ;;
-            off) [ "$("$B/null-idle" state)" = on  ] && "$B/null-idle" toggle >/dev/null 2>&1 ;;
+            on)  [ "$("$B/null-idle" state)" != on ] && "$B/null-idle" toggle >/dev/null 2>&1 ;;
+            off) [ "$("$B/null-idle" state)"  = on ] && "$B/null-idle" toggle >/dev/null 2>&1 ;;
           esac ;;
     IDLE-*)
       local stage; stage=$(tr '[:upper:]' '[:lower:]' <<<"${1#IDLE-}")
