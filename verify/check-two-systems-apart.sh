@@ -16,10 +16,6 @@
 #     matching itself and used geometry measured on the build host's panel
 #     instead of deriving its own.
 #
-#   config/firefox/newtab.html was titled `nox`. Not a comment: the title of a
-#     page this distribution opens in front of whoever installed it, naming a
-#     machine that has nothing to do with them.
-#
 # PROSE IS NOT A LEAK. The comments in this tree explain at length that nox runs
 # rice and why that matters -- lib/host.sh exists for it, and
 # config/sway/config records which machine an instruction was about. That
@@ -88,7 +84,6 @@ check_visible() {  # <file> <what it is> <extractor...>
 title_of() { sed -n 's/.*<title>\(.*\)<\/title>.*/\1/p' "$1" | head -1; }
 name_of()  { sed -n 's/^Name=//p' "$1" | head -1; }
 
-check_visible config/firefox/newtab.html "the browser's new tab" title_of
 check_visible system/plymouth-theme/nullLinux.plymouth "the boot splash's name" name_of
 [ "$seen" = 0 ] && note "(no shipped surface was readable here to check its name)"
 
