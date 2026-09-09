@@ -95,6 +95,29 @@ passwd -d live 2>/dev/null || true
 echo 'live ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/live-nulllinux
 chmod 0440 /etc/sudoers.d/live-nulllinux
 
+# THE GREETER STANDS DOWN ON THE LIVE BOOT, AND ONLY THERE. The package Requires
+# sddm, and Fedora's 85-display-manager.preset enables sddm.service the moment
+# it is installed; sddm then takes VT1 -- the very console the autologin below
+# owns. On the first image built with the 2026-09-09 package that race went to
+# sddm: the live image booted to a login screen, for a user that deliberately
+# has no password. A dead end, for a stranger with a USB stick.
+#
+# Not `systemctl disable`: a live image boots as a first boot every time, and
+# systemd may re-apply the presets and enable sddm again. Not `mask` either:
+# liveinst copies this filesystem onto the installed disk, and a mask would
+# ride along and leave the installed machine with no greeter. A CONDITION:
+# rd.live.image is on the kernel command line only when this image boots as
+# the live medium, so sddm skips itself there and runs everywhere else.
+mkdir -p /etc/systemd/system/sddm.service.d
+cat > /etc/systemd/system/sddm.service.d/live.conf <<'LIVE'
+[Unit]
+ConditionKernelCommandLine=!rd.live.image
+LIVE
+
+# Its own name. `network --hostname` above names the build-time environment
+# anaconda runs in, not the image: the live session came up as "localhost".
+echo nulllinux > /etc/hostname
+
 # Autologin into sway on tty1. A live image that stops at a text prompt has
 # failed at the only job a live image has.
 mkdir -p /etc/systemd/system/getty@tty1.service.d
@@ -154,7 +177,12 @@ if [ -z "$WAYLAND_DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
       | tee /run/nulllinux-install-failed >&2
     sleep 5
   fi
-  exec sway
+  # THE PRODUCT'S SESSION, not bare sway. null-session is what the greeter
+  # runs on an installed machine: it sets GTK_THEME, the cursor,
+  # MOZ_ENABLE_WAYLAND and the desktop's own name before becoming sway. Bare
+  # `sway` here gave a live desktop whose applications were unthemed -- the
+  # exact defect the build host had when it booted the plain Sway session.
+  exec /opt/nulllinux/bin/null-session
 fi
 PROF
 chown live:live /home/live/.bash_profile
