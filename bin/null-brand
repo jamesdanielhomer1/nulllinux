@@ -57,7 +57,7 @@ resolve_version() {
   return 0
 }
 resolve_version
-URL=https://github.com/jamesdanielhomer/nulllinux
+URL=https://github.com/jamesdanielhomer1/nulllinux
 SAVED=/usr/lib/os-release.fedora
 
 die() { printf 'null-brand: %s\n' "$*" >&2; exit 1; }

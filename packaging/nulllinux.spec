@@ -29,7 +29,7 @@ Summary:        A desktop where every surface is one baked artefact
 # glyph bitmaps derived from Terminus, which is OFL. The field has to be true
 # rather than convenient -- rpmlint and Fedora's review both check it.
 License:        MIT AND OFL-1.1
-URL:            https://github.com/jamesdanielhomer/nulllinux
+URL:            https://github.com/jamesdanielhomer1/nulllinux
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}-prebuilt-%{version}.tar.gz
 

@@ -285,7 +285,7 @@ mkdir -p /usr/share/nulllinux
   echo "    $(/opt/nulllinux/bin/pkg source-command)"
   echo
   echo "  nulllinux's own source is MIT and is at:"
-  echo "    https://github.com/jamesdanielhomer/nulllinux"
+  echo "    https://github.com/jamesdanielhomer1/nulllinux"
   echo
   echo "WRITTEN OFFER"
   echo
