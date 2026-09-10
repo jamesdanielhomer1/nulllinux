@@ -311,7 +311,14 @@ impl Lock {
             let _ = neutral;
         }
 
+        // Damage the whole surface before committing. Without this the compositor
+        // presents the first frame and then ignores every later buffer swap: the
+        // hero freezes and the typed-password mask never appears (you can still
+        // unlock -- the buffer fills -- but nothing repaints). Every other renderer
+        // (layershell, bar, column) damages here; the lock was the one that forgot.
+        // Buffer coordinates, whole surface.
         let surface = self.surfaces[i].lock_surface.wl_surface().clone();
+        surface.damage_buffer(0, 0, w as i32, h as i32);
         surface.frame(qh, surface.clone());
         buffer.attach_to(&surface).ok();
         surface.commit();
