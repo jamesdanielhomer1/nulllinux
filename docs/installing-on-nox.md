@@ -26,36 +26,24 @@ has been exercised on the metal.
 
 ## Before anything is erased
 
-**1. The project has to exist somewhere else.** There is no git remote. The
-only copy of this repository is `/opt/nulllinux` on the disk the install will
-wipe, along with `assets/prebuilt/` (generated, not committed) and
-`/var/lib/nulllinux-iso`.
+**1. The project already exists off this machine — confirm it.** The source is
+on GitHub (`github.com/jamesdanielhomer1/nulllinux`, pushed after every commit),
+and the one artefact a T480 cannot regenerate — the 423 MB HDR raytraced master
+— is a release asset there (`null-master-0.1.0.tar.gz`), with a restore proven
+from GitHub alone: clone, `gh release download`, `sha256sum -c`, then
+`bin/null-prebake` regenerates `assets/prebuilt/` CPU-only. So a wipe is
+recoverable. Confirm HEAD is pushed and the release carries the current master
+before erasing anything.
 
-    git remote add origin <somewhere> && git push -u origin main
-
-If there is no remote to push to, one drive is enough for both halves:
+An **optional** second copy, onto one removable drive, for offline safety:
 
       bin/null-backup                      # reports; copies nothing
-      bin/null-backup /run/media/<drive>   # the master AND a bundle of the repo
+      bin/null-backup /run/media/<drive>   # the master AND a git bundle of the repo
 
-`null-backup` carries two things: the 423 MB HDR master, which cannot be
-regenerated on a T480 at all, and a `git bundle` of the whole history -- because
-"everything else is derivable" is only true while the source still exists, and
-the source is on the disk being erased. Both are verified after writing,
-`sha256sum -c` against the manifest and `git bundle verify`.
-
-**Commit first.** A bundle carries commits, so anything uncommitted is not in
-it. The tool says so when the tree is dirty; believe it.
-
-Restoring is:
-
-      git clone <drive>/nulllinux-<hash>.bundle nulllinux
-
-`null-backup` refuses a destination on this machine's own disk. That is the
-right refusal and also why it has never run: nothing removable has been
-attached. Both paths -- the refusal, and a real copy across a device boundary
-that was then restored and re-checked -- were exercised against a loopback
-filesystem.
+`null-backup` refuses a destination on this machine's own disk, and verifies
+what it writes (`sha256sum -c` against the manifest, `git bundle verify`). Commit
+first — a bundle carries only committed history. Restoring is `git clone
+<drive>/nulllinux-<hash>.bundle nulllinux`.
 
 **2. Write the medium, and check it against what built it.**
 
@@ -115,18 +103,20 @@ Then check the things that have been wrong before:
     systemctl --failed            empty
     null-outputs list             one screen, and no arrangement needed yet
 
-The boot splash is **not** applied by the install. It rewrites an initramfs,
-which is the one step that can leave a machine unbootable, and this system has
-one ordinary kernel — so the rescue entry is the only way back. Confirm the
-fallback first, on the metal, and only then:
+The boot splash is **baked into the install** — the installer sets the nullLinux
+plymouth theme and rebuilds the initramfs to contain it, so it draws from the
+first boot (verified in a guest: 23 theme files in the initramfs, default theme
+`nullLinux`). Nothing to apply by hand. Confirm it drew; and because rewriting an
+initramfs is the one step that can leave a machine unbootable, and this system
+has one ordinary kernel, confirm the rescue entry still boots as a standing
+safety:
 
-    grub2-reboot 1 && systemctl reboot     # boot the rescue entry
+    grub2-reboot 1 && systemctl reboot     # boot the rescue entry once
     # confirm it reaches a running system, then reboot normally
-    null-system plymouth --check
-    null-system plymouth --apply --fallback-verified
 
-`--apply` reads the rebuilt image back and puts the old theme back if the new
-one is not in it.
+`null-system plymouth --apply --fallback-verified` remains for RE-applying the
+splash (say, after a theme change): it reads the rebuilt image back and restores
+the previous theme if the new one is not in it.
 
 ## And afterwards it is portable
 
