@@ -31,6 +31,7 @@ note() { printf '  %s\n' "$*"; }
 declare -A CARRIED=(
   [dunst]="null-install:/etc/xdg/dunst:dunst|/etc/xdg/dunst/"
   [foot]="null-install:/etc/xdg/foot:foot|/etc/xdg/foot/"
+  [fastfetch]="null-install:/etc/xdg/fastfetch:fastfetch|/etc/xdg/fastfetch/"
   [mpv]="null-install:/etc/mpv:mpv|/etc/mpv/"
   [imv]="null-install:/etc/imv_config:imv/config|/etc/imv_config"
   [zathura]="null-install:/etc/zathurarc:zathura/zathurarc|/etc/zathurarc"

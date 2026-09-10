@@ -82,3 +82,16 @@ export SUDO_EDITOR="$EDITOR"
 # --- paths -------------------------------------------------------------
 case ":$PATH:" in *":$NULL_ROOT/bin:"*) ;; *) PATH="$NULL_ROOT/bin:$PATH" ;; esac
 export PATH
+
+# --- the greeting ------------------------------------------------------
+#
+# fastfetch when a person opens a terminal: the hero and the machine's
+# particulars, themed from the palette (config/fastfetch). ASCII-only, like the
+# rest of this file. Guarded so it draws once for an interactive terminal and
+# never in a script, a pipe, or a nested shell -- NULL_GREETED is exported, so
+# child shells inherit "already shown" while a fresh terminal starts without it.
+if [[ $- == *i* ]] && [ -t 1 ] && [ -z "${NULL_GREETED:-}" ] \
+   && command -v fastfetch >/dev/null 2>&1; then
+  export NULL_GREETED=1
+  fastfetch
+fi

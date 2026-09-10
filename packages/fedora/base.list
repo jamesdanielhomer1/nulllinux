@@ -310,6 +310,13 @@ bc                              # the calculator component (NULL.md 8.4) is a
 # default. Anyone who wants it installs it and null-open picks it up first.
 nano
 
+# --- the login greeting --------------------------------------------------
+#
+# fastfetch draws the hero and the machine's particulars when a terminal opens
+# (config/fastfetch, run from config/shell/null.sh). Themed from the palette and
+# ASCII-only; its logo is a still frame of the same hero everything else draws.
+fastfetch
+
 # --- printing ------------------------------------------------------------
 #
 # There was no printing of any kind. GTK's print dialog talks to CUPS, so with

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/master/doc/json_schema.json",
+
+  // nullLinux fastfetch.
+  //
+  // The logo is a still frame of the hero, rendered from assets/logo.cells by
+  // bake/make_fastfetch_logo.py -- the same identity everything else draws, and
+  // coloured from the blackbody palette rather than by hand.
+  //
+  // Key colour is the ANSI index the accent occupies (regular4 / "blue" -> the
+  // #b9ccff of config/foot/foot.ini), so it resolves through this system's own
+  // console palette on any terminal instead of a pinned hex. Values take the
+  // terminal foreground (neutral). No colour here is chosen; every one is a slot.
+  "logo": {
+    "type": "file-raw",
+    "source": "/etc/xdg/fastfetch/logo.txt",
+    "padding": { "top": 1, "left": 2, "right": 3 }
+  },
+
+  "display": {
+    "separator": "  ",
+    "color": { "keys": "blue", "title": "blue" }
+  },
+
+  "modules": [
+    "title",
+    "separator",
+    "os",
+    "host",
+    "kernel",
+    "uptime",
+    "packages",
+    "shell",
+    "wm",
+    "terminal",
+    "cpu",
+    "memory",
+    "disk",
+    "break",
+    "colors"
+  ]
+}

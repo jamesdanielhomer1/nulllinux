@@ -370,6 +370,7 @@ for entry in \
     "nano/nanorc|/etc/nanorc" \
     "firefox/policies.json|/etc/firefox/policies/policies.json" \
     "mimeapps.list|/etc/xdg/mimeapps.list" \
+    "fastfetch|/etc/xdg/fastfetch/" \
   ; do
   from=${entry%%|*}; to=${entry##*|}
   src="$ROOT/config/$from"
