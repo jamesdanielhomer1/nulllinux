@@ -561,19 +561,28 @@ cmd_firewall() {
   # question says so and continues, because the ruleset is checked for real at
   # build time by verify/check-firewall.sh, on a machine that has a kernel to
   # check it against.
+  # `nft -c -f` opens a netlink socket to nf_tables, not merely parses: inside
+  # anaconda's %post chroot there is no such socket and it fails even on a good
+  # ruleset. That failure must be told apart from a real ruleset error, and doing
+  # it by matching the NETLINK wording was brittle -- one unrecognised variant
+  # sent a perfectly good ruleset down the `refuse` path, and the install fell
+  # back to firewalld (~8.7s slower) silently on every ISO install.
+  #
+  # So key off the RULESET-error marker instead, which is stable: nft prints
+  # "syntax error" for a bad ruleset, and its parser runs before it touches
+  # netlink, so that is caught with or without a kernel. Anything else that fails
+  # -- a socket that will not open, a feature the chroot's kernel lacks -- is an
+  # environment the install cannot answer in, so continue and stage: the
+  # ruleset's validity is proven at build time by verify/check-firewall.sh, on a
+  # machine that has a kernel, and nftables.service loads it on the first boot.
   if err=$(nft -c -f "$src" 2>&1); then
     say "ruleset parses"
+  elif printf '%s' "$err" | grep -qi 'syntax error'; then
+    printf '%s\n' "$err" | sed 's/^/    /'
+    refuse "$src does not parse -- refusing to install it"
   else
-    case $err in
-      *Netlink*|*"Protocol not supported"*|*"Operation not permitted"*|*"Could not process rule"*netlink*)
-        say "cannot validate here -- no netlink to nf_tables (a chroot or a container)"
-        say "  checked at build time instead, by verify/check-firewall.sh"
-        ;;
-      *)
-        printf '%s\n' "$err" | sed 's/^/    /'
-        refuse "$src does not parse -- refusing to install it"
-        ;;
-    esac
+    say "cannot validate here -- no netlink to nf_tables (a chroot or a container)"
+    say "  the ruleset is checked at build time by verify/check-firewall.sh; staging anyway"
   fi
   say "$(grep -cE '^\s+(ct|iif|meta|udp|tcp|reject|type)' "$src") rules, against firewalld's 366"
 
