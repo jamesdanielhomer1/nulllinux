@@ -3,26 +3,27 @@
 # TWO HALVES, AND THE SPLIT IS FORCED BY HARDWARE.
 #
 # Everything machine-INDEPENDENT is done here, at build time: the renderer is
-# compiled, and the expensive raytraced hero comes in prebuilt (Source1),
-# because tracing is 0.39 s a frame on a discrete GPU and 28.27 s a frame on
-# software Vulkan -- two minutes against two hours. A virtual machine or a
-# headless install cannot be asked to bake its own.
+# compiled, and the expensive raytraced hero comes in prebuilt (Source1).
+# The installed renderer derives display grids from this master without
+# tracing the scene again. Baking requires a Vulkan adapter; software Vulkan
+# works but its cost depends on the build host.
 #
 # Everything machine-DEPENDENT waits for first boot, because it cannot be known
 # before then. The machine profile is generated from the attached display, and
 # there is no display in a build chroot; the atlas and the hero are chosen by
 # the strike that profile selects. So the package ships every strike's atlas
-# (nine, about 400 kB) and the hero for the four bake strikes that real panel
-# sizes actually select, and first boot picks.
+# and hero animations for all nine supported strikes, and first boot picks.
 #
-# The target needs NO compiler, NO python, and NO GPU.
+# Fedora 44 supplies Python 3.14 for runtime helpers. The target needs no
+# compiler or raytracing GPU; the desktop renderer still needs its normal
+# Wayland graphics support.
 
 %global debug_package %{nil}
 %global _prefix /opt
 
 Name:           nulllinux
 Version:        0.1.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        A desktop where every surface is one baked artefact
 
 # MIT for this project's own code; OFL-1.1 because assets/atlas-*.bin are
@@ -32,6 +33,7 @@ License:        MIT AND OFL-1.1
 URL:            https://github.com/jamesdanielhomer1/nulllinux
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}-prebuilt-%{version}.tar.gz
+Source2:        %{name}-build-info.json
 
 ExclusiveArch:  x86_64
 
@@ -40,6 +42,10 @@ BuildRequires:  rust
 BuildRequires:  cargo
 BuildRequires:  systemd-rpm-macros
 BuildRequires:  pam-devel
+# zstd-sys builds bundled C; SCTK's default xkbcommon feature probes pkg-config.
+BuildRequires:  gcc
+BuildRequires:  pkgconf-pkg-config
+BuildRequires:  libxkbcommon-devel
 
 # Runtime. GENERATED from packages/fedora/base.list by bin/null-package, and
 # checked by verify/check-package-list.sh.
@@ -114,6 +120,7 @@ Requires:       playerctl
 Requires:       plymouth-plugin-two-step
 Requires:       polkit
 Requires:       power-profiles-daemon
+Requires:       python3
 Requires:       qcom-firmware
 Requires:       realtek-firmware
 Requires:       samba-client
@@ -168,8 +175,8 @@ tar -xzf %{SOURCE1} -C .
 %build
 # The renderer only. Every asset that could be built here is either already in
 # Source1 or is cheap enough to do at first boot.
-cargo build --release --manifest-path render/Cargo.toml --offline || \
-  cargo build --release --manifest-path render/Cargo.toml
+cargo build --locked --release --manifest-path render/Cargo.toml --offline || \
+  cargo build --locked --release --manifest-path render/Cargo.toml
 
 %install
 install -d %{buildroot}%{_prefix}/%{name}
@@ -185,6 +192,7 @@ install -d %{buildroot}%{_prefix}/%{name}
 # host has and an installed machine does not.
 cp -a bin lib bake config machines packages verify docs assets NULL.md README.md \
       %{buildroot}%{_prefix}/%{name}/
+install -m 0644 %{SOURCE2} %{buildroot}%{_prefix}/%{name}/BUILD-INFO.json
 
 # THE BUILD HOST'S MACHINE PROFILE DOES NOT TRAVEL.
 #
@@ -248,6 +256,9 @@ install -D -m 0644 packaging/nulllinux-netfilter-modules.service \
 # there is no display in the chroot an ISO is built in -- so the machine half
 # of the installation happens on the first boot that has one.
 systemctl enable nulllinux-machine-sync.service >/dev/null 2>&1 || :
+# Copied surfaces are outside the RPM payload. Refresh them on the next boot
+# after every install/reinstall/upgrade, even when the hardware is unchanged.
+rm -f /var/lib/nulllinux/surfaces-placed
 
 # THE UNIT WAS RENAMED (nulllinux-firstboot -> nulllinux-machine-sync), and a
 # rename is not a rename to systemd: upgrading leaves the old unit's enable
@@ -263,7 +274,7 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 # Branding belongs to the package, not to one image's kickstart: an installer
 # ISO, a live image and a plain `dnf install nulllinux` must all end up saying
 # the same thing.  It only rewrites /etc, never the fedora-release-owned file
-# in /usr, and %postun on final removal puts the distribution's own back.
+# in /usr, and %preun on final removal puts the distribution's own back.
 #
 # THE VERSION IS HANDED OVER, not looked up. This package IS the version the
 # machine is getting, so it says so: null-brand once carried its own copy of
@@ -273,13 +284,15 @@ NULL_VERSION=%{version} %{_prefix}/%{name}/bin/null-brand apply >/dev/null 2>&1 
 %preun
 %systemd_preun nulllinux-machine-sync.service
 
-%postun
 # $1 is the number of copies left after this transaction: 0 on removal, 1 on
 # upgrade.  Un-branding during an UPGRADE would leave the machine as Fedora
 # with nullLinux installed, so only do it when the package is really going.
+# Run while null-brand still exists; %postun runs after its file is erased.
 if [ "$1" = 0 ] && [ -x %{_prefix}/%{name}/bin/null-brand ]; then
   %{_prefix}/%{name}/bin/null-brand revert >/dev/null 2>&1 || :
 fi
+
+%postun
 
 %files
 # BOTH licences ship. The OFL text has to travel with the font-derived
@@ -292,6 +305,12 @@ fi
 %config(noreplace) %{_sysconfdir}/pam.d/null-lock
 
 %changelog
+* Fri Sep 11 2026 nullLinux maintainers - 0.1.0-2
+- Preserve installer credentials and fail closed on incomplete installation.
+- Refresh copied surfaces on upgrades and validate prebuilt asset provenance.
+- Publish only current build outputs and preserve the previous repository on failure.
+- Keep the previous firewall enabled until replacement rules are verified.
+
 * Wed Sep 09 2026 nullLinux <noreply@anthropic.com> - 0.1.0-1
 - First package. Ships the raytraced hero prebuilt for the four bake strikes
   real panels select, and every strike's atlas, so no installed machine needs

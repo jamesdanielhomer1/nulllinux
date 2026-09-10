@@ -5,8 +5,8 @@
 # statement anywhere of what order they run in -- the order lived in whoever
 # had run them last. A distribution cannot be installed by recalling that.
 #
-# Each stage declares WHAT IT PRODUCES. A stage whose outputs are all newer
-# than this tree's sources is skipped and says so, which is what makes this
+# Each stage declares its inputs and outputs. A stage whose content receipt
+# matches every input and output is skipped and says so, which makes this
 # safe to re-run and cheap to resume: the expensive one is the hero, and
 # nobody should pay for it twice by accident.
 #
@@ -27,7 +27,7 @@ for a in "$@"; do
 usage: null-build [--force] [--skip-hero] [--only=STAGE]
 
   Builds every derived asset in dependency order. Re-runnable: a stage whose
-  outputs are newer than its inputs is skipped.
+  declared inputs and outputs match its saved content receipt is skipped.
 
   --skip-hero   use the analytic placeholder instead of raytracing the Kerr
                 hero. Minutes instead of hours, and the desktop is complete
@@ -71,21 +71,22 @@ stage() {  # stage <name> <outputs...> -- <command...>
   cmd=("$@")
   if [ -n "$ONLY" ] && [ "$ONLY" != "$name" ]; then return 0; fi
 
-  # Fresh means: every output exists and is newer than every tracked source.
-  # `git ls-files` is the source list, so a stage cannot be fooled by its own
-  # output sitting in the same directory.
-  if [ "$FORCE" -eq 0 ] && [ ${#outs[@]} -gt 0 ]; then
-    local fresh=1 o
-    for o in "${outs[@]}"; do [ -e "$o" ] || { fresh=0; break; }; done
-    if [ "$fresh" -eq 1 ] && [ -z "$(find bake render/src machines -newer "${outs[0]}" -type f -print -quit 2>/dev/null)" ]; then
-      printf '  %-22s up to date\n' "$name"
-      return 0
-    fi
+  # Receipts cover source, data dependencies and every output member. Directory
+  # mtimes and the first output's timestamp cannot certify a complete stage.
+  local signature
+  signature=$(python3 bake/build_state.py fingerprint "$name" "${outs[@]}" -- "${cmd[@]}") || {
+    echo "  $name: cannot fingerprint inputs" >&2; fail=1; return 1;
+  }
+  if [ "$FORCE" -eq 0 ] && python3 bake/build_state.py fresh "$name" "$signature" \
+      "${outs[@]}" -- "${cmd[@]}"; then
+    printf '  %-22s up to date\n' "$name"
+    return 0
   fi
 
   printf '  %-22s ' "$name"
   local log; log=$(mktemp)
-  if "${cmd[@]}" >"$log" 2>&1; then
+  if "${cmd[@]}" >"$log" 2>&1 && python3 bake/build_state.py record "$name" "$signature" \
+      "${outs[@]}" -- "${cmd[@]}" >>"$log" 2>&1; then
     printf 'ok\n'
   else
     printf 'FAILED\n'
@@ -109,7 +110,10 @@ stage atlas-iface assets/atlas-interface.bin -- \
   python3 bake/bake_atlas.py --font "$(strike_psf "$STRIKE_IFACE")" --out assets/atlas-interface.bin
 stage atlas-bake  assets/atlas-bake.bin -- \
   python3 bake/bake_atlas.py --font "$(strike_psf "$STRIKE_BAKE")" --out assets/atlas-bake.bin
-stage theme config/sway/colours.conf -- python3 bake/export_theme.py
+stage theme config/sway/colours.conf config/foot/foot.ini config/shell/colours.sh \
+  config/vconsole/vtrgb config/nano/nanorc config/gtk-3.0/gtk.css \
+  config/gtk-3.0/settings.ini config/gtk-4.0/gtk.css config/gtk-4.0/settings.ini -- \
+  python3 bake/export_theme.py
 
 echo
 echo "the hero"
@@ -132,7 +136,7 @@ if [ "$SKIP_HERO" -eq 0 ] && [ "$FORCE" -eq 0 ] && [ -d "$PREBUILT" ]; then
   for f in master.cells target-2.cells target-4.cells tty.cells logo.cells ramp-bake.json; do
     [ -e "$PREBUILT/$f" ] && cp -a "$PREBUILT/$f" "assets/$f" && copied=$((copied+1))
   done
-  if [ "$copied" -ge 5 ]; then
+  if [ "$copied" -eq 6 ]; then
     printf 'ok  (%s files for %s -- the raytrace is not run)\n' "$copied" "$STRIKE_BAKE"
     SKIP_HERO=2      # 2 means "already have one", distinct from "asked to skip"
   else
@@ -145,15 +149,19 @@ fi
 if [ "$SKIP_HERO" -eq 2 ]; then
   :   # the hero is in place; nothing below it needs to run
 elif [ "$SKIP_HERO" -eq 1 ]; then
-  stage placeholder assets/placeholder.cells -- \
-    python3 bake/placeholder.py --out assets/placeholder.cells
+  build_placeholder() {
+    python3 bake/placeholder.py --out assets/placeholder.hdrcells &&
+    python3 bake/quantise.py --frames-dir assets/placeholder.hdrcells \
+      --out assets/placeholder.cells
+  }
+  stage placeholder assets/placeholder.cells -- build_placeholder
   echo "  (hero skipped: the placeholder stands in for it)"
 else
   # The GPU tracer is a Rust crate of its own and nothing else builds it. The
   # bake shells out to it, so a tree that has never built it fails at the most
   # expensive possible moment -- after the packages, the profile and the atlas.
   stage kerr-gpu bake/gpu/target/release/kerr-gpu -- \
-    cargo build --release --manifest-path bake/gpu/Cargo.toml
+    cargo build --locked --release --manifest-path bake/gpu/Cargo.toml
   stage hero assets/master.hdrcells -- python3 bake/bake.py --out assets/master.hdrcells
 
   # THE TONE CURVE IS SWEPT, NOT REMEMBERED.
@@ -186,8 +194,13 @@ else
 fi
 
 echo
+echo "the renderer"
+stage render render/target/release/render render/target/release/column -- \
+  cargo build --locked --release --manifest-path render/Cargo.toml
+
+echo
 echo "surfaces derived from the above"
-stage icons  assets/icons -- python3 bake/make_icons.py
+stage icons  assets/icons -- python3 bake/make_icons.py --out assets/icons
 # The boot surfaces are RASTERISED FROM THE HERO'S TARGETS, so they cannot be
 # built without one. This is not a missing feature of --skip-hero; it is what
 # --skip-hero means, and saying so is better than a stack trace about a
@@ -199,10 +212,6 @@ else
   # the boot surfaces can be rasterised from them exactly as after a bake.
   stage boot system/plymouth-theme system/sddm-theme -- python3 bake/make_boot_assets.py
 fi
-
-echo
-echo "the renderer"
-stage render render/target/release/column -- cargo build --release --manifest-path render/Cargo.toml
 
 echo
 if [ "$fail" -eq 0 ]; then echo "null-build: every stage succeeded"; else

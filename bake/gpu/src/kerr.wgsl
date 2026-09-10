@@ -228,9 +228,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let t_obs = clamp(t_local * g, 1667.0, 25000.0);
                 let w = pow(g, 4.0) * pow(t_local / P.t_inner, 4.0);
                 if (w > 0.0 && w == w) {
-                    acc_rgb = acc_rgb + blackbody_rgb(t_obs) * w;
-                    acc_t = acc_t + t_obs * w;
-                    acc_w = acc_w + w;
+                    let rgb = blackbody_rgb(t_obs) * w;
+                    let light = dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+                    acc_rgb = acc_rgb + rgb;
+                    // The same additive luminance moment the HDR and screen
+                    // downsamplers use; void contributes zero weight.
+                    acc_t = acc_t + t_obs * light;
+                    acc_w = acc_w + light;
                 }
             }
         }

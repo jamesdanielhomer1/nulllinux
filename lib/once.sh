@@ -46,10 +46,13 @@
 
 # null_only_one <substring of the command line to displace>
 #
-# Kills every other process whose command line contains the substring, skipping
-# ourselves and our ancestors. Plain substring, not a regex: the callers all
+# Kills another process in this UID's Wayland session when its command line
+# contains the substring, skipping ourselves and our ancestors. Plain substring,
+# not a regex: the callers all
 # pass literal command lines, and a regex here would be one more thing to get
 # subtly wrong.
+. "$(dirname -- "${BASH_SOURCE[0]}")/session.sh"
+
 null_only_one() {
   local pat=$1 pid cmd p
   [ -n "$pat" ] || return 0
@@ -70,7 +73,7 @@ null_only_one() {
     [ -n "${keep[$pid]:-}" ] && continue
     cmd=$(tr '\0' ' ' <"$p/cmdline" 2>/dev/null) || continue
     case $cmd in
-      *"$pat"*) kill "$pid" 2>/dev/null || true ;;
+      *"$pat"*) null_same_session "$pid" && kill "$pid" 2>/dev/null || true ;;
     esac
   done
   return 0

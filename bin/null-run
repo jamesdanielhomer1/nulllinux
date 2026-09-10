@@ -20,70 +20,20 @@ ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 . "$ROOT/lib/menu.sh"
 null_fzf_flags
 
-DIRS=(/usr/share/applications /usr/local/share/applications
-      "$HOME/.local/share/applications" /var/lib/flatpak/exports/share/applications)
-
-# Built into a variable BEFORE the picker starts (§7.4): a slow producer piped
-# into fzf leaves it in its loading state, and its spinner is braille.
-#
-# Each row is THREE tab-separated fields: the display (what the eye reads), a
-# kind (term|gui), and the exec command. Only the display is shown (--with-nth),
-# and the whole line comes back on accept, so the command is read from the line
-# by position (after the last tab) -- a name with spaces cannot be mistaken for
-# part of the command, and no fragile hidden-field return is relied on.
-list=$(python3 - "${DIRS[@]}" <<'PY'
-import configparser, os, sys
-seen, rows = set(), []
-for d in sys.argv[1:]:
-    if not os.path.isdir(d):
-        continue
-    for f in sorted(os.listdir(d)):
-        if not f.endswith(".desktop") or f in seen:
-            continue
-        seen.add(f)
-        c = configparser.RawConfigParser(strict=False)
-        try:
-            c.read(os.path.join(d, f), encoding="utf-8")
-            e = c["Desktop Entry"]
-        except Exception:
-            continue
-        if e.get("NoDisplay", "false").lower() == "true":
-            continue
-        if e.get("Type", "Application") != "Application":
-            continue
-        name = e.get("Name", f[:-8])
-        # Field codes are placeholders for files and URLs the launcher would
-        # substitute; run with none, so they are stripped rather than passed on
-        # as literal arguments.
-        exe = " ".join(w for w in e.get("Exec", "").split() if not w.startswith("%"))
-        if not exe:
-            continue
-        term = e.get("Terminal", "false").lower() == "true"
-        display = "%-30s %s%s" % (name[:30], "[term] " if term else "", exe)
-        rows.append("%s\t%s\t%s" % (display, "term" if term else "gui", exe))
-for r in sorted(rows):
-    print(r)
-PY
-)
+# Build the complete list before starting fzf. The third field is a desktop ID,
+# so arbitrary Exec argument whitespace cannot corrupt the picker protocol.
+list=$(python3 "$ROOT/lib/desktop.py" list) || exit 1
 [ -n "$list" ] || { echo "no desktop entries found" >&2; exit 1; }
 
 pick=$(printf '%s\n' "$list" | fzf "${NULL_FZF[@]}" --prompt='run > ' \
          --delimiter='\t' --with-nth=1) || exit 0
 [ -n "$pick" ] || exit 0
 
-# fzf returns the WHOLE original line -- --with-nth changes only what is SHOWN,
-# not what comes back. The line is  display<TAB>kind<TAB>exe , so the exe is
-# everything after the last tab and the kind is the field before it, parsed with
-# ${##}/${%} so a name or a command containing spaces is safe.
-#
-# NOT --accept-nth: with --with-nth in play, fzf evaluates accept-nth's field
-# numbers against the SHOWN line -- which is field 1 alone -- so --accept-nth=2,3
-# returned an empty string and the launcher exited having started nothing. That
-# was "the launcher does not work": it drew, it took a pick, and then silently
-# did nothing.
+# --with-nth changes the display, but fzf returns the complete original row.
+# Resolve its final desktop ID again so the picker never executes display text.
 tab=$'\t'
-exe=${pick##*"$tab"}
-rest=${pick%"$tab"*}; kind=${rest##*"$tab"}
+ident=${pick##*"$tab"}
+exe=$(python3 "$ROOT/lib/desktop.py" shell "$ident") || exit 1
 [ -n "${exe:-}" ] || exit 0
 
 # LAUNCHED BY THE COMPOSITOR, not from this process. null-run runs hosted in the
@@ -106,9 +56,6 @@ launch() {
     disown 2>/dev/null || true
   fi
 }
-# A terminal app is wrapped in a foot window; a GUI app is run directly.
-case $kind in
-  term) launch "foot -e $exe" ;;
-  *)    launch "$exe" ;;
-esac
-exit 0
+# The helper includes Terminal and Path semantics before the compositor handoff.
+launch "$exe"
+exit $?

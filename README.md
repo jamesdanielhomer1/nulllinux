@@ -3,7 +3,7 @@
 A Fedora Remix in which every visible surface — the boot splash, the console,
 the greeter, the lock screen, the bar, the menus, the file manager, the
 browser's own chrome — is a projection of **one baked artefact**: a raytraced
-Kerr black hole, `a = 0.9` prograde, rendered once and then drawn everywhere as
+Kerr black hole, `a = 0.6` prograde, rendered once and then drawn everywhere as
 text.
 
 It is a whole distribution, not a theme laid over someone else's desktop: its
@@ -18,9 +18,9 @@ questions of whoever is installing it.
 | **one asset, many projections** | the hero is raytraced once, on a machine with a GPU, and ships prebuilt for every font strike a real panel selects. No installed machine needs a compiler or a GPU to draw it. |
 | **derived, never declared** | the cell grid comes from the panel; the palette from a blackbody locus; the sixteen console slots, GTK, foot, nano and the browser chrome all come from that one palette. No hex is typed by hand. |
 | **one typeface, two strikes** | Terminus, at an interface size and a bake size, everywhere from GRUB to the greeter. |
-| **any hardware** | any panel, any number of monitors, any machine. The profile is derived on first boot and re-derived whenever the hardware disagrees with it. |
+| **hardware-derived layout** | the profile comes from the attached displays and is regenerated when the hardware changes. The current package targets Fedora 44 on x86_64; hardware acceptance remains part of the release gates. |
 | **report first** | a tool's default verb changes nothing. Mutation needs an explicit verb, and anything irreversible asks for the thing's own name, typed in full. |
-| **every claim measured** | the verify suite is 66 checks, and almost every one exists because something it now catches had already shipped. |
+| **layered verification** | source regressions, numerical comparisons, live Wayland checks and disposable installed-system tests cover different parts of the release. Results and remaining acceptance work are recorded separately. |
 
 ## The desktop
 
@@ -38,24 +38,29 @@ applications, brightness and power and the radios, locking and idle and suspend.
 ## Building it
 
     bin/null-bootstrap        what is missing on this machine, and how to get it
-    bin/null-prebake          raytrace the hero for every strike (needs a GPU)
+    bin/null-build            build the renderer, master and derived assets
+    bin/null-prebake          prepare every shipped strike from the HDR master
     bin/null-package          build the RPM
     bin/null-installer-iso    build the installer medium (Anaconda boot.iso)
     bin/null-iso              build the live medium (livemedia-creator; hours)
-    verify/run.sh             the whole verify suite
+    bash verify/source.sh     source tests and production renderer build (CI)
+    verify/run.sh             installed-system checks; read testing.md first
     verify/in-guest.sh        the same suite, inside a real nullLinux guest
 
-The order is `prebake → package → iso`, and each refuses rather than guesses
-when the step before it has not run.
+The order is `build → prebake → package → iso`. A restored master can replace
+the main raytrace. Vulkan compute (including software Vulkan), Rust and the
+bake dependencies are needed on the build machine. See
+[`docs/testing.md`](docs/testing.md) for the separate source, artifact and
+installed-system checks, and the bake provenance requirements.
 
 ## Where it is
 
-Version **0.1.0**. The installer ISO installs end to end and the installed
-system boots to the desktop; the live ISO boots to the desktop; the whole verify
-suite passes on the build host and inside an installed guest. What stands between
-here and **1.0.0** — chiefly a clean install on real hardware — is written down,
-with acceptance criteria, in [`docs/goals.md`](docs/goals.md). Where each claim
-was proven, and what has not been, is in [`docs/STATUS.md`](docs/STATUS.md).
+Version **0.1.0**, undergoing stabilization toward **1.0.0**. The current code
+review found defects beyond the historical VM acceptance results. Its fixes and
+fresh evidence are recorded in [`docs/review-1.0.md`](docs/review-1.0.md).
+Release criteria, including a cold install on real hardware and visual
+acceptance, remain in [`docs/goals.md`](docs/goals.md). Historical results are
+kept separately in [`docs/STATUS.md`](docs/STATUS.md).
 
 ## What is here
 
@@ -67,11 +72,11 @@ was proven, and what has not been, is in [`docs/STATUS.md`](docs/STATUS.md).
 | [`docs/STATUS.md`](docs/STATUS.md) | what is verified, where, what is not, and what is deliberately out of scope. |
 | [`docs/measurements.md`](docs/measurements.md) | every figure quoted anywhere, with the method that produced it. |
 | [`docs/LICENSING.md`](docs/LICENSING.md) | the licences, and why the font-derived assets carry their own. |
-| `bin/` | the components: 59 tools, each with one job and a caller. |
-| `lib/` | the shared shell: the menu chrome, the surface supervisor, the snapshotter. |
+| `bin/` | the desktop, system and build commands. |
+| `lib/` | shared menus, session ownership, desktop-entry parsing, battery readings and snapshots. |
 | `verify/` | the checks, and the harnesses that install and drive a guest. |
 | `bake/` | the raytracer, the palette derivation, and the exporters that write every app's colours. |
-| `render/` | the Rust renderers: the wallpaper, the bar, the column, the tiling layout. |
+| `render/` | the Rust wallpaper, bar, column, lock screen and tiling layout. |
 | `packaging/` | the RPM spec and the kickstarts. |
 
 ## Licensing

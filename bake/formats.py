@@ -18,6 +18,7 @@ CEL_MAGIC = b"RCEL"
 VERSION = 1
 
 R, G, B, T = 0, 1, 2, 3          # channel order in the HDR intermediate
+LUMA = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
 
 # --- HDR intermediate ---------------------------------------------------

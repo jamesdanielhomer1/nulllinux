@@ -100,7 +100,7 @@ setsid qemu-system-x86_64 \
   -enable-kvm -m "$MEM" -smp "$CPUS" \
   -drive file="$DISK",if=virtio,format=qcow2 \
   -drive file="$SEED",if=virtio,format=raw,readonly=on \
-  -netdev user,id=n0,hostfwd=tcp::"$PORT"-:22 -device virtio-net-pci,netdev=n0 \
+  -netdev user,id=n0,hostfwd=tcp:127.0.0.1:"$PORT"-:22 -device virtio-net-pci,netdev=n0 \
   -display none -serial file:"$WORK/console.log" \
   >/dev/null 2>&1 &
 

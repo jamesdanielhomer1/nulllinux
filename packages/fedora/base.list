@@ -454,6 +454,7 @@ cava                            # the audio spectrum in the column (§10.7 warns
 # it agrees with the Python to within one ramp step, checked by
 # verify/check-derive-parity.sh, and runs in a tenth of the time -- so nothing
 # on an installed machine needs numpy, and the 30 MB goes away again.
+python3                         # runtime helpers and first-boot setup
 python3-numpy                   # build-only
 python3-pillow                  # build-only
 python3-gobject                 # build-only

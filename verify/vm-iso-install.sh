@@ -227,7 +227,8 @@ null_vm_wait() {
 # way; bash does not set cloexec on {var}-allocated fds either, so there is no
 # tidier version of this.
 if [ "${1:-install}" = install ] || [ "${1:-install}" = boot ]; then
-  exec 9>"$WORK/.install.lock"
+  mkdir -p "$WORK" || die "cannot create the work directory $WORK"
+  exec 9>"$WORK/.install.lock" || die "cannot open the install lock"
   if ! flock -n 9; then
     die "another install is already running (lock: $WORK/.install.lock).
   verify/vm-iso-install.sh down   stops it, if you mean to replace it."
@@ -286,14 +287,28 @@ stop_guest() {
 [ "${1:-install}" = down ] && { stop_guest; echo stopped; exit 0; }
 
 [ -r "$SRC_ISO" ] || die "no ISO -- build one with bin/null-iso"
-[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N '' -f "$KEY" -C nulllinux-test
-mkdir -p "$WORK"
+[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N '' -f "$KEY" -C nulllinux-test \
+  || die "cannot create the guest key"
+[ -s "$KEY.pub" ] || die "the guest public key is missing"
 
 if [ "${1:-install}" = install ]; then
-  # THE REPOSITORY MUST BE REACHABLE BY THE GUEST, which means a URL on the
-  # host's side of qemu's network and not a path on this filesystem. The whole
-  # tree is served from $WORK, so the repo is linked into it.
-  ln -sfn "$ROOT/packaging/repo" "$WORK/repo"
+  # Serve a dedicated public tree. $WORK also contains the private SSH key,
+  # disks and logs, none of which belongs in the HTTP server's document root.
+  PUBLIC=$(mktemp -d "$WORK/public.XXXXXX") || die "cannot create the public staging directory"
+  HTTPPID=""
+  cleanup_http() {
+    if [ -n "$HTTPPID" ]; then
+      kill "$HTTPPID" 2>/dev/null || true
+      wait "$HTTPPID" 2>/dev/null || true
+    fi
+    rm -rf -- "$PUBLIC"
+  }
+  trap cleanup_http EXIT
+  mkdir -p "$PUBLIC/repo" || die "cannot stage the public repository"
+  cp -a "$ROOT/packaging/repo/." "$PUBLIC/repo/" || die "cannot copy the repository"
+  if find "$PUBLIC" -type l -print -quit | grep -q .; then
+    die "the public repository contains a symlink outside the staged files"
+  fi
   # Concrete URLs, checked before they are used. anaconda does not expand
   # $releasever in a kickstart url line, and the failure it produces --
   # "Error setting up repositories" -- names none of that.
@@ -342,7 +357,7 @@ if [ "${1:-install}" = install ]; then
       -e "s|NULLLINUX_REPO|$(esc "$NULLREPO")|" \
       -e "s|NULLLINUX_BASEURL|$(esc "$BASEURL")|" \
       -e "s|NULLLINUX_UPDATES|$(esc "$UPDATES")|" \
-      "$ROOT/packaging/nulllinux-install.ks" > "$KS"
+      "$ROOT/packaging/nulllinux-install.ks" > "$KS" || die "cannot write the install kickstart"
 
   # NOTHING RUNS WITH A PLACEHOLDER IN IT. The ISO builder already refuses; the
   # harness did not, so it booted a VM for twenty minutes against a URL with
@@ -353,6 +368,8 @@ if [ "${1:-install}" = install ]; then
     die "refusing to boot with an unsubstituted kickstart"
   fi
   ksvalidator "$KS" >/dev/null 2>&1 || die "the install kickstart does not validate"
+  cp "$KS" "$PUBLIC/install.ks" || die "cannot stage the install kickstart"
+  cp "$KEY.pub" "$PUBLIC/testkey.pub" || die "cannot stage the guest public key"
 
   # THE KERNEL COMMAND LINE, NOT A REBUILT IMAGE.
   #
@@ -379,23 +396,22 @@ if [ "${1:-install}" = install ]; then
   [ -n "$LABEL" ] || die "the ISO has no volume label for root=live:CDLABEL to name"
   echo "  label: $LABEL"
 
-  # The kickstart is SERVED, not embedded. 0.0.0.0 rather than 127.0.0.1: the
-  # guest reaches the host as 10.0.2.2, and a server bound to loopback is a
-  # server the guest cannot see.
+  # QEMU user networking reaches the host loopback through 10.0.2.2.
+  # Limit the server to loopback and the dedicated public staging directory.
   # 9>&- CLOSES THE LOCK FD. Without it this server -- which outlives the install
   # script -- inherits fd 9 and holds the install flock for ever, refusing every
   # later boot/install with "another install is already running". That happened.
-  ( cd "$WORK" && exec python3 -m http.server 8899 --bind 0.0.0.0 ) >/dev/null 2>&1 9>&- &
+  ( exec python3 -m http.server 8899 --bind 127.0.0.1 --directory "$PUBLIC" ) >"$WORK/http.log" 2>&1 9>&- &
   HTTPPID=$!
   # AND IT DIES WITH THE INSTALL. It serves the kickstart and the repo for the
   # duration of anaconda's run, then it is done -- but nothing killed it, so it
   # (and port 8899) leaked after every install. That is the same server whose
   # inherited fd held the flock; closing the fd stopped the lock leak, this stops
   # the process leak. A trap, so it goes on success, error and interrupt alike.
-  trap '''[ -n "${HTTPPID:-}" ] && kill "$HTTPPID" 2>/dev/null''' EXIT
+  sleep 0.2
+  kill -0 "$HTTPPID" 2>/dev/null || die "the test HTTP server did not start (see $WORK/http.log)"
   # The debugging key, served the same way. The live image only fetches it
   # because the command line below names it; a shipped ISO has no key at all.
-  cp "$KEY.pub" "$WORK/testkey.pub"
   echo "  kickstart at http://10.0.2.2:8899/install.ks"
   echo "  debug key at http://10.0.2.2:8899/testkey.pub"
 
@@ -475,7 +491,7 @@ fi
   fi
 setsid qemu-system-x86_64 -enable-kvm -cpu host -m "$MEM" -smp 4 \
   "${BOOTARGS[@]}" \
-  -netdev user,id=n0,hostfwd=tcp::"$PORT"-:22 -device virtio-net-pci,netdev=n0 \
+  -netdev user,id=n0,hostfwd=tcp:127.0.0.1:"$PORT"-:22 -device virtio-net-pci,netdev=n0 \
   -audiodev none,id=snd0 -device ich9-intel-hda -device hda-output,audiodev=snd0 \
   "${DISPLAYARGS[@]}" \
   -display none -serial file:"$WORK/install-console.log" \

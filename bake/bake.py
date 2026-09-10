@@ -19,6 +19,7 @@ import argparse
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -27,7 +28,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import kerr
 import ladder
-from formats import read_hdr, write_hdr
+from formats import LUMA, read_hdr, write_hdr
+from provenance import MANIFEST, sha256, write_manifest
 
 GPU = "bake/gpu/target/release/kerr-gpu"
 
@@ -65,16 +67,40 @@ def box_average(arr, ss):
     if ss == 1:
         return arr
     rows, cols, ch = arr.shape
-    return arr.reshape(rows // ss, ss, cols // ss, ss, ch).mean(axis=(1, 3))
+    result = arr.reshape(rows // ss, ss, cols // ss, ss, ch).mean(axis=(1, 3))
+    # Temperature is an intensive quantity: an empty subsample reduces the
+    # light, not its temperature. Average the additive luminance moment L*T,
+    # then divide by the averaged L. This composes across repeated reductions.
+    light = arr[..., :3] @ LUMA
+    shape = (rows // ss, ss, cols // ss, ss)
+    mean_light = light.reshape(shape).mean(axis=(1, 3))
+    moment = (light * arr[..., 3]).reshape(shape).mean(axis=(1, 3))
+    result[..., 3] = np.divide(moment, mean_light, out=np.zeros_like(moment),
+                               where=mean_light > 0)
+    return result
 
 
 def bake(cols, rows, frames, ss, outdir, max_steps, half_width=HALF_WIDTH,
          inclination=INCLINATION, quiet=False):
     outdir = Path(outdir); outdir.mkdir(parents=True, exist_ok=True)
-    tmp = Path("/tmp/null-bake-raw"); shutil.rmtree(tmp, ignore_errors=True)
-    bands_file = "/tmp/null-bake-bands.txt"
+    # Invalidate completion before overwriting any frame; a failed run must
+    # never inherit a previous run's success marker.
+    (outdir / MANIFEST).unlink(missing_ok=True)
+    scratch = tempfile.TemporaryDirectory(prefix='null-bake-')
+    tmp = Path(scratch.name) / 'raw'
+    bands_file = Path(scratch.name) / 'bands.txt'
     n_bands = write_bands(bands_file)
     r_in = kerr.isco_radius(SPIN)
+    metadata = {'cols': cols, 'rows': rows, 'frames': frames, 'fps': ladder.FPS,
+                'supersample': ss, 'max_steps': max_steps,
+                'scene': {'spin': SPIN, 'inclination': inclination,
+                          'half_width': half_width, 'r_in': float(r_in),
+                          'r_out': R_OUT, 't_inner': T_INNER},
+                'renderer_sha256': sha256(GPU), 'bands_sha256': sha256(bands_file),
+                'sources_sha256': {name: sha256(Path(__file__).parent / name)
+                    for name in ('bake.py', 'formats.py', 'scene.py', 'ladder.py',
+                                 'kerr.py', 'provenance.py', 'gpu/src/main.rs',
+                                 'gpu/src/kerr.wgsl')}}
 
     if not quiet:
         print(f"  {frames} frames, {cols}x{rows} cells, {ss}x supersampling "
@@ -102,7 +128,7 @@ def bake(cols, rows, frames, ss, outdir, max_steps, half_width=HALF_WIDTH,
                         "--half-width", str(half_width),
                         "--r-in", str(r_in), "--r-out", str(R_OUT),
                         "--t-inner", str(T_INNER),
-                        "--bands", bands_file, "--out", str(tmp)],
+                        "--bands", str(bands_file), "--out", str(tmp)],
                        check=True, capture_output=True)
         trace_t += time.time() - t0
 
@@ -111,7 +137,11 @@ def bake(cols, rows, frames, ss, outdir, max_steps, half_width=HALF_WIDTH,
             big = read_hdr(tmp / f"{i:04d}.hdr")
             write_hdr(outdir / f"{i:04d}.hdr", box_average(big, ss).astype(np.float32))
         down_t += time.time() - t1
+        if not quiet:
+            print(f"  completed {start + count}/{frames} HDR frames", flush=True)
     shutil.rmtree(tmp, ignore_errors=True)
+    scratch.cleanup()
+    write_manifest(outdir, metadata)
 
     if not quiet:
         print(f"  traced in {trace_t:.1f}s, downsampled in {down_t:.1f}s "

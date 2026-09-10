@@ -297,7 +297,7 @@ impl Vt {
             _ => {}
         }
         if let Some(v) = self.param_acc.take() { if self.params.len() < 32 { self.params.push(v) } }
-        let p = |i: usize, d: u32| *self.params.get(i).unwrap_or(&0) as u32 * 0 + self.params.get(i).copied().filter(|v| *v != 0).unwrap_or(d);
+        let p = |i: usize, d: u32| self.params.get(i).copied().filter(|v| *v != 0).unwrap_or(d);
         let p0 = p(0, 1) as usize;
 
         match (self.private, b) {

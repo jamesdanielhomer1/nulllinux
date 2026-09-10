@@ -271,6 +271,9 @@ pub fn battery_at(root: &std::path::Path) -> Option<Battery> {
     let mut sum_full = 0f64;
     let mut sum_rate = 0f64;
     let mut have_energy = false;
+    let mut energy_units: Option<bool> = None;
+    let mut mixed_units = false;
+    let mut individual_percent = Vec::new();
     let mut caps: Vec<f64> = Vec::new();
     let mut charging = false;
     let mut found = false;
@@ -298,16 +301,27 @@ pub fn battery_at(root: &std::path::Path) -> Option<Battery> {
         let num = |f: &str| -> Option<f64> {
             fs::read_to_string(p.join(f)).ok()?.trim().parse::<f64>().ok()
         };
-        let pair = num("charge_now").zip(num("charge_full"))
-            .or_else(|| num("energy_now").zip(num("energy_full")));
-        if let Some((now, full)) = pair {
+        // Prefer energy and pair its rate with power. Convert charge using
+        // voltage when available; never add microamp-hours to microwatt-hours.
+        let volts = num("voltage_min_design").or_else(|| num("voltage_now"))
+            .filter(|v| v.is_finite() && *v > 0.0).map(|v| v / 1_000_000.0);
+        let pair = num("energy_now").zip(num("energy_full"))
+            .map(|(now, full)| (now, full, num("power_now"), true))
+            .or_else(|| num("charge_now").zip(num("charge_full")).map(|(now, full)| {
+                let factor = volts.unwrap_or(1.0);
+                (now * factor, full * factor, num("current_now").map(|r| r * factor), volts.is_some())
+            }));
+        if let Some((now, full, rate, energy)) = pair {
             if full > 0.0 {
+                individual_percent.push(100.0 * now / full);
+                if let Some(previous) = energy_units { mixed_units |= previous != energy; }
+                energy_units = Some(energy);
                 sum_now += now;
                 sum_full += full;
                 have_energy = true;
                 // A rate is optional: a full cell on the mains reports none,
                 // and its absence must not discard the others.
-                if let Some(r) = num("current_now").or_else(|| num("power_now")) {
+                if let Some(r) = rate {
                     sum_rate += r;
                 }
             }
@@ -315,7 +329,12 @@ pub fn battery_at(root: &std::path::Path) -> Option<Battery> {
     }
     if !found { return None }
 
-    let percent = if have_energy {
+    let percent = if mixed_units {
+        // No voltage to reconcile unlike units: preserve a useful percentage
+        // without inventing an aggregate energy or a remaining-time estimate.
+        (individual_percent.iter().sum::<f64>() / individual_percent.len() as f64)
+            .round().clamp(0.0, 100.0) as u8
+    } else if have_energy {
         (100.0 * sum_now / sum_full).round().clamp(0.0, 100.0) as u8
     } else if !caps.is_empty() {
         // No energy figures anywhere. Averaging percentages is not right, but
@@ -325,7 +344,7 @@ pub fn battery_at(root: &std::path::Path) -> Option<Battery> {
         return None;
     };
 
-    let secs_left = if have_energy {
+    let secs_left = if have_energy && !mixed_units {
         battery_eta(sum_now, sum_full, sum_rate, charging)
     } else {
         None
@@ -668,6 +687,26 @@ mod battery_tests {
         let b = super::battery_at(&root).expect("a battery");
         assert_eq!(b.secs_left, Some(7200), "12 Wh at 6 W is two hours");
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn charge_and_energy_batteries_are_converted_before_aggregation() {
+        let root = fake_battery(&[("charge_now","2000000"), ("charge_full","4000000"),
+            ("current_now","1000000"), ("voltage_now","10000000"), ("status","Discharging")]);
+        let second = root.join("BAT1");
+        std::fs::create_dir_all(&second).unwrap();
+        for (k,v) in [("energy_now","90000000"), ("energy_full","100000000"),
+                      ("power_now","10000000"), ("status","Discharging")] {
+            std::fs::write(second.join(k),v).unwrap();
+        }
+        let b = super::battery_at(&root).unwrap();
+        assert_eq!(b.percent,79, "110 Wh out of 140 Wh");
+        assert_eq!(b.secs_left,Some(19800), "110 Wh at 20 W");
+        std::fs::remove_file(root.join("BAT0/voltage_now")).unwrap();
+        let b = super::battery_at(&root).unwrap();
+        assert_eq!(b.percent,70, "without voltage, average the two percentages");
+        assert_eq!(b.secs_left,None, "unlike units cannot yield an aggregate duration");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

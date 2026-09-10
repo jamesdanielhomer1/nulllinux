@@ -1,138 +1,119 @@
 #!/usr/bin/env bash
-# Build the nullLinux RPM (NULL.md §0.5).
-#
-# TWO TARBALLS, AND THE SPLIT IS THE POINT. Source0 is the tree as git has it.
-# Source1 is assets/prebuilt -- the raytraced hero and every strike's atlas,
-# made by bin/null-prebake on a machine that has a GPU. Keeping them apart is
-# what lets the package be built on a machine with no graphics at all, which is
-# what a build host usually is.
-set -uo pipefail
+# Build one source revision and one verified prebuilt set into the nullLinux RPM.
+set -euo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 cd "$ROOT"
 ALLOW_DIRTY=0
-[ "${1:-}" = "--allow-dirty" ] && { ALLOW_DIRTY=1; shift; }
+for arg in "$@"; do
+  case $arg in
+    --allow-dirty) ALLOW_DIRTY=1 ;;
+    -h|--help)
+      echo "usage: null-package [--allow-dirty]"
+      echo "  Packages HEAD. --allow-dirty acknowledges that working changes are excluded."
+      exit 0 ;;
+    *) echo "null-package: unknown argument '$arg'" >&2; exit 2 ;;
+  esac
+done
 NAME=nulllinux
-VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head -1)
-[ -n "$VERSION" ] || { echo "null-package: cannot read the version from the spec" >&2; exit 1; }
 TOP=${NULL_RPM_TOP:-$ROOT/packaging/rpmbuild}
-
-[ -d assets/prebuilt ] || {
-  echo "null-package: assets/prebuilt is missing." >&2
-  echo "  It holds the raytraced hero, and this cannot be built without it." >&2
-  echo "  Make it on a machine with a GPU:  bin/null-prebake" >&2; exit 1; }
-
-mkdir -p "$TOP"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-echo "packaging $NAME-$VERSION"
-
-# The tree AS GIT HAS IT -- not the working directory. A package built from
-# uncommitted files is a package nobody can rebuild.
-# THE TARBALL IS HEAD, NOT THE WORKING TREE, and that has now caused two
-# wasted build-and-test cycles: an edit is made, the package is built, it is
-# installed in the VM, and the change is simply not in it -- because it was
-# never committed. Silence is the problem; the behaviour is correct.
-if ! git diff --quiet HEAD -- 2>/dev/null; then
-  echo "  UNCOMMITTED CHANGES -- they will NOT be in this package:" >&2
-  git diff --name-only HEAD -- | sed 's/^/    /' >&2
-  echo "  The tarball is built from HEAD. Commit first, or pass --allow-dirty" >&2
-  echo "  to package HEAD anyway and know that is what you are testing." >&2
-  [ "${ALLOW_DIRTY:-0}" = 1 ] || exit 1
+case $TOP in /*) ;; *) TOP=$ROOT/$TOP ;; esac
+for tool in git rpmspec rpmbuild python3 tar gzip createrepo_c; do
+  command -v "$tool" >/dev/null || { echo "null-package: $tool is not installed" >&2; exit 1; }
+done
+REV=$(git rev-parse --verify HEAD)
+dirty=$(git status --porcelain --untracked-files=normal)
+if [ -n "$dirty" ]; then
+  echo "null-package: working changes will NOT be packaged; the source is HEAD ($REV):" >&2
+  printf '%s\n' "$dirty" >&2
+  [ "$ALLOW_DIRTY" = 1 ] || { echo "Commit first, or pass --allow-dirty to package HEAD." >&2; exit 1; }
 fi
-
-git archive --format=tar --prefix="$NAME-$VERSION/" HEAD \
-  | gzip > "$TOP/SOURCES/$NAME-$VERSION.tar.gz" || exit 1
-printf '  %-34s %s\n' "$NAME-$VERSION.tar.gz" "$(du -h "$TOP/SOURCES/$NAME-$VERSION.tar.gz" | cut -f1)"
-
-tar -czf "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" assets/prebuilt || exit 1
-printf '  %-34s %s\n' "$NAME-prebuilt-$VERSION.tar.gz" "$(du -h "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" | cut -f1)"
-
-# THE SPEC'S Requires ARE GENERATED FROM packages/fedora/base.list.
-#
-# They were maintained separately and drifted: cava was in the list and not in
-# the spec, so the ISO booted into a desktop whose spectrum said "cava did not
-# start". The spec's own comment claimed a checker kept them in step, and there
-# was no checker -- a comment describing an intention, which is the most
-# expensive kind.
-#
-# Lines marked `# build-only` are excluded: they build the tree and are not
-# needed to run it.
-python3 - "$ROOT" <<'GEN'
+[ -d assets/prebuilt ] || { echo "null-package: assets/prebuilt is missing; run bin/null-prebake" >&2; exit 1; }
+mkdir -p "$TOP"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+work=$(mktemp -d "$TOP/package.XXXXXX")
+stage=""
+cleanup() {
+  [ -z "$stage" ] || rm -rf -- "$stage"
+  rm -rf -- "$work"
+}
+trap cleanup EXIT
+# --allow-dirty never mixes an edited spec with an older source archive.
+git show "$REV:packaging/$NAME.spec" > "$work/$NAME.spec"
+VERSION=$(rpmspec -q --qf '%{version}\n' "$work/$NAME.spec" | head -1)
+[ -n "$VERSION" ] || { echo "null-package: cannot read the committed version" >&2; exit 1; }
+export SOURCE_DATE_EPOCH
+SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$REV")
+echo "packaging $NAME-$VERSION from $REV"
+git archive --format=tar --prefix="$NAME-$VERSION/" "$REV" \
+  | gzip -n > "$TOP/SOURCES/$NAME-$VERSION.tar.gz"
+mkdir -p "$work/source" "$work/prebuilt"
+tar -xzf "$TOP/SOURCES/$NAME-$VERSION.tar.gz" -C "$work/source" --strip-components=1
+tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+  -czf "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" assets/prebuilt
+tar -xzf "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" -C "$work/prebuilt"
+# Validate Source1 itself, not a directory another bake could change meanwhile.
+python3 "$work/source/packaging/prebuilt.py" --source-root "$work/source" "$work/prebuilt"
+python3 - "$work/source" "$work/$NAME.spec" <<'GEN'
 import pathlib, re, sys
-root = pathlib.Path(sys.argv[1])
-want = []
-for ln in (root / "packages/fedora/base.list").read_text().split("\n"):
-    if "build-only" in ln: continue
-    tok = ln.split("#")[0].split()
-    want += tok
-want = sorted(set(want))
-spec = root / "packaging/nulllinux.spec"
-t = spec.read_text()
-block = "\n".join(f"Requires:       {w}" for w in want)
-t2, n = re.subn(r"(?ms)^Requires:.*?(?=\n\n)", block, t, count=1)
-if n != 1:
+root, spec = map(pathlib.Path, sys.argv[1:])
+want = set()
+for line in (root / "packages/fedora/base.list").read_text().splitlines():
+    if "build-only" not in line:
+        want.update(line.split("#")[0].split())
+text = spec.read_text()
+block = "\n".join(f"Requires:       {name}" for name in sorted(want))
+text, count = re.subn(r"(?ms)^Requires:.*?(?=\n\n)", block, text, count=1)
+if count != 1:
     sys.exit("null-package: could not find the Requires block to regenerate")
-if t2 != t:
-    spec.write_text(t2)
-    print(f"  regenerated {len(want)} Requires from base.list")
-else:
-    print(f"  Requires already match base.list ({len(want)})")
+spec.write_text(text)
 GEN
-[ $? -eq 0 ] || exit 1
-
-cp packaging/$NAME.spec "$TOP/SPECS/"
-cp packaging/$NAME-machine-sync.service "$TOP/SOURCES/" 2>/dev/null || true
-
-echo
-rpmbuild --define "_topdir $TOP" -bb "$TOP/SPECS/$NAME.spec" > "$TOP/build.log" 2>&1
-st=$?
-if [ $st -eq 0 ]; then
-  echo "built:"
-  find "$TOP/RPMS" -name '*.rpm' -printf '  %p  %s bytes\n'
-
-  # PUBLISH IT, or the install test tests the last one.
-  #
-  # packaging/repo is what verify/vm-iso-install.sh serves to the installer and
-  # what bin/null-installer-iso embeds on the ISO. Building did not update it,
-  # so the two could -- and did -- drift: a package built at 00:55 and a repo
-  # still holding the 22:11 copy, with nothing anywhere saying so. An install
-  # test against that proves the previous build works.
-  #
-  # The version-release does not change between rebuilds here, so the filename
-  # is the same and staleness is invisible. That is precisely why this cannot
-  # be left to whoever remembers.
-  echo
-  echo "publishing to packaging/repo"
-  mkdir -p packaging/repo
-  # OUR OLD PACKAGES GO FIRST.
-  #
-  # cp only ADDS. A build whose version-release changed would leave the
-  # previous rpm sitting there, createrepo would index both, and the installer
-  # -- which resolves from this repo -- could pick either. bin/null-installer-iso
-  # copies packaging/repo/*.rpm onto the ISO wholesale, so a stale one ships.
-  # Only OUR names are removed; anything else here was put there deliberately.
-  find packaging/repo -maxdepth 1 -name "$NAME-*.rpm" -delete
-  find "$TOP/RPMS" -name '*.rpm' -exec cp -f {} packaging/repo/ \;
-  if command -v createrepo_c >/dev/null 2>&1; then
-    # A full run, not --update: --update carries forward entries for files that
-    # are no longer there, which is the thing being prevented.
-    rm -rf packaging/repo/repodata
-    createrepo_c -q packaging/repo || { echo "createrepo_c failed" >&2; exit 1; }
-  else
-    echo "  createrepo_c is not installed -- the repo metadata is now STALE" >&2
-    exit 1
-  fi
-  # And check it, rather than trusting the copy.
-  for r in packaging/repo/*.rpm; do
-    b=$(find "$TOP/RPMS" -name "$(basename "$r")" | head -1)
-    [ -n "$b" ] || continue
-    if cmp -s "$b" "$r"; then
-      printf '  %s  matches what was just built\n' "$(basename "$r")"
-    else
-      echo "null-package: packaging/repo/$(basename "$r") is NOT the package just built" >&2
-      exit 1
-    fi
-  done
-else
+cp "$work/$NAME.spec" "$TOP/SPECS/$NAME.spec"
+python3 - "$TOP" "$REV" "$VERSION" <<'INFO'
+import hashlib, json, pathlib, sys
+top, revision, version = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+files = [top/"SOURCES"/f"nulllinux-{version}.tar.gz",
+         top/"SOURCES"/f"nulllinux-prebuilt-{version}.tar.gz", top/"SPECS/nulllinux.spec"]
+hashes = {}
+for path in files:
+    with path.open("rb") as f:
+        hashes[path.name] = hashlib.file_digest(f, "sha256").hexdigest()
+(top/"SOURCES/nulllinux-build-info.json").write_text(
+    json.dumps({"source_commit": revision, "version": version, "sha256": hashes}, indent=2, sort_keys=True) + "\n")
+INFO
+mkdir -p "$work/RPMS"
+if ! rpmbuild --define "_topdir $TOP" --define "_rpmdir $work/RPMS" \
+     -bb "$TOP/SPECS/$NAME.spec" > "$TOP/build.log" 2>&1; then
   echo "rpmbuild FAILED -- last lines of $TOP/build.log:" >&2
   tail -20 "$TOP/build.log" >&2
+  exit 1
 fi
-exit $st
+mapfile -d '' -t rpms < <(find "$work/RPMS" -type f -name "$NAME-*.rpm" -print0)
+[ "${#rpms[@]}" -gt 0 ] || { echo "null-package: rpmbuild produced no $NAME RPM" >&2; exit 1; }
+# Prepare the replacement repository before touching the last usable one.
+# Historical RPM outputs never enter it.
+stage=$(mktemp -d "$ROOT/packaging/.repo.XXXXXX")
+if [ -d packaging/repo ]; then
+  find packaging/repo -maxdepth 1 -type f -name '*.rpm' ! -name "$NAME-*.rpm" \
+    -exec cp -- {} "$stage/" \;
+fi
+for artifact in "${rpms[@]}"; do
+  arch=$(basename "$(dirname "$artifact")")
+  mkdir -p "$TOP/RPMS/$arch"
+  cp -- "$artifact" "$TOP/RPMS/$arch/"
+  cp -- "$artifact" "$stage/"
+  cmp -s -- "$artifact" "$stage/$(basename "$artifact")"
+done
+cp "$TOP/SOURCES/nulllinux-build-info.json" "$stage/BUILD-INFO.json"
+createrepo_c -q "$stage"
+previous=$(mktemp -d "$ROOT/packaging/.repo.previous.XXXXXX")
+rmdir "$previous"
+if [ -e packaging/repo ]; then mv -T -- packaging/repo "$previous"; fi
+if ! mv -T -- "$stage" packaging/repo; then
+  [ ! -d "$previous" ] || mv -T -- "$previous" packaging/repo
+  echo "null-package: could not publish repository" >&2
+  exit 1
+fi
+stage=""
+[ ! -d "$previous" ] || rm -rf -- "$previous"
+echo "built and published to packaging/repo:"
+find packaging/repo -maxdepth 1 -name "$NAME-*.rpm" -printf '  %p  %s bytes\n'
+echo "provenance: packaging/repo/BUILD-INFO.json"

@@ -77,6 +77,8 @@ stub=$(mktemp -d)
 printf '#!/bin/sh\necho "src/mnl.c:66: Unable to initialize Netlink socket: Protocol not supported" >&2\nexit 1\n' > "$stub/nft"
 printf '#!/bin/sh\necho "x.nft:12:3-8: Error: syntax error, unexpected string" >&2\nexit 1\n' > "$stub/nft-bad"
 chmod +x "$stub/nft" "$stub/nft-bad"
+printf '#!/bin/sh\nexit 0\n' > "$stub/systemd-detect-virt"
+chmod +x "$stub/systemd-detect-virt"
 
 out=$(PATH="$stub:$PATH" ./bin/null-system firewall 2>&1)
 if printf '%s' "$out" | grep -q 'cannot validate here'; then

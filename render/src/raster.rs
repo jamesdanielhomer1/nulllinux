@@ -26,6 +26,7 @@ pub fn frame_to_bgra(c: &Cells, a: &Atlas, frame: usize, bg: [u8; 3]) -> (usize,
 /// the delta property the whole design rests on.
 pub fn blit_frame(c: &Cells, a: &Atlas, frame: usize, buf: &mut [u8], stride_px: usize,
                   bg: [u8; 3], origin: (usize, usize), prev: Option<(&[u8], &[u8])>) -> usize {
+    if stride_px == 0 { return 0 }
     let g = c.glyphs(frame);
     let col = c.colours(frame);
     let mut touched = 0usize;
@@ -50,6 +51,7 @@ pub fn blit_frame(c: &Cells, a: &Atlas, frame: usize, buf: &mut [u8], stride_px:
             for cy in 0..a.cell_h {
                 let dst_row = (y0 + cy) * stride_px;
                 for cx in 0..a.cell_w {
+                    if x0 + cx >= stride_px { break }
                     let o = (dst_row + x0 + cx) * 4;
                     // Guarded like TextGrid::blit: the buffer is the
                     // COMPOSITOR's size and the cells are the FILE's. A mode
@@ -100,7 +102,7 @@ mod tests {
     fn atlas() -> Atlas {
         // A synthetic 2x2 atlas carrying ' ' (unlit) and '#' (all lit).
         let mut d = b"RATL".to_vec();
-        d.extend_from_slice(&[0, 0]);
+        d.extend_from_slice(&[1, 0]);
         d.extend_from_slice(&2u16.to_le_bytes());   // cell_w
         d.extend_from_slice(&2u16.to_le_bytes());   // cell_h
         d.extend_from_slice(&2u16.to_le_bytes());   // count
@@ -138,6 +140,16 @@ mod tests {
     }
 
     #[test]
+    fn horizontal_clipping_never_overwrites_the_next_scanline() {
+        let c = Cells::synthetic(2,1,1,vec!['#'],vec![[200,0,0],[0,0,200]],vec![0,0,0,1]);
+        let a = atlas();
+        let mut buf = vec![0u8; 2 * 4 * 4];
+        blit_frame(&c, &a, 0, &mut buf, 2, [0,0,0], (0,0), None);
+        assert_eq!(&buf[8..12], &[0,0,200,255], "visible red cell survives the off-screen blue cell");
+        assert_eq!(&buf[16..20], &[0,0,0,0], "no pixels spill below the hero");
+    }
+
+    #[test]
     fn weird_panel_sizes_all_survive_fill_plus_blit() {
         // The property, not one machine: ANY buffer at least as big as the
         // grid, filled then blitted, ends fully opaque with the remainder
@@ -171,7 +183,7 @@ mod centering_tests {
         let cells = Cells::synthetic(cols, rows, 1, vec!['#'],  // ramp[0]='#': all lit
                                      vec![[200, 50, 25]], vec![0u8; (cols*rows) as usize * 2]);
         // atlas: one glyph '#', 2x2, all lit
-        let mut d = b"RATL".to_vec(); d.extend_from_slice(&[0,0]);
+        let mut d = b"RATL".to_vec(); d.extend_from_slice(&[1,0]);
         d.extend_from_slice(&2u16.to_le_bytes()); d.extend_from_slice(&2u16.to_le_bytes());
         d.extend_from_slice(&1u16.to_le_bytes()); d.extend_from_slice(&[0u8;32]);
         d.extend_from_slice(&1u16.to_le_bytes());

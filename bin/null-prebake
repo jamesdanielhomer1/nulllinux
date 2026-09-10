@@ -1,42 +1,38 @@
 #!/usr/bin/env bash
-# Produce the prebuilt hero assets that ship in the package (NULL.md §0.5).
+# Build the complete release payload from a completed HDR bake.
+# Ships the packed master and its provenance, all nine supported Terminus
+# strike ramps/atlases/cell animations, palette-derived themes/icons, and
+# boot/login frames. packaging/prebuilt.py validates the complete payload
+# and records source/output hashes only after every stage succeeds.
 #
-# WHY ANY OF THIS SHIPS. The hero is 0.39 s a frame on a discrete GPU and
-# 28.27 s a frame on software Vulkan -- two minutes against two hours for the
-# full 240. A machine with a real Vulkan device can bake its own; a virtual
-# machine or a headless install cannot be asked to. So the expensive part is
-# done once, here, on a machine that has a GPU, and travels in the package.
+# Requires Python 3.14 + numpy/Pillow (using built-in compression.zstd),
+# Cargo/Rust, all Terminus console strikes, Adwaita icons,
+# and a working Vulkan adapter. The renderer rasterizes the boot surfaces;
+# the shader traces tty/logo camera grids once, reused across all strikes.
+# Software Vulkan works, but its runtime depends heavily on the CPU.
 #
-# WHAT SHIPS IS THE QUANTISED HERO, NOT THE HDR MASTER. The master is 423 MB
-# and is the thing worth keeping (§5.1) -- but it is an INTERMEDIATE, and
-# everything downstream of it re-runs in about a minute. What a machine needs
-# is the .cells files, which are a thousandth of the size.
-#
-# ONE SET PER BAKE STRIKE, AND EVERY STRIKE. The quantiser measures ink against
-# the strike's own ramp (derive_targets passes assets/ramp-bake.json), so a
-# quantised hero belongs to one strike and cannot be reused across others.
-#
-# Twelve common panel sizes select only four distinct bake strikes between
-# them, and the first version of this shipped those four. That was wrong, and
-# James put it plainly: the master always comes out the same, so why would any
-# machine ever bake? It should just be shipped.
-#
-# He is right, and it is now demonstrated rather than assumed -- two bakes of
-# the 240-frame master are BIT-IDENTICAL, same sha256 (NULL.md 5.6). So the
-# expensive step happens once in the life of the project, and the only reason
-# to ship four rather than nine was to save four megabytes. Nine leaves no
-# machine without a hero and no fallback path to get wrong.
-#
-# Everything else -- palette, ramps, atlases, the compositor colours, the icon
-# theme, the boot surfaces -- is seconds of work and is NOT shipped. Shipping a
-# thing that is cheap to derive is how a package comes to disagree with the
-# source it was built from.
+# The 640x180, 240-frame, 4x supersampled master must already exist. It carries
+# a completed-bake manifest. Historical masters require --allow-legacy for
+# recovery/comparison and remain ineligible for a corrected release manifest.
+# Run time also includes tone selection, compression and boot rasterization;
+# measure on the actual build host rather than assuming GPU bake timings.
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 cd "$ROOT"
 
-MASTER=${1:-assets/master.hdrcells}
+MASTER=assets/master.hdrcells
+LEGACY=()
+for arg in "$@"; do
+  case "$arg" in
+    --allow-legacy) LEGACY=(--allow-legacy) ;;
+    --*) echo "null-prebake: unknown option $arg" >&2; exit 2 ;;
+    *) MASTER=$arg ;;
+  esac
+done
 OUT=assets/prebuilt
+mkdir -p "$OUT/strikes" || exit 1
+rm -f "$OUT/MANIFEST.json" || exit 1
+BOOT_STRIKE=${BOOT_STRIKE:-ter-112n}
 
 # The bake strikes real hardware selects. Derived by asking bin/machine's own
 # chooser for every common panel size, not by picking sizes that seemed likely.
@@ -45,6 +41,34 @@ STRIKES=$(for f in /usr/lib/kbd/consolefonts/ter-1*n.psf.gz; do
 
 [ -d "$MASTER" ] || { echo "null-prebake: no HDR master at $MASTER" >&2
                       echo "  Run the bake first: bin/null-build" >&2; exit 1; }
+[ -n "$STRIKES" ] || { echo "null-prebake: no Terminus console strikes installed" >&2; exit 1; }
+
+# Every consumer below needs these prerequisites, including a clean checkout.
+# The boot rasterizer needs render; the non-dividing target grids need kerr-gpu.
+cargo build --locked --release --manifest-path render/Cargo.toml || exit 1
+cargo build --locked --release --manifest-path bake/gpu/Cargo.toml || exit 1
+python3 bake/derive_palette.py || exit 1
+cp assets/palette.bin assets/palette.json "$OUT/strikes/" || exit 1
+for strike in $STRIKES; do
+  font="/usr/lib/kbd/consolefonts/$strike.psf.gz"
+  python3 bake/derive_ramp.py --font "$font" --out "$OUT/strikes/ramp-$strike.json" || exit 1
+  python3 bake/bake_atlas.py --font "$font" --out "$OUT/strikes/atlas-$strike.bin" || exit 1
+done
+
+saved_ramp=$(mktemp) || exit 1
+had_ramp=0
+if [ -f assets/ramp-bake.json ]; then
+  cp assets/ramp-bake.json "$saved_ramp" || exit 1
+  had_ramp=1
+fi
+restore() {
+  if [ "$had_ramp" -eq 1 ]; then cp "$saved_ramp" assets/ramp-bake.json || return 1
+  else rm -f assets/ramp-bake.json; fi
+  rm -f "$saved_ramp"
+  if [ -n "${prepared:-}" ]; then rm -rf -- "$prepared"; fi
+}
+trap restore EXIT
+cp "$OUT/strikes/ramp-$BOOT_STRIKE.json" assets/ramp-bake.json || exit 1
 
 # The tone curve is swept ONCE, against the master, and the same curve is used
 # for every strike. It is a property of the emission model (§4.1, Appendix A),
@@ -70,20 +94,20 @@ echo
 # and the defaults blank a third of the subject.
 echo "packing the master ($TONE)"
 if ! python3 bake/pack_master.py --frames-dir "$MASTER" --out "$OUT/master.hero" \
-     $(printf '%s' "$TONE" | sed 's/--black-pct/--black-pct/') 2>&1 | sed 's/^/  /'; then
+     $TONE "${LEGACY[@]}" 2>&1 | sed 's/^/  /'; then
   echo "null-prebake: packing the master failed" >&2; exit 1
 fi
 echo
 
-saved_ramp=$(mktemp); cp assets/ramp-bake.json "$saved_ramp" 2>/dev/null || true
-restore() { [ -s "$saved_ramp" ] && cp "$saved_ramp" assets/ramp-bake.json; rm -f "$saved_ramp"; }
-trap restore EXIT
+prepared=$(mktemp -d) || exit 1
+python3 bake/derive_targets.py --master "$MASTER" $TONE \
+  --prepare-only --prepared "$prepared" || exit 1
+
 
 # The strike the splash and greeter are rendered at. One of the nine, chosen
 # because 6x12 with target-4 gives 960x540 -- small enough to fit any screen
 # worth booting, and the frames are rasterised PNGs by the time anyone sees
 # them, so nothing downstream depends on which strike drew them.
-BOOT_STRIKE=${BOOT_STRIKE:-ter-112n}
 
 fail=0
 for strike in $STRIKES; do
@@ -92,19 +116,20 @@ for strike in $STRIKES; do
     printf '  %-10s SKIPPED -- %s is not installed\n' "$strike" "$font"; fail=1; continue
   fi
   printf '  %-10s ' "$strike"
-  d="$OUT/$strike"; mkdir -p "$d"
+  d="$OUT/$strike"; mkdir -p "$d" || exit 1
 
   # The ramp for THIS strike, then the hero quantised against it. Both stages
   # write to the tree's fixed paths, so the result is moved into place after.
   if ! python3 bake/derive_ramp.py --font "$font" --out assets/ramp-bake.json >/dev/null 2>&1; then
     printf 'FAILED (ramp)\n'; fail=1; continue
   fi
-  if ! python3 bake/derive_targets.py --master "$MASTER" $TONE >/dev/null 2>&1; then
+  if ! python3 bake/derive_targets.py --master "$MASTER" $TONE \
+       --prepared "$prepared" >/dev/null 2>&1; then
     printf 'FAILED (targets)\n'; fail=1; continue
   fi
-  cp assets/ramp-bake.json "$d/ramp-bake.json"
+  cp assets/ramp-bake.json "$d/ramp-bake.json" || exit 1
   for f in master.cells target-2.cells target-4.cells tty.cells logo.cells; do
-    [ -e "assets/$f" ] && cp "assets/$f" "$d/$f"
+    cp "assets/$f" "$d/$f" || exit 1
   done
   printf 'ok  (%s)\n' "$(du -sh "$d" | cut -f1)"
 done
@@ -141,35 +166,6 @@ if ! python3 bake/make_boot_assets.py \
 fi
 echo
 
-# THE ATLASES AND RAMPS FOR EVERY STRIKE, because they are tiny and because
-# the alternative is a compiler on the target.
-#
-# Which strike a machine uses depends on its panel, which is unknown when the
-# package is built -- so the choice is made at install time from a set that
-# contains all of them. Nine strikes is about 400 kB; requiring python, numpy
-# and a font parser on every installed machine to save that is a bad trade.
-#
-# The palette goes with them: it is derived from the Planckian locus and has no
-# machine in it at all.
-echo
-echo "atlases and ramps, for every strike"
-mkdir -p "$OUT/strikes"
-python3 bake/derive_palette.py >/dev/null 2>&1 \
-  && cp assets/palette.bin assets/palette.json "$OUT/strikes/" \
-  && echo "  palette    ok"
-for f in /usr/lib/kbd/consolefonts/ter-1*n.psf.gz; do
-  [ -r "$f" ] || continue
-  name=$(basename "$f" .psf.gz)
-  printf '  %-10s ' "$name"
-  if python3 bake/derive_ramp.py --font "$f" --out "$OUT/strikes/ramp-$name.json" >/dev/null 2>&1 \
-     && python3 bake/bake_atlas.py --font "$f" --out "$OUT/strikes/atlas-$name.bin" >/dev/null 2>&1; then
-    printf 'ok  (%s)\n' "$(du -h "$OUT/strikes/atlas-$name.bin" | cut -f1)"
-  else
-    printf 'FAILED\n'; fail=1
-  fi
-done
-
-
 # THE PALETTE-DERIVED SURFACES, which are machine-independent and were the last
 # reason the target needed Python.
 #
@@ -182,12 +178,12 @@ echo
 echo "palette-derived surfaces"
 printf '  %-10s ' theme
 if python3 bake/export_theme.py >/dev/null 2>&1; then
-  mkdir -p "$OUT/theme"
+  mkdir -p "$OUT/theme" || exit 1
   for f in config/sway/colours.conf config/foot/foot.ini config/shell/colours.sh; do
-    [ -e "$f" ] && install -D -m 0644 "$f" "$OUT/theme/$f"
+    install -D -m 0644 "$f" "$OUT/theme/$f" || exit 1
   done
   for d in config/gtk-3.0 config/gtk-4.0; do
-    [ -d "$d" ] && mkdir -p "$OUT/theme/$d" && cp -a "$d/." "$OUT/theme/$d/"
+    mkdir -p "$OUT/theme/$d" && cp -a "$d/." "$OUT/theme/$d/" || exit 1
   done
   printf 'ok\n'
 else printf 'FAILED\n'; fail=1; fi
@@ -195,12 +191,17 @@ else printf 'FAILED\n'; fail=1; fi
 printf '  %-10s ' icons
 # --out is given explicitly: make_icons defaults to the running user's own
 # ~/.local/share/icons, which is the last place a package should collect from.
-rm -rf "$OUT/theme/icons"
+rm -rf "$OUT/theme/icons" || exit 1
 if python3 bake/make_icons.py --out "$OUT/theme/icons" >/dev/null 2>&1 && [ -d "$OUT/theme/icons" ]; then
   printf 'ok  (%s)\n' "$(du -sh "$OUT/theme/icons" | cut -f1)"
 else printf 'FAILED\n'; fail=1; fi
 
 echo
 echo "total: $(du -sh "$OUT" 2>/dev/null | cut -f1) in $OUT"
-[ "$fail" -eq 0 ] || echo "null-prebake: some strikes did not build" >&2
-exit $fail
+if [ "$fail" -ne 0 ]; then
+  echo "null-prebake: some assets did not build" >&2
+  exit 1
+fi
+restore || exit 1
+trap - EXIT
+python3 packaging/prebuilt.py --write-manifest "$ROOT" || exit 1

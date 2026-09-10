@@ -1,5 +1,5 @@
-# Derived files are never committed (NULL.md §5.7). Anything listed here must
-# be rebuildable, byte-identically, from a committed source.
+# Large build products and machine state stay out of Git (NULL.md §5.7).
+# Small generated configuration files are tracked when they are shipped inputs.
 #
 # A DISTRIBUTION SHIPS THEM ANYWAY (§0.5): the bake runs once on the build
 # host and its output goes into the package, not into git. The rule is about
@@ -12,9 +12,9 @@
 /assets/palette.bin
 /assets/*.png
 /assets/*.ans
-/target/
-/render/target/
-/bake/gpu/target/
+/target
+/render/target
+/bake/gpu/target
 *.o
 __pycache__/
 *.pyc
@@ -40,18 +40,14 @@ __pycache__/
 
 # The prebuilt assets that ship in the package (§0.5, §5.7).
 #
-# DERIVED, so they are not committed -- and 13 MB of them would be the largest
-# thing in this repository by an order of magnitude. They are made by
-# bin/null-prebake on a machine with a GPU and travel as the package's Source1,
-# which is where a built artefact belongs.
+# bin/null-prebake derives these from a verified HDR master and traces the
+# smaller target projections with Vulkan. They ship as package Source1.
 /assets/prebuilt/
 
 # Build products of the packaging itself. An RPM in git is the same mistake as
 # a baked asset in git, and this one was 8.9 MB -- larger than every source
 # file in the repository put together.
 /packaging/repo/
-/packaging/rpmbuild/
-/packaging/*.iso
 
 # lorax writes its dependency-solver dumps into the CWD. bin/null-installer-iso
 # now runs it from a work directory so this cannot happen again, but 88 MB of

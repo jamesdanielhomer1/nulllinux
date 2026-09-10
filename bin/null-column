@@ -33,7 +33,8 @@ esac
 
 BIN="$ROOT/render/target/release/column"
 [ -x "$BIN" ] || { echo "null-column: $BIN not built" >&2; exit 1; }
-PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/null-column.pid"
+. "$ROOT/lib/session.sh"
+PIDFILE=$(null_session_file null-column pid) || exit 1
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
 # 1. DISPLACE THE PREVIOUS SUPERVISOR, if any, via its pidfile -- and confirm it
@@ -41,7 +42,7 @@ RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 #    its trap take its column down, so there is nothing left to respawn behind us.
 if [ -r "$PIDFILE" ]; then
   old=$(cat "$PIDFILE" 2>/dev/null || true)
-  if [ -n "${old:-}" ] && [ "$old" != "$$" ] && kill -0 "$old" 2>/dev/null \
+  if [ -n "${old:-}" ] && [ "$old" != "$$" ] && null_same_session "$old" && kill -0 "$old" 2>/dev/null \
      && tr '\0' ' ' < "/proc/$old/cmdline" 2>/dev/null | grep -q 'null-column'; then
     kill "$old" 2>/dev/null || true
   fi
@@ -51,6 +52,7 @@ fi
 #    the command line). The supervisor above is gone by now, so these are orphans.
 SELF=$(readlink -f "$BIN")
 for pid in $(pgrep -x -u "$(id -u)" column 2>/dev/null || true); do
+  null_same_session "$pid" || continue
   exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || continue
   [ "$exe" = "$SELF" ] && kill "$pid" 2>/dev/null || true
 done

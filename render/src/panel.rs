@@ -47,6 +47,8 @@ pub fn leader(g: &mut TextGrid, x: usize, y: usize, width: usize,
 /// meter at zero would be indistinguishable from an absent one.
 pub fn meter(g: &mut TextGrid, x: usize, y: usize, width: usize, level: f32,
              ramp: &[char], pal: &Palette) {
+    let fallback = [' ', '@'];
+    let ramp = if ramp.is_empty() { &fallback[..] } else { ramp };
     let level = level.clamp(0.0, 1.0);
     let fg = pal.by_level(level);
     let track = pal.get(Role::Line);
@@ -236,6 +238,13 @@ mod tests {
         bars(&mut g, 0, 0, 4, 2, &[], &r, &pal());
         bars(&mut g, 0, 0, 4, 2, &[0.5], &[], &pal());
         assert_eq!((0..4).map(|x| g.char_at(x, 0)).collect::<String>(), "    ");
+    }
+
+    #[test]
+    fn a_missing_meter_ramp_uses_a_safe_fallback() {
+        let mut g = TextGrid::new(4,1,[0,0,0]);
+        meter(&mut g,0,0,4,0.5,&[],&pal());
+        assert_eq!(g.char_at(0,0),'@');
     }
 
     #[test]

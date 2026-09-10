@@ -52,7 +52,32 @@ const WIDE: usize = 82;     // btop refuses below 80 columns, plus two walls
 
 fn socket_path() -> String {
     let d = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
-    format!("{d}/null-column.sock")
+    let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".into());
+    socket_path_for(&d, &display)
+}
+
+fn socket_path_for(runtime: &str, display: &str) -> String {
+    // Stable FNV-1a keeps absolute display names within Unix socket path limits.
+    // Server and --send resolve the same namespace without a global socket.
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in display.bytes() { hash = (hash ^ byte as u64).wrapping_mul(0x100000001b3); }
+    format!("{runtime}/null-column-{}-{hash:016x}.sock", unsafe { libc::geteuid() })
+}
+
+#[test]
+fn column_controls_bind_independently_for_two_wayland_sessions() {
+    use std::os::unix::net::UnixListener;
+    let temp = std::env::temp_dir().join(format!("null-column-sessions-{}", std::process::id()));
+    std::fs::create_dir_all(&temp).unwrap();
+    let a = socket_path_for(temp.to_str().unwrap(), "display-a");
+    let b = socket_path_for(temp.to_str().unwrap(), "display-b");
+    let first = UnixListener::bind(&a).unwrap();
+    let second = UnixListener::bind(&b);
+    std::fs::remove_file(&a).unwrap();
+    if second.is_ok() { std::fs::remove_file(&b).unwrap(); }
+    std::fs::remove_dir(&temp).unwrap();
+    drop(first);
+    assert!(second.is_ok(), "second Wayland session cannot bind its own column control socket");
 }
 
 struct Slot { buffer: Buffer, gen: u64 }
@@ -61,6 +86,17 @@ struct Host {
     pty: Pty,
     vt: Vt,
     label: String,
+}
+
+impl Host {
+    fn resize(&mut self, cols: usize, rows: usize) {
+        if (self.vt.cols, self.vt.rows) == (cols, rows) { return }
+        if let Err(e) = self.pty.resize(cols as u16, rows as u16) {
+            eprintln!("column: cannot resize hosted terminal: {e}");
+            return;
+        }
+        self.vt.resize(cols, rows);
+    }
 }
 
 struct Column {
@@ -83,6 +119,7 @@ struct Column {
     /// a fresh one on the way back.
     layer: Option<LayerSurface>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
+    modifiers: Modifiers,
 
     atlas: Atlas,
     bold: Option<Atlas>,
@@ -407,6 +444,7 @@ fn main() {
         compositor, layer_shell, qh: qh.clone(),
         layer: None,
         keyboard: None,
+        modifiers: Modifiers::default(),
         atlas, bold, pal, grid,
         cols, rows, px_w, px_h,
         configured: false, exit: false,
@@ -443,6 +481,7 @@ fn main() {
             .ok()
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .and_then(|v| v.get("ramp").and_then(|r| r.as_str()).map(|s| s.chars().collect()))
+            .filter(|r: &Vec<char>| !r.is_empty())
             .unwrap_or_else(|| " .:-=+*#%@".chars().collect()),
         hint_menu: chord_for(&root, "The menu").unwrap_or_else(|| "?".into()),
         hint_keys: chord_for(&root, "Every key binding")
@@ -476,6 +515,7 @@ fn main() {
         let wl = conn.as_fd().as_raw_fd();
         let cs = ctrl.as_raw_fd();
         let pt = col.host.as_ref().map(|h| h.pty.fd()).unwrap_or(-1);
+        let polled_child = col.host.as_ref().map(|h| h.pty.child.id());
 
         let mut fds = vec![
             libc::pollfd { fd: wl, events: libc::POLLIN, revents: 0 },
@@ -541,7 +581,7 @@ fn main() {
                 if n == 0 { break }
             }
         }
-        if fds.len() > 2 {
+        if fds.len() > 2 && col.host.as_ref().map(|h| h.pty.child.id()) == polled_child {
             // Any descriptor in a wait set needs an end-of-file check: one
             // whose writer has exited reports ready on every call and the
             // timeout stops applying (§7.2).
@@ -673,8 +713,7 @@ impl Column {
             // to talk to it prints "Initializing..." and waits for ever,
             // which looks exactly like working.
             "mixer" => vec![format!("{root}/bin/null-mixer")],
-            _ => vec!["sh".into(), "-c".into(),
-                      format!("NULL_COLUMN=1 NULL_ROOT={root} {root}/bin/null-menu {topic}")],
+            _ => vec![format!("{root}/bin/null-menu"), topic.to_string()],
         };
 
         let w = self.width_for(topic);
@@ -712,7 +751,8 @@ impl Column {
         // null-idle start (reading the real ~/.config) never looks in. The idle
         // ladder came back on at every login as a result. Only btop needs the
         // redirect; everything else inherits the session's real config home.
-        let mut env: Vec<(String, String)> = vec![("NEWT_COLORS".into(), newt)];
+        let mut env: Vec<(String, String)> = vec![("NEWT_COLORS".into(), newt),
+            ("NULL_COLUMN".into(), "1".into()), ("NULL_ROOT".into(), root.clone())];
         if topic == "monitor" {
             let cfg = format!("{}/null-column-config",
                               std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into()));
@@ -735,6 +775,7 @@ impl Column {
     }
 
     fn stop_host(&mut self) {
+        self.repeat = None;
         if self.host.take().is_some() {
             self.animate_to(NARROW);
         }
@@ -1396,13 +1437,14 @@ fn encode(ev: &KeyEvent, mods: &Modifiers) -> Option<Vec<u8>> {
     // compositor ever stopped eating its own bindings first, SUPER+1 could not
     // type a 1 into a hosted program (§7.3).
     if mods.logo { return None }
-    match ev.keysym {
+    let bytes = match ev.keysym {
         Keysym::Return | Keysym::KP_Enter => Some(b"\r".to_vec()),
         // 0x7f, not 0x08. The oldest disagreement in terminals, settled by
         // what the programs read: every modern terminfo says kbs=\177, and
         // sending 0x08 leaves a filter you cannot clear.
         Keysym::BackSpace => Some(vec![0x7f]),
         Keysym::Tab => Some(b"\t".to_vec()),
+        Keysym::ISO_Left_Tab => Some(b"\x1b[Z".to_vec()),
         Keysym::Escape => Some(vec![0x1b]),
         Keysym::Up => Some(b"\x1b[A".to_vec()),
         Keysym::Down => Some(b"\x1b[B".to_vec()),
@@ -1417,13 +1459,16 @@ fn encode(ev: &KeyEvent, mods: &Modifiers) -> Option<Vec<u8>> {
             if let Some(t) = &ev.utf8 {
                 if mods.ctrl {
                     let c = t.bytes().next()?;
-                    if c.is_ascii_alphabetic() { return Some(vec![c.to_ascii_uppercase() - 64]) }
-                }
-                if !t.is_empty() { return Some(t.as_bytes().to_vec()) }
-            }
-            None
+                    if c.is_ascii_alphabetic() {
+                        Some(vec![c.to_ascii_uppercase() - 64])
+                    } else { Some(t.as_bytes().to_vec()) }
+                } else if !t.is_empty() {
+                    Some(t.as_bytes().to_vec())
+                } else { None }
+            } else { None }
         }
-    }
+    };
+    bytes.map(|mut b| { if mods.alt { b.insert(0, 0x1b) } b })
 }
 
 impl KeyboardHandler for Column {
@@ -1433,8 +1478,7 @@ impl KeyboardHandler for Column {
              _: &wl_surface::WlSurface, _: u32) { self.repeat = None }
     fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard,
                  _: u32, event: KeyEvent) {
-        let mods = Modifiers::default();
-        if let Some(bytes) = encode(&event, &mods) {
+        if let Some(bytes) = encode(&event, &self.modifiers) {
             if let Some(h) = self.host.as_ref() { let _ = h.pty.write(&bytes); }
             self.repeat = Some((bytes, Instant::now() + self.repeat_delay, self.repeat_rate));
         }
@@ -1442,7 +1486,7 @@ impl KeyboardHandler for Column {
     fn release_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard,
                    _: u32, _: KeyEvent) { self.repeat = None }
     fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard,
-                        _: u32, _: Modifiers, _: u32) {}
+                        _: u32, modifiers: Modifiers, _: u32) { self.modifiers = modifiers; }
 }
 
 impl SeatHandler for Column {
@@ -1475,6 +1519,7 @@ impl LayerShellHandler for Column {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) { self.exit = true }
     fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface,
                  cfg: LayerSurfaceConfigure, _: u32) {
+        let previous_size = (self.px_w, self.px_h);
         if cfg.new_size.0 != 0 { self.px_w = cfg.new_size.0 }
         if cfg.new_size.1 != 0 { self.px_h = cfg.new_size.1 }
         self.rows = (self.px_h as usize / self.atlas.cell_h).max(3);
@@ -1489,6 +1534,16 @@ impl LayerShellHandler for Column {
         // drawing a frame -- so it never maps and never reappears. The
         // animation REQUESTS sizes; the draw FOLLOWS configures.
         let cfg_cols = (self.px_w as usize / self.atlas.cell_w).max(1);
+        if let Some(host) = self.host.as_mut() {
+            // Expansion clips a terminal already laid out at its final width.
+            // A real output resize must still reach both the PTY and the VT.
+            let host_cols = if self.anim_start.is_some() { self.target_cols } else { cfg_cols };
+            host.resize(host_cols.saturating_sub(2).max(1), self.rows.saturating_sub(2).max(1));
+        }
+        if previous_size != (self.px_w, self.px_h) {
+            self.slots.clear();
+            self.next_slot = 0;
+        }
         if self.grid.cols != cfg_cols || self.grid.rows != self.rows {
             self.grid = TextGrid::new(cfg_cols, self.rows, self.pal.get(Role::Background));
             self.slots.clear();
@@ -1501,7 +1556,6 @@ impl LayerShellHandler for Column {
         }
         if !self.configured {
             self.configured = true;
-            self.grid = TextGrid::new(self.cols, self.rows, self.pal.get(Role::Background));
         }
     }
 }
@@ -1525,3 +1579,27 @@ delegate_layer!(Column);
 delegate_seat!(Column);
 delegate_keyboard!(Column);
 delegate_registry!(Column);
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+    #[test]
+    fn terminal_input_preserves_alt_control_and_super() {
+        let key = KeyEvent { time: 0, raw_code: 46, keysym: Keysym::c, utf8: Some("c".into()) };
+        assert_eq!(encode(&key, &Modifiers { alt: true, ..Default::default() }), Some(b"\x1bc".to_vec()));
+        assert_eq!(encode(&key, &Modifiers { ctrl: true, ..Default::default() }), Some(vec![3]));
+        assert_eq!(encode(&key, &Modifiers { logo: true, ..Default::default() }), None);
+    }
+
+    #[test]
+    fn host_resize_updates_the_kernel_terminal_and_the_display_grid() {
+        let argv = vec!["sleep".into(), "1".into()];
+        let pty = Pty::spawn(&argv, 80, 40, &[]).unwrap();
+        let mut h = Host { pty, vt: Vt::new(80,40), label: "test".into() };
+        h.resize(63, 20);
+        let mut size: libc::winsize = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::ioctl(h.pty.fd(), libc::TIOCGWINSZ, &mut size) }, 0);
+        assert_eq!((size.ws_col, size.ws_row), (63,20));
+        assert_eq!((h.vt.cols, h.vt.rows), (63,20));
+    }
+}

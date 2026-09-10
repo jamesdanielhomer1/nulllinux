@@ -1,0 +1,125 @@
+# Code review and stabilization toward 1.0
+
+Review date: 11 September 2026. Baseline:
+`1cbc7817b0d08d6d20414b7d266cfc41a803ed7e` (0.1.0).
+Work branch: `codex/stabilize-1.0`.
+
+## Release verdict
+
+The baseline is not ready to be certified as 1.0. The review found reproducible
+faults in clean builds, package publication, account protection, lock scheduling,
+surface resize, application launching and the numerical pipeline. The
+stabilization changes address these faults and add independent regression
+coverage. The version remains 0.1.0, with RPM Release 2 so an installed package
+can receive the fixes through a normal upgrade.
+
+This review covers the implementation, build scripts, packaging, installation,
+desktop controls, generated assets, verification tools and release documentation.
+It includes independent reviews of runtime, bake and installation subsystems.
+Historical claims of successful VM installs were treated as historical evidence,
+not proof that this changed revision has passed.
+
+## Findings and changes
+
+P1 means a release blocker; P2 means a significant correctness or reliability
+defect. The table groups related defects by the behavior a user encounters.
+
+| Priority | Reproduction and consequence | Change and regression coverage |
+|---|---|---|
+| P1 | `null-users admin USER off` bypassed the exact-`no` last-admin guard and removed the only wheel administrator. | Accept only `yes` or `no` before mutation; safe command doubles prove invalid states and sole-admin removal are refused. |
+| P1 | Firewall replacement could disable the existing firewall before the replacement started, and failed startup could look successful. | Validate before transition, preserve/restore the previous protection on failure and propagate failure. Mocked service transitions exercise refusal and failed startup. |
+| P1 | Lock drawing requested new frame callbacks both from its timer and from callbacks, accumulating independent callback chains. | One timer schedules drawing. Live Wayland checks count zero requested frame callbacks and check memory while displays are active and powered off. |
+| P1 | The ISO test web server exposed its whole work directory, including the private guest SSH key, on all interfaces. | Serve only a temporary public staging tree containing the Kickstart, public key and package repository, bind localhost, reject staged symlinks and check startup. Fresh-work-directory and exposure regressions cover the harness. |
+| P1 | A clean prebake wrote into a missing output directory, consumed an atlas before producing it, and lacked required renderer prerequisites. | Build prerequisites first, create output directories before consumers and test a clean filesystem. |
+| P1 | `null-build --skip-hero` made a directory named `placeholder.cells` instead of a loadable cell file; boot assets ran before the renderer and icons went into the builder's home. | Quantize the placeholder into RCEL, fix stage ordering and pass the declared icon output path. Disposable driver fixtures reproduce each failure. |
+| P1 | Incomplete/stale prebuilts could be accepted, and all historical RPMs from a persistent build directory were republished. A dirty working spec could describe archived HEAD from a different revision. | Validate the archived asset set, bind it to source provenance, build spec/Requires from the same revision, publish only the current build through a staging directory and preserve the prior repository if metadata generation fails. |
+| P2 | Failed surface installation could still write the machine-sync success stamp; upgrades did not invalidate it. | Stamp only after required operations succeed and invalidate copied-surface state on install/upgrade. |
+| P2 | Plymouth could report a successful rebuild after dracut failed by inspecting an older image. Snapshot guidance suggested deleting the mounted root. | Build and inspect a candidate initramfs before replacing the active image; restore theme selection on failure. Recovery guidance now requires rescue media and explains separate `/boot` limitations. |
+| P2 | Quotes and backslashes in installer answers changed Kickstart parsing; failed answer output could return success. | Encode answers as Kickstart arguments, propagate output failures and test round trips without running an installer against host storage. |
+| P2 | A nonexistent backup destination bypassed the same-filesystem check. | Resolve/check its existing ancestor before creating it; mocked filesystem identities verify refusal. |
+| P2 | Bar buffers retained the old dimensions/stride after configure events. The column did not resize its hosted PTY/VT. | Recreate surface buffers and propagate geometry. Real Sway resizing confirms surviving surfaces and changed terminal dimensions. |
+| P2 | Column keyboard modifiers were discarded; closing/replacing a host could retain repeat or stale poll state. | Preserve modifiers, handle Alt/Shift-Tab, clear repeats and match polled descriptors to the host that was actually polled. |
+| P2 | Raster bounds checked the total buffer length but let oversized rows spill into the next scanline. | Clip each scanline in both raster and text-grid drawing; pixel assertions exercise undersized surfaces. |
+| P2 | Malformed assets could request unbounded decompression, zero geometry/timing, invalid palette indices or incompatible font bitmaps. | Validate sizes and indices before use, cap decompression, reject unsupported layouts and test corrupt inputs. |
+| P2 | Hero caches survived changed masters/palettes; wallpaper startup killed unrelated `render` processes; a process merely named `lock` suppressed locking in another session. | Fingerprint all derivation inputs, rely on supervisor ownership and scope readiness to a successful handshake in the relevant Wayland session and process lifetime. |
+| P2 | Supervisors, replacement scans and column IPC collided between two Wayland sessions belonging to one user. | Namespace state/control sockets by session and verify process ownership before replacement; independent two-session fixtures prove isolation. |
+| P2 | Slow PAM authentication blocked the lock event loop, and removed outputs retained their lock surfaces. | Keep one authentication attempt on a worker and accept its result on the event thread; a lost worker rejects. Release removed surfaces. Unit tests cover delayed/lost authentication and a real compositor test exercises three monitor removal/re-enable cycles. |
+| P2 | Wallpaper occlusion/power decisions combined every display, pausing a bare desktop because another monitor had a window. | Scope workspace and power queries to the surface's output. |
+| P2 | Mixed charge/energy battery readings were added as though they shared units. | Normalize charge using voltage when possible and avoid claiming an unsupported combined energy reading. |
+| P2 | Every nonzero binary16 subnormal decoded at half its correct value. | Fix the exponent and exhaustively compare half-float patterns. |
+| P2 | Temperature was averaged with dark samples and by different weights in different render paths, cooling antialiased edges. | Use the composable luminance moment `sum(L*T)/sum(L)` consistently in CPU reference, shader and screen reductions, preserving RGB/light. Add physical and cross-implementation regressions and regenerate the master. |
+| P2 | Default application resolution lost quoted arguments/field positions, ignored XDG precedence and could expose shell interpretation. | Share desktop-entry discovery/argument expansion, preserve NUL-separated argv for direct execution, shell-quote the compositor handoff and respect hidden entries and desktop visibility. Tests launch recording executables with spaces and metacharacters. |
+| P2 | Invalid input values were persisted; keyboard authorization failures looked successful; settings discarded useful error output. | Validate before atomic replacement, use localed's authorized keyboard conversion and display failed mutations in the settings panel. |
+| P2 | A failed system upgrade still ran orphan removal/cache cleanup and returned success; failed orphan queries reported zero. | Stop at the failing update channel, preserve its exit status and report an unknown count when the query fails. Five isolated command tests cover report-only behavior and upgrade, cleanup, firmware and query failures. |
+
+## Performance work
+
+The changes target unnecessary work with a visible correctness benefit: bound
+lock scheduling, pause wallpaper only on its own covered/off display, invalidate
+caches accurately, avoid parsing all desktop files to resolve one default, and
+reuse target HDR geometry across font strikes. They preserve the existing visual
+design and do not lower bake quality to improve a benchmark.
+
+On this Fedora WSL test host, software Vulkan traced one production frame
+(2560×720 rays, 4× supersampling, 3000 steps) in 8.56 seconds, 9.50 seconds wall
+time. This is an environment measurement, not a hardware performance promise.
+The live lock test's RSS was unchanged over the active-display and powered-off
+observation windows. Longer device-specific power measurements remain necessary.
+
+## Numerical and runtime evidence
+
+- Baseline Rust suite: 55 library tests and 8 renderer tests passed before fixes;
+  the new reproductions exposed gaps in that coverage.
+- Exhaustive half-float comparison: 2,046 finite mismatches before the fix,
+  exactly the positive/negative nonzero subnormals.
+- CPU/GPU check at 80×24: hit geometry matched; median/p95 luminance error
+  1.30%/1.71%, temperature error 0.000054%/0.000809%. Quantized glyph agreement
+  was 99.7396%; every differing glyph was one adjacent ramp level.
+- At full 2560×720 resolution on the same llvmpipe adapter, the baseline and
+  corrected shaders produced bit-identical RGB for frame 0. The temperature
+  correction changed 68,966 temperature samples. The unprovenanced historical
+  release master differs in RGB; it is not used to claim byte-identical output.
+- Legacy master inspection: 322,804 lit cells in 240 frames had temperatures
+  below the palette's physical lower bound. This information cannot be recovered
+  by relabeling the old master; a new bake is required.
+- Python/Rust derivation of the explicitly labeled legacy 240-frame master to
+  80×24 produced identical glyph and colour planes after the numerical fixes.
+  Measured time including reads was 4.67 seconds in Rust and 8.76 in Python;
+  this comparison checks implementation parity, not the legacy master's quality.
+- Live headless Sway: two isolated outputs; resize 640×480 to 480×360 kept
+  wallpaper/bar/column alive and changed the hosted PTY from 63×44 to 63×32.
+- Native locker emitted `LOCKED`, requested zero frame callbacks, and retained
+  constant RSS during four-second active and four-second powered-off windows.
+  Terminating only that locker left a solid compositor lock frame.
+- Real `swaymsg exec` preserved a literal argument containing `$()`, semicolons,
+  double quotes and a single quote without expanding or splitting it.
+
+The combined `verify/source.sh` run passed: syntax for 137 shell and 44 Python
+sources; structural checks and their negative fixtures; 70 isolated system/UI
+tests; 26 bake/build tests; 11 physics checks; 94 Rust tests; the Clippy
+correctness gate; and compilation of all five production binaries. Existing
+style and dead-code warnings are not promoted to correctness failures.
+
+Lorax built fresh Fedora 44 installer boot media successfully. Its El Torito
+catalog contains BIOS and UEFI entries. This is boot-media construction evidence;
+embedding and installing the final package are separate acceptance steps.
+
+## Repository maintenance
+
+Added source CI and a documented separation between source, artifact and guest
+checks; enforced Linux line endings across platforms; removed duplicate ignore
+rules; corrected stale spin/build/status descriptions; retained the original
+license bytes. All code work is isolated from the user's `master` checkout.
+
+## Gates before 1.0
+
+1. Verify the final corrected master, prebuilts, package and release ISOs from
+   the revision being released, including a cold install from the final ISO.
+2. Prove graphical login and successful PAM unlock in the installed system;
+   a lock handshake/fail-closed test alone does not prove password acceptance.
+3. Complete cold installation on real hardware and its firmware, EDID/GPU,
+   Wi-Fi association, suspend/resume, docking, trackpoint and battery tests.
+4. Judge Thunderbird/LibreOffice and the regenerated hero/boot surfaces on a
+   screen against the project's visual rules.
+5. Retain off-machine source and corrected-master backups and their checksums
+   before tagging/publishing 1.0. No release was published by this review.

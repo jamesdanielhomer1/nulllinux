@@ -25,12 +25,10 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from formats import read_hdr, write_cells
-
-# Rec.709 luma from linear RGB.
-LUMA = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+from formats import LUMA, read_hdr, write_cells
 
 N_VALUES = 8      # palette value axis (§4.5)
+HYSTERESIS_DEFAULT = 0.25
 
 
 def luminance(arr):
@@ -56,6 +54,12 @@ class Ramp:
     def __init__(self, doc):
         self.chars = doc["ramp"]
         self.coverage = np.array(doc["coverage"], dtype=np.float32)
+        if len(self.chars) < 2 or len(self.chars.encode('utf-8')) > 255:
+            raise ValueError('ramp needs at least two glyphs and at most 255 UTF-8 bytes')
+        if self.coverage.shape != (len(self.chars),):
+            raise ValueError('ramp needs one coverage per glyph')
+        if not np.all(np.isfinite(self.coverage) & (self.coverage >= 0) & (self.coverage <= 1)):
+            raise ValueError('ramp coverage must be finite and between 0 and 1')
         self.peak = float(self.coverage[-1])
         if not np.all(np.diff(self.coverage) > 0):
             raise SystemExit("ramp is not monotonic in measured coverage -- invalid (§2.3)")
@@ -140,7 +144,7 @@ def quantise_frame_lt(L, T, ramp, pal_temps, black, white, gamma, margin, state,
 
 def quantise_sequence(L_frames, T_frames, ramp, pal_temps, *,
                       black_pct=30.0, white_pct=99.5, gamma=0.8,
-                      hysteresis=0.25, k_residual=1.5, max_iterations=12,
+                      hysteresis=HYSTERESIS_DEFAULT, k_residual=1.5, max_iterations=12,
                       log=print):
     """Exposure, hysteresis to a fixed point, and loop closure, for a sequence.
 
@@ -200,7 +204,7 @@ def main():
     ap.add_argument("--black-pct", type=float, default=30.0)
     ap.add_argument("--white-pct", type=float, default=99.5)
     ap.add_argument("--gamma", type=float, default=0.8)
-    ap.add_argument("--hysteresis", type=float, default=0.25)
+    ap.add_argument("--hysteresis", type=float, default=HYSTERESIS_DEFAULT)
     ap.add_argument("--k-residual", type=float, default=1.5)
     ap.add_argument("--fps", type=int, default=24)
     ap.add_argument("--max-iterations", type=int, default=12)

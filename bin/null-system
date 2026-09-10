@@ -34,16 +34,16 @@ snapshot() { null_snapshot "$1"; }  # <label>
 backup() {  # <path>
   [ -e "$1" ] || return 0
   [ "$APPLY" -eq 1 ] || { say "would back up $1"; return 0; }
-  mkdir -p "$BACKUP$(dirname "$1")"
-  cp -a "$1" "$BACKUP$1"
+  mkdir -p "$BACKUP$(dirname "$1")" || refuse "cannot create backup directory"
+  cp -a "$1" "$BACKUP$1" || refuse "could not back up $1"
   say "backed up $1 -> $BACKUP$1"
 }
 
 install_file() {  # <src> <dst>
   if [ "$APPLY" -eq 0 ]; then say "would install $2"; return 0; fi
   backup "$2"
-  mkdir -p "$(dirname "$2")"
-  cp -a "$1" "$2"
+  mkdir -p "$(dirname "$2")" || refuse "cannot create destination directory"
+  cp -a "$1" "$2" || refuse "could not install $2"
   # Fedora enforces SELinux, and a file COPIED into a system path keeps the
   # SOURCE's label rather than acquiring the destination's -- so it can be
   # present, correct, and unreadable by the service that needs it (§9.2).
@@ -189,31 +189,33 @@ cmd_sddm() {
     # "nulllinux", so it silently fell back to its own default -- a machine that
     # boots to a login screen looks exactly like one that boots to the right
     # login screen.
-    rm -rf /usr/share/sddm/themes/nullLinux
-    mkdir -p /usr/share/sddm/themes
-    cp -a "$theme" /usr/share/sddm/themes/nullLinux
+    rm -rf /usr/share/sddm/themes/nullLinux || refuse "could not replace the greeter theme"
+    mkdir -p /usr/share/sddm/themes || refuse "could not create the greeter theme directory"
+    cp -a "$theme" /usr/share/sddm/themes/nullLinux || refuse "could not install the greeter theme"
     # THE GREETER NAMES THIS MACHINE. The theme is built once, at prebake, and
     # cannot know where it will be installed -- so it carries a placeholder and
     # the machine's own name goes in here. The rule above the fields is drawn to
     # an exact cell count, so the title is padded or trimmed to the width the
     # generator reserved rather than allowed to shift it.
     qml=/usr/share/sddm/themes/nullLinux/Main.qml
+    [ -s "$qml" ] || refuse "the greeter has no Main.qml"
     if [ -r "$qml" ]; then
       hn=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo nullLinux)
       want=$(printf '%.14s' "$hn")
-      sed -i "s/__NULL_HOSTNAME__/$want/g" "$qml"
+      sed -i "s/__NULL_HOSTNAME__/$want/g" "$qml" || refuse "could not name the greeter"
       if grep -q __NULL_HOSTNAME__ "$qml"; then
         refuse "the greeter still names no machine -- refusing to install it"
       fi
       say "the greeter names this machine: $want"
     fi
     command -v restorecon >/dev/null && restorecon -RF /usr/share/sddm/themes/nullLinux 2>/dev/null
-    mkdir -p /etc/sddm.conf.d
+    mkdir -p /etc/sddm.conf.d || refuse "could not create the greeter configuration directory"
     # A superseded name that still RESOLVES is worse than one that does not.
     [ -d /usr/share/sddm/themes/nulllinux ] \
       && [ ! /usr/share/sddm/themes/nulllinux -ef /usr/share/sddm/themes/nullLinux ] \
       && rm -rf /usr/share/sddm/themes/nulllinux
-    printf '[Theme]\nCurrent=nullLinux\n' > /etc/sddm.conf.d/10-nulllinux.conf
+    printf '[Theme]\nCurrent=nullLinux\n' > /etc/sddm.conf.d/10-nulllinux.conf \
+      || refuse "could not select the greeter theme"
     say "installed /usr/share/sddm/themes/nullLinux and selected it"
     say ""
     say "NOT yet confirmed. A greeter that fails to start is a machine with no"
@@ -330,62 +332,75 @@ cmd_plymouth() {
   say "  null-system plymouth --check                      build a throwaway image"
   say "  null-system plymouth --apply --fallback-verified  commit"
   if [ "$APPLY" -eq 1 ] && [ "$FALLBACK_VERIFIED" -eq 1 ]; then
-    # WHAT TO PUT BACK, read before anything is touched.
-    local before_theme
-    before_theme=$(plymouth-set-default-theme 2>/dev/null)
-    [ -n "$before_theme" ] || before_theme=text
+    local before_theme state candidate live listing n img_default
+    local default=/usr/share/plymouth/themes/default.plymouth
+    before_theme=$(plymouth-set-default-theme 2>/dev/null) \
+      || refuse "cannot read the current Plymouth theme"
+    [ -n "$before_theme" ] || refuse "the current Plymouth theme is unknown"
+    live="/boot/initramfs-$(uname -r).img"
+    [ -s "$live" ] || refuse "the running kernel has no existing initramfs at $live"
     snapshot splash
-    rm -rf /usr/share/plymouth/themes/nullLinux
-    cp -a "$theme" /usr/share/plymouth/themes/nullLinux
+    # /boot may be a separate filesystem and is not protected by the root snapshot.
+    backup "$live"
+    state=$(mktemp -d /tmp/null-plymouth.XXXXXX) || refuse "cannot save Plymouth state"
+    if [ -e "$default" ] || [ -L "$default" ]; then
+      cp -a "$default" "$state/default.plymouth" \
+        || { rm -rf "$state"; refuse "cannot save the current Plymouth default"; }
+    fi
+    candidate=""
+    plymouth_abort() {
+      local reason=$1 restored=1
+      [ -z "$candidate" ] || rm -f "$candidate"
+      plymouth-set-default-theme "$before_theme" >/dev/null 2>&1 || restored=0
+      rm -f "$default" || restored=0
+      if [ -e "$state/default.plymouth" ] || [ -L "$state/default.plymouth" ]; then
+        cp -a "$state/default.plymouth" "$default" || restored=0
+      fi
+      if [ "$restored" = 1 ]; then
+        rm -rf "$state"
+        refuse "$reason; the active initramfs and previous theme selection are preserved"
+      fi
+      refuse "$reason; the active initramfs is preserved, but restoring the theme selection failed (saved in $state)"
+    }
+    rm -rf /usr/share/plymouth/themes/nullLinux || plymouth_abort "cannot replace the Plymouth theme"
+    cp -a "$theme" /usr/share/plymouth/themes/nullLinux || plymouth_abort "cannot install the Plymouth theme"
     command -v restorecon >/dev/null && restorecon -RF /usr/share/plymouth/themes/nullLinux 2>/dev/null
     # A superseded name that still resolves is worse than one that does not.
     [ -d /usr/share/plymouth/themes/nulllinux ] \
       && [ ! /usr/share/plymouth/themes/nulllinux -ef /usr/share/plymouth/themes/nullLinux ] \
       && rm -rf /usr/share/plymouth/themes/nulllinux
-    plymouth-set-default-theme nullLinux
+    plymouth-set-default-theme nullLinux || plymouth_abort "cannot select the Plymouth theme"
+    ln -sfn "/usr/share/plymouth/themes/nullLinux/nullLinux.plymouth" "$default" \
+      || plymouth_abort "cannot select the Plymouth default file"
 
-    # AND THE SYMLINK plymouth-populate-initrd ACTUALLY READS.
-    #
-    # plymouth-set-default-theme writes Theme=nullLinux into
-    # /etc/plymouth/plymouthd.conf and stops there. dracut's plymouth module
-    # resolves the theme through /usr/share/plymouth/themes/default.plymouth,
-    # which on this system DID NOT EXIST -- so it fell back and put only the
-    # `text` and `details` themes in the image.
-    ln -sfn "/usr/share/plymouth/themes/nullLinux/nullLinux.plymouth" \
-            /usr/share/plymouth/themes/default.plymouth
-
-    say "regenerating ONLY the running kernel's initramfs; the rescue image is untouched"
-
-    # THE SAME INVOCATION --check PROVED. It was not.
-    #
-    # --check builds with PLYMOUTH_THEME_NAME=nullLinux and counted 22 theme
-    # files. --apply built WITHOUT it and produced an image containing ZERO,
-    # while its own plymouthd.conf said Theme=nullLinux -- plymouth told to use
-    # a theme whose images were not there, falling back to its own defaults.
-    #
-    # What that looks like on a real boot, measured rather than imagined: a
-    # #2E3436 screen with three grey dots. Fedora's, not this system's. The
-    # splash had never once drawn, and the check passed every time, because it
-    # verified a build that was not the build this performs.
-    PLYMOUTH_THEME_NAME=nullLinux dracut --force --kver "$(uname -r)"
-
-    # AND THE LIVE IMAGE IS READ BACK. A rebuild that exits 0 having included
-    # nothing is precisely the failure above, and §9.6's caution exists because
-    # this is the step that can leave a machine looking broken.
-    local live n
-    live="/boot/initramfs-$(uname -r).img"
-    n=$(lsinitrd "$live" 2>/dev/null | grep -c 'themes/nullLinux/' || true)
-    if [ "${n:-0}" -eq 0 ]; then
-      say ""
-      say "the new initramfs contains NO nullLinux theme files."
-      say "The splash would fall back to plymouth's default: a grey screen with"
-      say "three dots. Putting the previous theme back."
-      plymouth-set-default-theme "$before_theme" 2>/dev/null || true
-      rm -f /usr/share/plymouth/themes/default.plymouth
-      dracut --force --kver "$(uname -r)"
-      refuse "the splash was not applied"
+    # Build beside the active image so publication is a rename on /boot.
+    # A failed dracut must never be judged by inspecting the previous image.
+    candidate=$(mktemp "/boot/.null-initramfs-$(uname -r).XXXXXX") \
+      || plymouth_abort "cannot create a candidate initramfs"
+    say "building a candidate for the running kernel; the rescue image is untouched"
+    if ! PLYMOUTH_THEME_NAME=nullLinux dracut --force --kver "$(uname -r)" "$candidate"; then
+      plymouth_abort "dracut failed"
     fi
-    say "theme files in the live image: $n"
+    [ -s "$candidate" ] || plymouth_abort "dracut produced an empty initramfs"
+    listing=$(lsinitrd "$candidate" 2>/dev/null) || plymouth_abort "cannot inspect the candidate initramfs"
+    n=$(printf '%s\n' "$listing" | grep -c 'themes/nullLinux/' || true)
+    [ "$n" -gt 0 ] || plymouth_abort "the candidate contains no nullLinux theme files"
+    printf '%s\n' "$listing" | grep -Fq "plymouth/$module.so" \
+      || plymouth_abort "the candidate contains no Plymouth $module module"
+    img_default=$(lsinitrd "$candidate" -f etc/plymouth/plymouthd.conf 2>/dev/null \
+                    | sed -n 's/^ *Theme *= *//p' | head -1)
+    [ -n "$img_default" ] || img_default=$(lsinitrd "$candidate" -f usr/share/plymouth/plymouthd.defaults \
+                    2>/dev/null | sed -n 's/^ *Theme *= *//p' | head -1)
+    [ "$img_default" = nullLinux ] || plymouth_abort "the candidate does not select the nullLinux theme"
+    chmod --reference="$live" "$candidate" || plymouth_abort "cannot set initramfs permissions"
+    # Preserve the existing boot image's SELinux label before the rename.
+    if command -v selinuxenabled >/dev/null && selinuxenabled; then
+      chcon --reference="$live" "$candidate" || plymouth_abort "cannot label the candidate initramfs"
+    fi
+    mv -fT "$candidate" "$live" || plymouth_abort "cannot publish the candidate initramfs"
+    candidate=""
+    rm -rf "$state"
+    say "theme files in the verified image: $n"
     say "done"
   else
     say ""
@@ -547,6 +562,12 @@ cmd_firewall() {
   [ -r "$mods" ] || refuse "no module list at $mods"
 
   command -v nft >/dev/null 2>&1 || refuse "nft is not installed"
+  local in_chroot=0 had_nft=0 had_firewalld=0
+  if command -v systemd-detect-virt >/dev/null 2>&1 \
+     && systemd-detect-virt --chroot --quiet; then in_chroot=1; fi
+  systemctl is-enabled nftables.service >/dev/null 2>&1 && had_nft=1
+  if systemctl is-enabled firewalld.service >/dev/null 2>&1 \
+     || systemctl is-active firewalld.service >/dev/null 2>&1; then had_firewalld=1; fi
 
   # SYNTAX FIRST -- BUT `nft -c` IS NOT A SYNTAX CHECK.
   #
@@ -561,32 +582,20 @@ cmd_firewall() {
   # fell back to firewalld, and the machine booted 8.7 seconds slower with the
   # firewall this was written to replace.
   #
-  # So: a PARSE error still refuses. An environment that cannot answer the
-  # question says so and continues, because the ruleset is checked for real at
-  # build time by verify/check-firewall.sh, on a machine that has a kernel to
-  # check it against.
-  # `nft -c -f` opens a netlink socket to nf_tables, not merely parses: inside
-  # anaconda's %post chroot there is no such socket and it fails even on a good
-  # ruleset. That failure must be told apart from a real ruleset error, and doing
-  # it by matching the NETLINK wording was brittle -- one unrecognised variant
-  # sent a perfectly good ruleset down the `refuse` path, and the install fell
-  # back to firewalld (~8.7s slower) silently on every ISO install.
-  #
-  # So key off the RULESET-error marker instead, which is stable: nft prints
-  # "syntax error" for a bad ruleset, and its parser runs before it touches
-  # netlink, so that is caught with or without a kernel. Anything else that fails
-  # -- a socket that will not open, a feature the chroot's kernel lacks -- is an
-  # environment the install cannot answer in, so continue and stage: the
-  # ruleset's validity is proven at build time by verify/check-firewall.sh, on a
-  # machine that has a kernel, and nftables.service loads it on the first boot.
+  # Parse errors always refuse. Other failures may be staged only in a
+  # positively identified chroot. On a running host they are kernel failures,
+  # so leave the existing firewall enabled and report the error.
   if err=$(nft -c -f "$src" 2>&1); then
     say "ruleset parses"
   elif printf '%s' "$err" | grep -qi 'syntax error'; then
     printf '%s\n' "$err" | sed 's/^/    /'
     refuse "$src does not parse -- refusing to install it"
-  else
-    say "cannot validate here -- no netlink to nf_tables (a chroot or a container)"
+  elif [ "$in_chroot" = 1 ]; then
+    say "cannot validate here -- no netlink to nf_tables (a chroot)"
     say "  the ruleset is checked at build time by verify/check-firewall.sh; staging anyway"
+  else
+    printf '%s\n' "$err" >&2
+    refuse "the kernel rejected the ruleset; the current firewall was left enabled"
   fi
   say "$(grep -cE '^\s+(ct|iif|meta|udp|tcp|reject|type)' "$src") rules, against firewalld's 366"
 
@@ -607,8 +616,9 @@ cmd_firewall() {
   snapshot firewall
   install_file "$src" /etc/nftables/nulllinux.nft
   backup /etc/sysconfig/nftables.conf
-  mkdir -p /etc/sysconfig
-  printf 'include "/etc/nftables/nulllinux.nft"\n' > /etc/sysconfig/nftables.conf
+  mkdir -p /etc/sysconfig || refuse "cannot create firewall configuration directory"
+  printf 'include "/etc/nftables/nulllinux.nft"\n' > /etc/sysconfig/nftables.conf \
+    || refuse "could not write nftables.conf"
   say "wrote /etc/sysconfig/nftables.conf"
   # A UNIT, NOT /etc/modules-load.d. systemd-modules-load fails the whole unit
   # if any one module fails to insert, and nft_reject_inet reliably returned
@@ -619,24 +629,57 @@ cmd_firewall() {
   install_file "$mods" /usr/lib/systemd/system/nulllinux-netfilter-modules.service
   systemctl enable nulllinux-netfilter-modules.service >/dev/null 2>&1 \
     && say "enabled nulllinux-netfilter-modules.service" \
-    || say "could not enable nulllinux-netfilter-modules.service"
+    || refuse "could not enable nulllinux-netfilter-modules.service"
 
   systemctl enable nftables.service >/dev/null 2>&1 \
     && say "enabled nftables.service" \
-    || say "could not enable nftables.service"
-  if systemctl is-enabled firewalld.service >/dev/null 2>&1; then
-    systemctl disable firewalld.service >/dev/null 2>&1 \
-      && say "disabled firewalld.service -- two firewalls is worse than either"
+    || refuse "could not enable nftables.service"
+  if [ "$in_chroot" = 1 ]; then
+    systemctl disable firewalld.service >/dev/null 2>&1 || true
+    say "firewall staged for the installed system's first boot"
+    return 0
   fi
 
-  # AND CHECK IT, on the running machine, before claiming anything.
-  if systemctl start nftables.service >/dev/null 2>&1; then
-    local n; n=$(nft list ruleset 2>/dev/null | grep -c .)
-    [ "$n" -gt 10 ] || refuse "nftables.service started but the ruleset is $n lines -- the machine may have no firewall"
-    say "loaded: $n lines of ruleset, input policy $(nft list chain inet filter input 2>/dev/null | grep -o 'policy [a-z]*' | head -1)"
-  else
-    say "could not start nftables.service now; it is enabled for next boot"
+  # Keep the previous firewall enabled until both chains are read back.
+  firewall_loaded() {
+    local chain
+    for chain in input forward; do
+      nft list chain inet filter "$chain" 2>/dev/null | grep -q 'policy drop;' || return 1
+    done
+  }
+  # Restarting an already active nftables unit can flush its rules in ExecStop.
+  # Capture the kernel state so a failed restart can restore the old policy.
+  local previous_rules
+  previous_rules=$(mktemp /tmp/null-firewall.XXXXXX) || refuse "cannot save the existing firewall"
+  if ! (printf 'flush ruleset\n'; nft list ruleset) > "$previous_rules"; then
+    rm -f "$previous_rules"
+    refuse "cannot read the existing firewall; no service was stopped"
   fi
+  if ! systemctl restart nftables.service >/dev/null 2>&1 || ! firewall_loaded; then
+    [ "$had_nft" = 1 ] || systemctl disable nftables.service >/dev/null 2>&1 || true
+    local recovered=1
+    nft -f "$previous_rules" >/dev/null 2>&1 || recovered=0
+    rm -f "$previous_rules"
+    [ "$recovered" = 1 ] || refuse "nftables did not load and the previous rules could not be restored; check the firewall immediately"
+    refuse "nftables did not load; restored the previous rules and kept the previous firewall enabled"
+  fi
+  if [ "$had_firewalld" = 1 ]; then
+    systemctl disable --now firewalld.service >/dev/null 2>&1 \
+      || { rm -f "$previous_rules"; refuse "could not stop firewalld; nftables is loaded"; }
+    # A stopped firewall can clean up rules. Reassert ours after that cleanup.
+    if ! nft -f "$src" >/dev/null 2>&1 || ! firewall_loaded; then
+      local restored=1
+      systemctl enable firewalld.service >/dev/null 2>&1 || restored=0
+      systemctl restart firewalld.service >/dev/null 2>&1 || restored=0
+      nft -f "$previous_rules" >/dev/null 2>&1 || restored=0
+      rm -f "$previous_rules"
+      [ "$had_nft" = 1 ] || systemctl disable nftables.service >/dev/null 2>&1 || true
+      [ "$restored" = 1 ] || refuse "nftables failed after transition and firewalld recovery failed; check the firewall immediately"
+      refuse "nftables failed after transition; restored firewalld"
+    fi
+  fi
+  rm -f "$previous_rules"
+  say "loaded and verified: input and forward policies drop"
 }
 
 usage() { cat <<'U'

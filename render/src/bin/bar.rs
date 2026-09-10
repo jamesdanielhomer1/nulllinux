@@ -228,10 +228,12 @@ fn main() {
         }
         unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, ms_to_second) };
 
+        let mut lost = fds[0].revents & (libc::POLLHUP | libc::POLLERR) != 0;
         if let Some(g) = read_guard {
-            if fds[0].revents & libc::POLLIN != 0 { let _ = g.read(); }
+            if fds[0].revents & libc::POLLIN != 0 && g.read().is_err() { lost = true }
         }
-        queue.dispatch_pending(&mut bar).ok();
+        if queue.dispatch_pending(&mut bar).is_err() { lost = true }
+        if lost { break }
 
         // Any descriptor added to a wait set needs an end-of-file check. A
         // descriptor whose writer has exited reports ready on EVERY call, the
@@ -460,15 +462,17 @@ impl LayerShellHandler for Bar {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) { self.exit = true }
     fn configure(&mut self, _: &Connection, _qh: &QueueHandle<Self>, _: &LayerSurface,
                  cfg: LayerSurfaceConfigure, _: u32) {
-        let was = self.px_w;
+        let was = (self.px_w, self.px_h);
         if cfg.new_size.0 != 0 { self.px_w = cfg.new_size.0 }
         if cfg.new_size.1 != 0 { self.px_h = cfg.new_size.1 }
         // REBUILD THE GRID WHEN THE WIDTH CHANGES, not only at startup. The
         // width arriving is the whole point of asking for 0, and a monitor
         // that is swapped or re-moded sends another configure.
-        if self.px_w != was && self.px_w != 0 {
+        if (self.px_w, self.px_h) != was && self.px_w != 0 {
             let cols = (self.px_w as usize / self.atlas.cell_w).max(1);
             self.grid = TextGrid::new(cols, ROWS, self.pal.get(Role::Background));
+            self.slots.clear();
+            self.next_slot = 0;
         }
         if !self.configured {
             self.configured = true;

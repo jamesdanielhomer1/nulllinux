@@ -36,7 +36,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from formats import write_cells
 from pack_master import read_master
-from quantise import Ramp, quantise_sequence
+from quantise import HYSTERESIS_DEFAULT, Ramp, quantise_sequence
 
 
 def area_weights(n_in, n_out):
@@ -84,10 +84,14 @@ def derive(master_path, cols, rows, ramp_doc, pal_meta, *, log=print, **opts):
     L_frames, T_frames = [], []
     for f in range(arr.shape[0]):
         # Separable area resample: rows then columns, in the HDR domain.
-        lt = np.einsum('ij,jkc->ikc', Wr, arr[f])
+        moments = arr[f].copy()
+        moments[..., 1] *= moments[..., 0]
+        lt = np.einsum('ij,jkc->ikc', Wr, moments)
         lt = np.einsum('ij,kjc->kic', Wc, lt)
+        lt[..., 1] = np.divide(lt[..., 1], lt[..., 0],
+                              out=np.zeros_like(lt[..., 1]), where=lt[..., 0] > 0)
         L = np.zeros((rows, cols), dtype=np.float32)
-        T = np.full((rows, cols), lt[..., 1].min(), dtype=np.float32)
+        T = np.zeros((rows, cols), dtype=np.float32)
         y0, x0 = (rows - hr) // 2, (cols - hc) // 2
         L[y0:y0 + hr, x0:x0 + hc] = lt[..., 0]
         T[y0:y0 + hr, x0:x0 + hc] = lt[..., 1]
@@ -114,7 +118,7 @@ def main():
     ap.add_argument("--black-pct", type=float, default=None)
     ap.add_argument("--white-pct", type=float, default=None)
     ap.add_argument("--gamma", type=float, default=None)
-    ap.add_argument("--hysteresis", type=float, default=0.25)
+    ap.add_argument("--hysteresis", type=float, default=HYSTERESIS_DEFAULT)
     ap.add_argument("--k-residual", type=float, default=1.5)
     args = ap.parse_args()
 

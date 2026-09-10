@@ -57,7 +57,11 @@ null_snapshot() {  # <label>
   local snap="$NULL_SNAPDIR/$label-$STAMP"
   if btrfs subvolume snapshot -r / "$snap" >/dev/null 2>&1; then
     say "snapshot: $snap"
-    say "  roll back with:  btrfs subvolume delete /  &&  btrfs subvolume snapshot $snap /"
+    say "  To recover, boot rescue media and mount the Btrfs top-level filesystem."
+    say "  Locate this snapshot there and create a writable snapshot for recovery;"
+    say "  update the root subvolume selection to match the installed boot layout."
+    say "  Do not delete or replace the mounted root. Separate filesystems such as"
+    say "  /boot and nested subvolumes are not restored by this root snapshot."
   else
     say "snapshot failed (not a btrfs subvolume?) -- continuing without one"
     return 0

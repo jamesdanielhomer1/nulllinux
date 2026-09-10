@@ -29,12 +29,17 @@ key() {  # <cols> <rows> <ramp-file>
   # The ramp is part of the key: the same grid quantised against a different
   # strike's ramp is a different picture, and handing one to the other's atlas
   # is exactly the §2.3 inversion this project already has a check for.
-  h=$(sha256sum "$ramp" 2>/dev/null | cut -c1-12)
-  [ -n "$h" ] || die "cannot read ramp $ramp"
+  # Changes to the master, palette or derivation implementation also change
+  # the picture. Old cache entries must not survive those inputs changing.
+  h=$(sha256sum "$MASTER" "$ramp" "$ROOT/assets/palette.json" \
+        "$ROOT/assets/palette.bin" "$ROOT/render/target/release/render" 2>/dev/null \
+        | awk '{print $1}' | sha256sum | cut -c1-24) \
+    || die "cannot fingerprint the hero inputs"
+  [ -n "$h" ] || die "cannot fingerprint the hero inputs"
   printf '%sx%s-%s' "$cols" "$rows" "$h"
 }
 
-path() { printf '%s/%s.cells\n' "$CACHE" "$(key "$@")"; }
+path() { local k; k=$(key "$@") || return 1; printf '%s/%s.cells\n' "$CACHE" "$k"; }
 
 case "${1:-}" in
   path)
@@ -43,13 +48,13 @@ case "${1:-}" in
 
   have)
     [ $# -eq 4 ] || die "have needs <cols> <rows> <ramp>"
-    p=$(path "$2" "$3" "$4"); [ -s "$p" ] ;;
+    p=$(path "$2" "$3" "$4") || exit 1; [ -s "$p" ] ;;
 
   ensure)
     [ $# -eq 4 ] || die "ensure needs <cols> <rows> <ramp>"
     cols=$2; rows=$3; ramp=$4
     [ -r "$MASTER" ] || die "no master at $MASTER -- this package shipped without one"
-    p=$(path "$cols" "$rows" "$ramp")
+    p=$(path "$cols" "$rows" "$ramp") || exit 1
     [ -s "$p" ] && { echo "$p"; exit 0; }
     mkdir -p "$CACHE" || die "cannot create $CACHE"
 

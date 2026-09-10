@@ -1,0 +1,21 @@
+name: Source and renderer
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check source in Fedora 44 and build production binaries
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -w /workspace fedora:44 \
+            bash -c 'bash packages/fedora/ci-dependencies.sh &&
+              git config --global --add safe.directory /workspace &&
+              bash verify/source.sh'

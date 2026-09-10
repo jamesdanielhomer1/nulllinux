@@ -114,7 +114,7 @@ pub fn run(cells: Cells, atlas: Atlas, layer_name: &str, overlay: bool,
     // nearly all of them -- so the overlay layer IMPLIES forced animation,
     // decided here rather than left to whoever writes the command line (§8.6).
     let force_animate = force_animate || overlay;
-    if !force_animate && !ipc::spawn_occlusion_watch(occluded.clone()) {
+    if !force_animate && !ipc::spawn_occlusion_watch_for_output(occluded.clone(), output_name.map(String::from)) {
         eprintln!("render: no compositor socket -- cannot detect occlusion, animating always");
     }
 

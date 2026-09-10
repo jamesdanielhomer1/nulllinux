@@ -18,6 +18,7 @@ use std::path::Path;
 
 const MASTER_MAGIC: &[u8; 4] = b"NLHM";
 const MASTER_VERSION: u16 = 1;
+const MAX_MASTER_BYTES: u64 = 512 * 1024 * 1024;
 
 pub struct Master {
     pub cols: usize,
@@ -48,7 +49,7 @@ fn f16_to_f32(bits: u16) -> f32 {
         0 if frac == 0 => sign << 31,
         // Subnormal: normalise it by hand.
         0 => {
-            let mut e = -1i32;
+            let mut e = 0i32;
             let mut f = frac;
             while f & 0x400 == 0 { f <<= 1; e -= 1; }
             let f = f & 0x3ff;
@@ -63,6 +64,9 @@ fn f16_to_f32(bits: u16) -> f32 {
 impl Master {
     pub fn load(path: &Path) -> Result<Self, String> {
         let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        if f.metadata().map_err(|e| e.to_string())?.len() > MAX_MASTER_BYTES {
+            return Err(format!("{}: compressed master exceeds the 512 MiB limit", path.display()));
+        }
         let mut r = std::io::BufReader::new(f);
         if &rd::<4>(&mut r)? != MASTER_MAGIC {
             return Err(format!("{}: not a hero master", path.display()));
@@ -80,22 +84,39 @@ impl Master {
             f32::from_le_bytes(rd(&mut r)?),
             f32::from_le_bytes(rd(&mut r)?),
         );
-        let raw_len = u64::from_le_bytes(rd(&mut r)?) as usize;
-
-        let mut comp = Vec::new();
-        r.read_to_end(&mut comp).map_err(|e| e.to_string())?;
-        let payload = zstd::decode_all(&comp[..]).map_err(|e| format!("{}: {e}", path.display()))?;
-        if payload.len() != raw_len {
+        let raw_len = u64::from_le_bytes(rd(&mut r)?);
+        if cols == 0 || rows == 0 || frames == 0 || fps == 0 {
+            return Err(format!("{}: master geometry, frames and fps must be nonzero", path.display()));
+        }
+        if !tone.0.is_finite() || !tone.1.is_finite() || !tone.2.is_finite()
+            || !(0.0 <= tone.0 && tone.0 < tone.1 && tone.1 <= 100.0 && tone.2 > 0.0) {
+            return Err(format!("{}: invalid master tone curve", path.display()));
+        }
+        let want = (frames as u64).checked_mul(rows as u64)
+            .and_then(|v| v.checked_mul(cols as u64)).and_then(|v| v.checked_mul(4))
+            .ok_or_else(|| format!("{}: master geometry exceeds the size limit", path.display()))?;
+        if want > MAX_MASTER_BYTES || raw_len > MAX_MASTER_BYTES {
+            return Err(format!("{}: master payload exceeds the 512 MiB limit", path.display()));
+        }
+        if raw_len != want {
+            return Err(format!("{}: master payload header says {raw_len}, geometry needs {want}", path.display()));
+        }
+        let mut decoder = zstd::stream::read::Decoder::new(r)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        decoder.window_log_max(27).map_err(|e| e.to_string())?;
+        let mut payload = Vec::new();
+        decoder.take(want + 1).read_to_end(&mut payload)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        if payload.len() as u64 != raw_len {
             return Err(format!("{}: payload {} bytes, header says {raw_len}", path.display(), payload.len()));
         }
-        let want = frames * rows * cols * 2 * 2;
-        if payload.len() != want {
-            return Err(format!("{}: {} bytes for {frames}x{rows}x{cols}x2 f16, expected {want}",
-                               path.display(), payload.len()));
-        }
         let data = payload.chunks_exact(2)
-            .map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]])))
-            .collect();
+            .enumerate().map(|(i, c)| {
+                let value = f16_to_f32(u16::from_le_bytes([c[0], c[1]]));
+                if !value.is_finite() || value < 0.0 {
+                    Err(format!("{}: nonfinite or negative master sample {i}", path.display()))
+                } else { Ok(value) }
+            }).collect::<Result<Vec<_>, _>>()?;
         Ok(Master { cols, rows, frames, fps, tone, data })
     }
 }
@@ -131,6 +152,12 @@ impl Ramp {
         if coverage.len() != chars.chars().count() {
             return Err(format!("{}: {} coverages for {} glyphs",
                                path.display(), coverage.len(), chars.chars().count()));
+        }
+        if coverage.len() < 2 || chars.len() > u8::MAX as usize {
+            return Err(format!("{}: ramp needs at least two glyphs and at most 255 UTF-8 bytes", path.display()));
+        }
+        if coverage.iter().any(|c| !c.is_finite() || !(0.0..=1.0).contains(c)) {
+            return Err(format!("{}: ramp coverage must be finite and between 0 and 1", path.display()));
         }
         if coverage.windows(2).any(|w| w[1] <= w[0]) {
             return Err(format!("{}: ramp is not monotonic in measured coverage (§2.3)", path.display()));
@@ -366,22 +393,16 @@ pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
                             for &(sy, w) in wrow {
                                 let i = base + (sy * master.cols + x) * 2;
                                 al += master.data[i] * w;
-                                at += master.data[i + 1] * w;
+                                at += (master.data[i] * master.data[i + 1]) * w;
                             }
                             mid[(oy * master.cols + x) * 2] = al;
                             mid[(oy * master.cols + x) * 2 + 1] = at;
                         }
                     }
-                    // The void outside the hero carries the coolest temperature
-                    // present, so the palette does not read it as a different
-                    // kind of nothing.
-                    let mut tmin = f32::INFINITY;
-                    for oy in 0..hr { for x in 0..master.cols {
-                        let t = mid[(oy * master.cols + x) * 2 + 1];
-                        if t < tmin { tmin = t }
-                    }}
+                    // Mid stores the additive moments (L, L*T). Divide only
+                    // after both axes, so void does not cool an emitting cell.
                     let mut lf = vec![0f32; rows * cols];
-                    let mut tf = vec![tmin; rows * cols];
+                    let mut tf = vec![0f32; rows * cols];
                     for oy in 0..hr {
                         for (ox, wcol) in wc.iter().enumerate() {
                             let (mut al, mut at) = (0f32, 0f32);
@@ -390,7 +411,7 @@ pub fn derive(master: &Master, cols: usize, rows: usize, ramp: &Ramp,
                                 at += mid[(oy * master.cols + sx) * 2 + 1] * w;
                             }
                             lf[(y0 + oy) * cols + x0 + ox] = al;
-                            tf[(y0 + oy) * cols + x0 + ox] = at;
+                            tf[(y0 + oy) * cols + x0 + ox] = if al > 0.0 { at / al } else { 0.0 };
                         }
                     }
                     *lslot = lf;
@@ -621,9 +642,99 @@ mod a_bad_master_is_an_error_not_a_crash {
         }
     }
 
+    #[test]
+    fn every_binary16_subnormal_has_the_ieee_value() {
+        for frac in 1..=1023_u16 {
+            let expected = frac as f32 * 2.0_f32.powi(-24);
+            assert_eq!(f16_to_f32(frac), expected, "positive {frac:#06x}");
+            assert_eq!(f16_to_f32(frac | 0x8000), -expected, "negative {frac:#06x}");
+        }
+        assert_eq!(f16_to_f32(0x0400), 2.0_f32.powi(-14));
+        assert_eq!(f16_to_f32(0x8000).to_bits(), (-0.0_f32).to_bits());
+        assert!(f16_to_f32(0x7c00).is_infinite());
+        assert!(f16_to_f32(0x7e00).is_nan());
+    }
+
+    #[test]
+    fn dark_subsamples_do_not_cool_a_lit_cell() {
+        let row = [1.0, 6000.0, 0.0, 0.0, 0.01, 2000.0, 0.01, 2000.0,
+                   2.0, 10000.0, 2.0, 10000.0, 0.0, 0.0, 0.0, 0.0];
+        let m = Master { cols: 8, rows: 2, frames: 2, fps: 24,
+                         tone: (0.0, 100.0, 1.0), data: row.repeat(4) };
+        let d = derive(&m, 4, 1, &ramp(), &[2000.0, 6000.0, 10000.0],
+                       1.5, 0.25, &mut |_| {}).unwrap();
+        assert!(d.glyphs[0][0] > 0);
+        assert_eq!(d.colours[0][0] / 8, 1, "the emitting sample is still 6000 K");
+    }
+
     fn master(frames: usize, rows: usize, cols: usize) -> Master {
         Master { cols, rows, frames, fps: 24, tone: (0.0, 99.0, 1.0),
                  data: vec![0.0; frames * rows * cols * 2] }
+    }
+
+    fn load_fixture(cols: u16, rows: u16, frames: u16, fps: u16,
+                    tone: [f32; 3], halves: &[u16], claimed: Option<u64>) -> Result<Master, String> {
+        let mut bytes = MASTER_MAGIC.to_vec();
+        for value in [MASTER_VERSION, cols, rows, frames, fps] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        for value in tone { bytes.extend_from_slice(&value.to_le_bytes()); }
+        let raw: Vec<u8> = halves.iter().flat_map(|v| v.to_le_bytes()).collect();
+        bytes.extend_from_slice(&claimed.unwrap_or(raw.len() as u64).to_le_bytes());
+        bytes.extend(zstd::encode_all(&raw[..], 1).unwrap());
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("null-master-test-{}-{unique}", std::process::id()));
+        std::fs::write(&path, bytes).unwrap();
+        let result = Master::load(&path);
+        std::fs::remove_file(&path).unwrap();
+        result
+    }
+
+    #[test]
+    fn ramp_rejects_missing_boundaries_unrepresentable_length_and_bad_coverage() {
+        let docs = [
+            serde_json::json!({"ramp": " ", "coverage": [0.0]}),
+            serde_json::json!({"ramp": " .", "coverage": [-0.1, 0.5]}),
+            serde_json::json!({"ramp": " .", "coverage": [0.0, 1.1]}),
+            serde_json::json!({"ramp": " .", "coverage": [0.0, 1e40]}),
+            serde_json::json!({"ramp": "a".repeat(256),
+                "coverage": (0..256).map(|i| i as f64 / 255.0).collect::<Vec<_>>()}),
+        ];
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("null-ramp-test-{}-{unique}", std::process::id()));
+        for doc in docs {
+            std::fs::write(&path, doc.to_string()).unwrap();
+            assert!(Ramp::load(&path).is_err(), "accepted {doc}");
+        }
+        std::fs::write(&path, r#"{"ramp":" ·▒█","coverage":[0,0.3,0.6,1]}"#).unwrap();
+        assert!(Ramp::load(&path).is_ok(), "valid Unicode ramp must remain supported");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn master_rejects_zero_geometry_and_timing() {
+        for (cols, rows, frames, fps) in [(0, 1, 1, 24), (1, 0, 1, 24),
+                                         (1, 1, 0, 24), (1, 1, 1, 0)] {
+            let data = if cols * rows * frames > 0 { vec![0x3800, 0x6800] } else { vec![] };
+            assert!(load_fixture(cols, rows, frames, fps, [0.0, 99.0, 1.0], &data, None).is_err());
+        }
+    }
+
+    #[test]
+    fn master_rejects_invalid_exposure_and_nonfinite_samples() {
+        for tone in [[f32::NAN, 99.0, 1.0], [0.0, 101.0, 1.0],
+                     [50.0, 20.0, 1.0], [0.0, 99.0, 0.0]] {
+            assert!(load_fixture(1, 1, 1, 24, tone, &[0x3800, 0x6800], None).is_err());
+        }
+        for pair in [[0x7e00, 0x6800], [0x3800, 0x7c00], [0xbc00, 0x6800]] {
+            assert!(load_fixture(1, 1, 1, 24, [0.0, 99.0, 1.0], &pair, None).is_err());
+        }
+    }
+
+    #[test]
+    fn master_refuses_oversized_header_before_decompression() {
+        let result = load_fixture(65535, 65535, 240, 24, [0.0, 99.0, 1.0], &[], Some(600 * 1024 * 1024));
+        assert!(result.err().unwrap().contains("limit"));
     }
 
     /// A header that says "no frames" used to abort the process with

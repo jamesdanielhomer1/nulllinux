@@ -18,7 +18,11 @@ come after it. The specification is `NULL.md`; where each claim was proven is
 
 ## 1.0.0 acceptance criteria
 
-Met:
+Historical baseline results (through 9 September 2026). Checked boxes record
+those runs, not certification of the current stabilization branch. Fresh review
+and remaining technical gates are in [review-1.0.md](review-1.0.md).
+
+Met on that baseline:
 
 - [x] **One command takes stock Fedora to the desktop** — `bin/null-bootstrap` (VM).
 - [x] **The installer ISO boots and installs**, BIOS and UEFI and UEFI+secure
@@ -72,7 +76,7 @@ Not yet met — the road to 1.0.0:
       and their pieces verified; the chrome and GTK theming can be shown in a
       guest but are finally judged on a screen.
 
-When both boxes above are ticked, tag `0.1.0` → `1.0.0` (`null-brand` reads the
+When these boxes and the current review/build gates are closed, tag `0.1.0` → `1.0.0` (`null-brand` reads the
 version from the spec/package; bump there) and cut the release ISOs.
 
 ---

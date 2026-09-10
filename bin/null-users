@@ -211,6 +211,7 @@ cmd_admin() {
   [ -n "$name" ] || name=$(pick_person) || return 1
   exists "$name" || { oops "$name does not exist"; return 1; }
   [ -n "$state" ] || state=$(null_pick "administrator" "$name" "" yes no) || return 1
+  case $state in yes|no) ;; *) oops "administrator must be yes or no"; return 2 ;; esac
 
   # THE LAST ADMINISTRATOR STAYS. root is locked by the installer, so wheel is
   # the only way to sudo and sudo is the only way up. Taking the last member
@@ -221,8 +222,11 @@ cmd_admin() {
     hint "Make somebody else an administrator first."
     return 1
   fi
-  if [ "$state" = yes ]; then gpasswd -a "$name" "$ADMIN_GROUP" >/dev/null
-  else gpasswd -d "$name" "$ADMIN_GROUP" >/dev/null; fi
+  if [ "$state" = yes ]; then
+    gpasswd -a "$name" "$ADMIN_GROUP" >/dev/null || { oops "could not grant administrator"; return 1; }
+  else
+    gpasswd -d "$name" "$ADMIN_GROUP" >/dev/null || { oops "could not withdraw administrator"; return 1; }
+  fi
   is_admin "$name" && say "$name is an administrator" || say "$name is not an administrator"
 }
 

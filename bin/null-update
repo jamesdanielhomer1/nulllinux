@@ -52,9 +52,13 @@ report_packages() {
 }
 
 report_orphans() {
-  local n
-  n=$("$PKG" what-is-orphaned 2>/dev/null | grep -c . || true)
-  null_row "ORPHANED" "${n:-0}"
+  local out n
+  if out=$("$PKG" what-is-orphaned 2>/dev/null); then
+    n=$(printf '%s\n' "$out" | grep -c . || true)
+    null_row "ORPHANED" "$n"
+  else
+    null_row "ORPHANED" "$UNKNOWN"
+  fi
 }
 
 report_cache() {
@@ -197,11 +201,18 @@ report_all
 
 echo
 if [ "$APPLY" -eq 1 ]; then
-  apply_packages; apply_orphans; apply_cache; apply_fonts
+  # Preserve the failing channel's status and stop before destructive cleanup
+  # when the upgrade itself has not completed.
+  apply_packages || exit $?
+  apply_orphans || exit $?
+  apply_cache || exit $?
+  apply_fonts || exit $?
   echo
   echo "firmware not touched: --apply skips it; write it with: null-update --firmware-write"
 fi
-[ "$FIRMWARE" -eq 1 ] && apply_firmware
+if [ "$FIRMWARE" -eq 1 ]; then
+  apply_firmware || exit $?
+fi
 echo
 echo "after:"
 report_all

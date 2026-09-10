@@ -27,6 +27,15 @@ MACHINE="$ROOT/bin/machine"
 B="$ROOT/bin"
 COLUMN="$ROOT/render/target/release/column"
 
+# Show a failed change before the next redraw hides its diagnostic.
+change() {
+  local output status
+  output=$("$@" 2>&1) && return 0
+  status=$?
+  say "could not change this setting" "" "$output"
+  return "$status"
+}
+
 # ------------------------------------------------------------------ reading
 
 read_backlight() {
@@ -75,21 +84,7 @@ read_ssid() { nmcli -t -f NAME,TYPE con show --active 2>/dev/null |
                 awk -F: '$2 ~ /wireless/ {print $1; exit}'; }
 read_idle_stage() { "$B/null-idle" show | awk -v s="$1" '$1==s {print $2}'; }
 read_battery() {
-  # EVERY cell, not the first. A T480 has two (internal + hot-swap); this read
-  # only BAT0 while the bar (render/src/sysinfo.rs) aggregated both, so the panel
-  # and the bar disagreed on the very same machine. Sum charge across them.
-  local now=0 full=0 st= b n f s
-  for b in /sys/class/power_supply/BAT*/; do
-    [ -d "$b" ] || continue
-    n=$(cat "$b/energy_now"  2>/dev/null || cat "$b/charge_now"  2>/dev/null || echo 0)
-    f=$(cat "$b/energy_full" 2>/dev/null || cat "$b/charge_full" 2>/dev/null || echo 0)
-    now=$((now + ${n:-0})); full=$((full + ${f:-0}))
-    s=$(cat "$b/status" 2>/dev/null)
-    case $s in Charging) st=Charging ;;
-               Discharging) [ "$st" = Charging ] || st=Discharging ;;
-               *) [ -n "$st" ] || st=$s ;; esac
-  done
-  [ "$full" -gt 0 ] && printf '%d%%  %s' "$(( now * 100 / full ))" "$st" || echo "$NULL_UNMEASURED"
+  python3 "$ROOT/lib/battery.py" summary /sys/class/power_supply || echo "$NULL_UNMEASURED"
 }
 read_firewall() {
   # The PRODUCT'S firewall is nftables (null-system installs a static ruleset and
@@ -204,10 +199,10 @@ act_DISPLAY() {
   case $1 in
     BRIGHTNESS) local c; c=$(pick_value brightness '' \
                   1% 5% 10% 25% 50% 75% 100%) || return 0
-                [ -n "$c" ] && brightnessctl set "$c" >/dev/null 2>&1 ;;
+                [ -n "$c" ] && change brightnessctl set "$c" ;;
     KEYBOARD-LIGHT) local d c; d=$(kbd_device)
                 c=$(pick_value keyboard '' 0% 33% 66% 100%) || return 0
-                [ -n "$c" ] && brightnessctl -d "$d" set "$c" >/dev/null 2>&1 ;;
+                [ -n "$c" ] && change brightnessctl -d "$d" set "$c" ;;
     NIGHTLIGHT) local c; c=$(pick_value nightlight "warmer colour after dark" on off) || return 0
                 [ -n "$c" ] && { "$B/null-nightlight" "$c" >/dev/null 2>&1 \
                                  || "$B/null-nightlight" toggle >/dev/null 2>&1; } ;;
@@ -313,7 +308,7 @@ rows_NETWORK() {
 act_NETWORK() {
   case $1 in
     WIFI)     local c; c=$(pick_value wifi "the radio itself, not a network" on off) || return 0
-              [ -n "$c" ] && nmcli radio wifi "$c" >/dev/null 2>&1 ;;
+              [ -n "$c" ] && change nmcli radio wifi "$c" ;;
     NETWORK)  exec "$ROOT/bin/null-menu" network ;;
     HOSTNAME) say "the hostname selects the machine profile" "" \
                   "machines/<hostname>.conf is chosen by it, so the two must" \
@@ -329,7 +324,7 @@ act_NETWORK() {
               elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
                 local c; c=$(firewall-cmd --get-zones 2>/dev/null | tr ' ' '\n' |
                              pick_from firewall "default zone -- now $(firewall-cmd --get-default-zone 2>/dev/null)")
-                [ -n "$c" ] && firewall-cmd --set-default-zone="$c" >/dev/null 2>&1
+                [ -n "$c" ] && change firewall-cmd --set-default-zone="$c"
               else say "firewall" "" "no firewall is running on this machine"; fi ;;
     ADVANCED) exec "$COLUMN" --send open netconfig ;;
   esac
@@ -373,13 +368,14 @@ act_POWER() {
   case $1 in
     PROFILE) local c; c=$(pick_value power "now $("$B/null-power" get 2>/dev/null)" \
                $("$B/null-power" list 2>/dev/null)) || return 0
-             [ -n "$c" ] && "$B/null-power" set "$c" >/dev/null 2>&1 ;;
+             [ -n "$c" ] && change "$B/null-power" set "$c" ;;
     BATTERY) say "battery" "" "$(
                for f in /sys/class/power_supply/BAT*/; do
                  printf '  %-16s %s\n' capacity "$(cat "$f/capacity" 2>/dev/null)%"
                  printf '  %-16s %s\n' status "$(cat "$f/status" 2>/dev/null)"
-                 printf '  %-16s %s\n' health "$(( $(cat "$f/charge_full" 2>/dev/null || echo 0) * 100 /
-                                                  $(cat "$f/charge_full_design" 2>/dev/null || echo 1) ))%"
+                 local health
+                 health=$(python3 "$ROOT/lib/battery.py" health "$f") || health=--
+                 printf '  %-16s %s\n' health "$health"
                  printf '  %-16s %s\n' cycles "$(cat "$f/cycle_count" 2>/dev/null)"
                done)" ;;
     LID-CLOSE)
@@ -387,12 +383,7 @@ act_POWER() {
         "suspend    sleep" "lock       lock and stay awake" \
         "ignore     do nothing" "poweroff   shut down") || return 0
       [ -n "$c" ] || return 0
-      # logind owns this, and it is a drop-in rather than an edit of the
-      # shipped file, so a package update does not silently revert it.
-      mkdir -p /etc/systemd/logind.conf.d
-      printf '# GENERATED by null-settings.\n[Login]\nHandleLidSwitch=%s\nHandleLidSwitchExternalPower=%s\n' \
-        "$c" "$c" > /etc/systemd/logind.conf.d/50-null-lid.conf
-      systemctl kill -s HUP systemd-logind 2>/dev/null || true ;;
+      change "$B/null-power" set-lid "$c" ;;
     IDLE) local c; c=$(pick_value idle "the whole ladder -- timings are kept either way" on off) || return 0
           case $c in
             on)  [ "$("$B/null-idle" state)" != on ] && "$B/null-idle" toggle >/dev/null 2>&1 ;;
@@ -407,8 +398,8 @@ act_POWER() {
         "1800       30 minutes" "3600       1 hour") || return 0
       [ -n "$c" ] || return 0
       [ "$c" = off ] && c=0
-      "$B/null-idle" set "$stage" "$c" >/dev/null 2>&1
-      "$B/null-idle" apply >/dev/null 2>&1 ;;
+      change "$B/null-idle" set "$stage" "$c"
+      change "$B/null-idle" apply ;;
   esac
 }
 
@@ -424,19 +415,19 @@ act_KEYBOARD() {
   case $1 in
     LAYOUT) local c; c=$("$B/null-input" layouts | pick_from layout \
               "sets the console, the greeter and the session")
-            [ -n "$c" ] && "$B/null-input" layout "$c" >/dev/null 2>&1 ;;
+            [ -n "$c" ] && change "$B/null-input" layout "$c" ;;
     REPEAT-DELAY) local c; c=$(pick_value delay "before a held key repeats" \
               200 300 400 500 600 800 1000) || return 0
-            [ -n "$c" ] && "$B/null-input" delay "$c" >/dev/null 2>&1 ;;
+            [ -n "$c" ] && change "$B/null-input" delay "$c" ;;
     REPEAT-RATE)  local c; c=$(pick_value rate "repeats per second" 10 15 20 25 30 40 50) || return 0
-            [ -n "$c" ] && "$B/null-input" rate "$c" >/dev/null 2>&1 ;;
+            [ -n "$c" ] && change "$B/null-input" rate "$c" ;;
     TAP-TO-CLICK) local c; c=$(pick_value tap "tapping the touchpad clicks" enabled disabled) || return 0
-            [ -n "$c" ] && "$B/null-input" tap "$c" >/dev/null 2>&1 ;;
+            [ -n "$c" ] && change "$B/null-input" tap "$c" ;;
     NATURAL-SCROLL) local c; c=$(pick_value natural "content follows the fingers" enabled disabled) || return 0
-            [ -n "$c" ] && "$B/null-input" natural "$c" >/dev/null 2>&1 ;;
+            [ -n "$c" ] && change "$B/null-input" natural "$c" ;;
     POINTER-SPEED) local c; c=$(pick_value speed "-1 slowest, 0 default, 1 fastest" \
               -1 -0.5 -0.25 0 0.25 0.5 1) || return 0
-            [ -n "$c" ] && "$B/null-input" speed "$c" >/dev/null 2>&1 ;;
+            [ -n "$c" ] && change "$B/null-input" speed "$c" ;;
   esac
 }
 
@@ -472,13 +463,13 @@ act_REGION() {
                 --delimiter='\t' --with-nth=2.. \
                 --prompt='language > ' --header="now $("$B/null-locale" get) -- from the next login" \
                 | cut -f1)
-              [ -n "$c" ] && "$B/null-locale" set "$c" >/dev/null 2>&1 ;;
+              [ -n "$c" ] && change "$B/null-locale" set "$c" ;;
     NOW) : ;;
     TIMEZONE) local c; c=$("$B/null-datetime" zones |
                 pick_from timezone "now $("$B/null-datetime" timezone)")
-              [ -n "$c" ] && "$B/null-datetime" set-timezone "$c" >/dev/null 2>&1 ;;
+              [ -n "$c" ] && change "$B/null-datetime" set-timezone "$c" ;;
     SYNCHRONISE) local c; c=$(pick_value clock "network time" on off) || return 0
-              [ -n "$c" ] && "$B/null-datetime" set-ntp "$c" >/dev/null 2>&1 ;;
+              [ -n "$c" ] && change "$B/null-datetime" set-ntp "$c" ;;
   esac
 }
 
@@ -504,7 +495,7 @@ act_DEFAULTS() {
   local pick; pick=$("$B/null-defaults" candidates "$role" 2>/dev/null | fzf "${NULL_FZF[@]}" \
     --delimiter='\t' --with-nth=2.. --prompt="$role > " --header="what opens ${1,,}") || return 0
   [ -n "$pick" ] || return 0
-  "$B/null-defaults" set "$role" "${pick%%$'\t'*}" >/dev/null 2>&1
+  change "$B/null-defaults" set "$role" "${pick%%$'\t'*}"
 }
 
 rows_SYSTEM() {

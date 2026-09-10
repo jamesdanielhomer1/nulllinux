@@ -19,7 +19,7 @@
 #
 # Same promises as bin/null-system: reports with no --apply, snapshots first,
 # backs up what it replaces, and refuses rather than guesses.
-set -uo pipefail
+set -euo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 STAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP=/root/.null-install-backup-$STAMP
@@ -204,8 +204,8 @@ say "sddm offers the login; graphical.target is what makes the machine boot to i
 if [ -f /usr/lib/systemd/system/sddm.service ]; then
   say "currently: default target $(systemctl get-default 2>/dev/null), display-manager $(systemctl is-enabled display-manager.service 2>/dev/null || echo not-found)"
   if [ "$APPLY" -eq 1 ]; then
-    systemctl enable sddm.service >/dev/null 2>&1 && say "enabled sddm.service" || say "could not enable sddm.service"
-    systemctl set-default graphical.target >/dev/null 2>&1 && say "default target is now graphical.target" || say "could not set the default target"
+    systemctl enable sddm.service >/dev/null 2>&1 && say "enabled sddm.service" || refuse "could not enable sddm.service"
+    systemctl set-default graphical.target >/dev/null 2>&1 && say "default target is now graphical.target" || refuse "could not set the default target"
   else
     say "would enable sddm.service and set graphical.target as the default"
   fi
@@ -214,6 +214,7 @@ else
   # the install did not finish rather than a choice anyone made.
   say "sddm is NOT INSTALLED -- this machine will boot to a text console."
   say "  The package requires it; if it is missing the install did not finish."
+  [ "$APPLY" -eq 0 ] || refuse "sddm is missing"
 fi
 
 head_ "the GTK theme, as a theme"
@@ -269,7 +270,8 @@ if [ "$APPLY" -eq 1 ]; then
   if [ -d "$ROOT/assets/prebuilt/theme/icons" ]; then
     rm -rf /usr/share/icons/nullLinux
     cp -a "$ROOT/assets/prebuilt/theme/icons" /usr/share/icons/nullLinux \
-      && echo "    installed /usr/share/icons/nullLinux (prebuilt)"
+      || refuse "could not install the icon theme"
+    echo "    installed /usr/share/icons/nullLinux (prebuilt)"
     gtk-update-icon-cache -f -t /usr/share/icons/nullLinux >/dev/null 2>&1 || true
     # The generated branch below restores SELinux contexts and this must too:
     # a theme copied into /usr/share with the wrong label is a theme the
@@ -280,7 +282,7 @@ if [ "$APPLY" -eq 1 ]; then
     restore_selinux /usr/share/icons/nullLinux
     say "installed /usr/share/icons/nullLinux"
   else
-    say "icon generation FAILED -- the theme key below would name a theme that is not there"
+    refuse "icon generation failed -- the theme key would name a theme that is not there"
   fi
 else
   say "would generate /usr/share/icons/nullLinux"
@@ -305,7 +307,8 @@ monospace-font-name='Terminus 12'
 color-scheme='prefer-dark'
 enable-animations=false
 EOF
-  dconf update && say "dconf database rebuilt"
+  dconf update || refuse "could not rebuild the dconf database"
+  say "dconf database rebuilt"
 else
   say "would write /etc/dconf/db/local.d/00-nulllinux and run dconf update"
 fi

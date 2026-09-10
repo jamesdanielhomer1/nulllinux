@@ -30,6 +30,7 @@ one of 32 values. Neither carries eleven significant digits.
 """
 
 import argparse
+import json
 import struct
 from pathlib import Path
 from compression import zstd
@@ -38,11 +39,11 @@ import numpy as np
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from formats import read_hdr
+from formats import LUMA, read_hdr
+from provenance import sha256, verify_manifest
 
 MAGIC = b"NLHM"
 VERSION = 1
-LUMA = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
 
 def write_master(path, cols, rows, fps, planes, tone):
@@ -95,7 +96,16 @@ def main():
     ap.add_argument("--black-pct", type=float, required=True)
     ap.add_argument("--white-pct", type=float, required=True)
     ap.add_argument("--gamma", type=float, required=True)
+    ap.add_argument("--allow-legacy", action="store_true",
+                    help="pack historical HDR for comparisons, explicitly marked legacy")
     args = ap.parse_args()
+
+    try:
+        provenance = verify_manifest(args.frames_dir, allow_legacy=args.allow_legacy)
+    except (ValueError, OSError) as exc:
+        raise SystemExit(str(exc)) from exc
+    if provenance['temperature_model'] == 'legacy-unverified':
+        print('WARNING: legacy HDR temperature; this is not a corrected release bake', file=sys.stderr)
 
     paths = sorted(Path(args.frames_dir).glob("*.hdr"))
     if not paths:
@@ -129,6 +139,10 @@ def main():
     if not np.array_equal(arr, ref):
         raise SystemExit("round-trip differs from what was written")
     print("  round-trip verified, byte for byte")
+    Path(str(args.out) + '.provenance.json').write_text(json.dumps({
+        'format': 1, 'master_sha256': sha256(args.out), 'source_bake': provenance,
+        'tone': tone,
+    }, indent=2, sort_keys=True) + '\n')
 
 
 if __name__ == "__main__":

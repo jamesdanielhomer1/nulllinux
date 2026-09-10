@@ -24,8 +24,7 @@
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/nulllinux/defaults"
-APPDIRS=(/usr/share/applications /usr/local/share/applications
-         "$HOME/.local/share/applications" /var/lib/flatpak/exports/share/applications)
+
 # Order is the order they are shown: the everyday ones first.
 ROLES="browser dir terminal editor image pdf video audio archive"
 U="--"
@@ -63,24 +62,23 @@ progs() {
 }
 
 # A field of a desktop entry, read from the file rather than guessed from its id.
-entry_field() {  # <id.desktop> <Key>
-  local d f
-  for d in "${APPDIRS[@]}"; do
-    f="$d/$1"; [ -r "$f" ] || continue
-    awk -F= -v k="$2" '/^\[Desktop Entry\]/{s=1;next} /^\[/{s=0} s&&$1==k{sub(/^[^=]*=/,""); print; exit}' "$f"
-    return 0
-  done
-  return 1
-}
+entry_field() { python3 "$ROOT/lib/desktop.py" field "$1" "$2"; }
+entry_exec() { python3 "$ROOT/lib/desktop.py" exec "$1"; }
 
-# A desktop entry's command with the field codes removed: %f %u and friends are
-# placeholders for the file the caller appends, and flatpak's @@ markers bracket
-# them.
-entry_exec() {  # <id.desktop>
-  local e; e=$(entry_field "$1" Exec) || return 1
-  local w out=
-  for w in $e; do case $w in %*|@@*) ;; *) out="$out${out:+ }$w" ;; esac; done
-  printf '%s\n' "$out"
+# NUL-delimited argv is the internal launch contract; resolve remains readable.
+resolve_argv() {
+  local format=$1; shift
+  local role=$1 v
+  case $role in
+    terminal|editor)
+      v=$(resolve "$role") || return
+      [ "$format" != launch-argv ] || printf '\0'
+      printf '%s\0' "$v"
+      [ $# -lt 2 ] || printf '%s\0' "$2" ;;
+    *) v=$(get "$role") || return
+       [ -n "$v" ] || return 1
+       python3 "$ROOT/lib/desktop.py" "$format" "$v" "${@:2}" ;;
+  esac
 }
 
 get() {  # <role> -> what is SET: a desktop id, or a program; nothing when unset
@@ -120,26 +118,7 @@ candidates() {  # <role>
       done ;;
     *)
       local m; m=$(mimes "$1") || return 2
-      python3 - "${m%% *}" "${APPDIRS[@]}" <<'PY'
-import configparser, os, sys
-mime, dirs = sys.argv[1], sys.argv[2:]
-seen = set()
-for d in dirs:
-    if not os.path.isdir(d):
-        continue
-    for f in sorted(os.listdir(d)):
-        if not f.endswith('.desktop') or f in seen:
-            continue
-        c = configparser.RawConfigParser(strict=False, interpolation=None)
-        try:
-            c.read(os.path.join(d, f), encoding='utf-8')
-            e = c['Desktop Entry']
-        except Exception:
-            continue
-        if mime in [m for m in e.get('MimeType', '').split(';') if m]:
-            seen.add(f)
-            print('%s\t%s' % (f, e.get('Name', f[:-8])))
-PY
+      python3 "$ROOT/lib/desktop.py" candidates "${m%% *}"
       ;;
   esac
 }
@@ -154,13 +133,19 @@ shown() {  # <role> -> the name a person reads for what is set
 }
 
 set_default() {  # <role> <id.desktop | program>
-  local role=$1 pick=$2 m
+  local role=$1 pick=$2 m temp
   case $role in
     terminal|editor)
       command -v "$pick" >/dev/null 2>&1 || { echo "null-defaults: $pick is not installed" >&2; return 1; }
-      mkdir -p "$(dirname "$CONF")"
-      { grep -v "^${role^^}=" "$CONF" 2>/dev/null; echo "${role^^}=$pick"; } > "$CONF.tmp" \
-        && mv -f "$CONF.tmp" "$CONF"
+      [[ $pick != *$'\n'* && $pick != *$'\r'* ]] || return 2
+      mkdir -p "$(dirname "$CONF")" || return 1
+      [ ! -e "$CONF" ] || { [ -f "$CONF" ] && [ -r "$CONF" ]; } \
+        || { echo "null-defaults: not a readable configuration file: $CONF" >&2; return 1; }
+      temp=$(mktemp "${CONF}.XXXXXX") || return 1
+      if ! { grep -v "^${role^^}=" "$CONF" 2>/dev/null; printf '%s=%s\n' "${role^^}" "$pick"; } > "$temp" \
+          || ! mv -fT -- "$temp" "$CONF"; then
+        rm -f -- "$temp"; echo "null-defaults: could not save $CONF" >&2; return 1
+      fi
       echo "$(label "$role") is $pick" ;;
     browser)
       # The browser is also every http and https link, and xdg-settings knows
@@ -184,6 +169,8 @@ case "${1:-show}" in
   get)        get "${2:?role}" ;;
   shown)      shown "${2:?role}" ;;
   resolve)    resolve "${2:?role}" ;;
+  resolve-argv) resolve_argv argv "${2:?role}" "${@:3}" ;;
+  resolve-launch) resolve_argv launch-argv "${2:?role}" "${@:3}" ;;
   candidates) candidates "${2:?role}" ;;
   set)        set_default "${2:?role}" "${3:?what}" ;;
   -h|--help|help)

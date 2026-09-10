@@ -6,25 +6,21 @@ in [measurements.md](measurements.md).
 
 ---
 
-## The verdict, in one paragraph
+## Current stabilization review — 11 September 2026
 
-**A verified 1.0.0 candidate.** nullLinux runs as a daily driver on real hardware
-(a ThinkPad T480, converted in place), and this session put its whole front end
-and its install path through use rather than only reading — and watching found
-two things that had silently never been true on a real install: the firewall
-fell back to firewalld on **every** install (its ruleset validation mistook the
-installer's chroot for a broken ruleset), and the boot splash never baked into
-the initramfs (both the installer and `null-system` read the theme from a
-build-only path). Both are fixed, each now guarded by a check that reads the
-installed artefact. Both ISOs build from a clean HEAD; the installer installs end
-to end in a VM and the installed system carries every fix — the whole in-guest
-suite passes, now including that the firewall took and the splash is in the
-initramfs. The off-machine copy exists (GitHub, restore proven). The one gap that
-still matters is the same one it has always been: a cold **ISO install on real
-hardware**, with the metal-only subsystems a VM cannot exercise. That, and
-mail/office judged on a screen, are the road to 1.0.0 — see [goals.md](goals.md).
+**Not yet certified as 1.0.** The review of baseline
+`1cbc7817b0d08d6d20414b7d266cfc41a803ed7e` found release blockers despite the
+historical acceptance results below. The fixes and fresh source, numerical,
+Wayland and build evidence are in [review-1.0.md](review-1.0.md). Run the tiers in
+[testing.md](testing.md); a source check cannot replace an installed-image test.
+The production version stays 0.1.0 while the remaining gates are open.
 
----
+## Historical baseline evidence (through 9 September 2026)
+
+The following records describe earlier builds and the in-place daily driver.
+They are retained as project history and must be revalidated for the changed
+release artifacts; references to "this session" below refer to those earlier
+runs, not the current stabilization review.
 
 ## Verified, and where
 

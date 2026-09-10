@@ -41,18 +41,8 @@ RENDER="$ROOT/render/target/release/render"
 TAG=null-wallpaper
 [ -x "$RENDER" ] || { echo "$TAG: $RENDER not built" >&2; exit 1; }
 
-# -u, BECAUSE MATCHING THE EXECUTABLE IS NOT MATCHING THE OWNER. The exe test
-# below stops a different program of the same name being killed; it does not
-# stop ANOTHER USER's copy of this one. From an ordinary session that fails on
-# permissions and is harmless; from a root session -- which this project's own
-# build host runs -- it takes down every logged-in person's wallpaper.
-SELF=$(readlink -f "$RENDER")
-for pid in $(pgrep -x -u "$(id -u)" render 2>/dev/null || true); do
-  # A rebuild replaces the inode, so the instance that most needs stopping is
-  # exactly the one whose /proc/pid/exe no longer resolves -- strip the marker.
-  exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null | sed 's/ (deleted)$//') || continue
-  [ "$exe" = "$SELF" ] && kill "$pid" 2>/dev/null || true
-done
+# The supervisor displaces its predecessor and kills only owned children.
+# The same render executable also runs derivation jobs and screensavers.
 
 . "$ROOT/lib/supervise.sh"
 
@@ -91,7 +81,8 @@ start_one() {  # <output-name> <w> <h>
     "$TAG" "$name" "$w" "$h" "$pw" "$ph" "$cov"
 
   if [ -n "${exact:-}" ]; then
-    local pid=${CHILD[$name]}
+    local pid=${CHILD[$name]} started
+    started=$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)
     printf '%s: %-12s deriving %sx%s in the background\n' "$TAG" "$name" "$cols" "$rows"
     # THE REASON GOES SOMEWHERE. Sending stderr to /dev/null here meant a
     # derivation that failed left no trace at all -- the wallpaper simply stayed
@@ -102,7 +93,11 @@ start_one() {  # <output-name> <w> <h>
       if "$ROOT/bin/null-hero" ensure "$cols" "$rows" "$bramp" >/dev/null 2>"$derr"; then
         echo "$TAG: $name derived ${cols}x${rows}, restarting on it"
         rm -f "$derr"
-        kill "$pid" 2>/dev/null
+        # Derivation can outlive a renderer or supervisor. A recycled PID is
+        # no longer the wallpaper this job started for.
+        if [ -n "$started" ] && [ "$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)" = "$started" ]; then
+          kill "$pid" 2>/dev/null
+        fi
       else
         echo "$TAG: $name could NOT derive ${cols}x${rows} -- staying on the rung."
         echo "$TAG: $name why: $(tail -1 "$derr" 2>/dev/null)"

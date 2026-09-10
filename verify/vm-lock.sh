@@ -105,6 +105,7 @@ pkill -x foot 2>/dev/null
 stop_sway
 
 # ---- 3: it unlocks with the right password, holds with the wrong -----------
+pam_verified=0
 if grep -aq NULL_LOCK_TEST_PW "$LOCKBIN" 2>/dev/null; then
   U=${SUDO_USER:-$(id -un)}
   # A known password for the test account. Restored by the caller if it matters;
@@ -124,6 +125,7 @@ if grep -aq NULL_LOCK_TEST_PW "$LOCKBIN" 2>/dev/null; then
   else note "FAIL: the correct password did not unlock (client still $r_ok)"; fail=1; fi
   if [ "$r_bad" = ALIVE ]; then note "ok    the wrong password was refused (client held the lock)"
   else note "FAIL: the wrong password did not hold the lock (client $r_bad) -- PAM is not fail-closed"; fail=1; fi
+  [ "$r_ok" = EXITED ] && [ "$r_bad" = ALIVE ] && pam_verified=1
 else
   note "SKIP  the unlock/refuse test: this is a production binary (no lock-test-hook)."
   note "      Build it with:  cargo build --release --bin lock --features lock-test-hook"
@@ -131,5 +133,11 @@ else
 fi
 
 echo
-if [ $fail = 0 ]; then echo "PASS: the session-lock client locks, holds when killed, and unlocks on the right password"; else echo "FAIL: see above"; fi
+if [ $fail = 0 ]; then
+  if [ "$pam_verified" = 1 ]; then
+    echo "PASS: lock handshake, client-death lock retention, and test-hook PAM acceptance/refusal"
+  else
+    echo "PASS: lock handshake and client-death lock retention; PAM acceptance/refusal NOT TESTED"
+  fi
+else echo "FAIL: see above"; fi
 exit $fail

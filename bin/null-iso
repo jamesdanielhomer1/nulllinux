@@ -51,6 +51,8 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "null-iso: $1 is not installe
 fail=0
 need livemedia-creator || fail=1
 need createrepo_c || fail=1
+need mkksiso || fail=1
+need ksvalidator || fail=1
 [ -d packaging/repo/repodata ] || { echo "null-iso: no local repository at packaging/repo" >&2
   echo "  Build the package first:  bin/null-package" >&2; fail=1; }
 [ "$(id -u)" -eq 0 ] || { echo "null-iso: must be root -- anaconda needs mounts and loop devices" >&2; fail=1; }
@@ -123,7 +125,8 @@ if [ $st -eq 0 ] && built=$(find "$WORK/results" -name '*.iso' | head -1) && [ -
   # (nullLinux-$VERSION), which is baked into the image and independent of what
   # the file on disk is called.
   iso="$WORK/$NAME-$VERSION.iso"
-  mv -f "$built" "$iso"
+  tmpiso="$iso.new"
+  rm -f "$tmpiso" || exit 1
 
   # THE MEDIUM'S OWN MENU, given the installer's opinion (bin/null-installer-iso;
   # verify/check-boot-menu.sh §6-8). lorax writes `set default="1"` -- the media
@@ -143,14 +146,14 @@ if [ $st -eq 0 ] && built=$(find "$WORK/results" -name '*.iso' | head -1) && [ -
   if mkksiso -R 'set default="1"' 'set default="0"' \
             -R 'set timeout=60'   'set timeout=5' \
             -R "nullLinux $REL"   "nullLinux $VERSION" \
-            "$iso" "$iso.menu" >"$WORK/mkksiso-live.log" 2>&1; then
-    mv -f "$iso.menu" "$iso"
+            "$built" "$tmpiso" >"$WORK/mkksiso-live.log" 2>&1 \
+     && [ -s "$tmpiso" ] && mv -fT "$tmpiso" "$iso"; then
     echo "  boot menu: starts nullLinux $VERSION in 5s (entry 0, not the media check)"
   else
     echo "null-iso: mkksiso FAILED to rewrite the boot menu -- $WORK/mkksiso-live.log" >&2
     tail -10 "$WORK/mkksiso-live.log" >&2
-    rm -f "$iso.menu"
-    st=1
+    rm -f "$tmpiso"
+    exit 1
   fi
   echo "built: $iso"
   echo "  $(du -h "$iso" | cut -f1)"
@@ -158,6 +161,7 @@ if [ $st -eq 0 ] && built=$(find "$WORK/results" -name '*.iso' | head -1) && [ -
   echo "Write it to a stick with:"
   echo "  dd if=$iso of=/dev/sdX bs=4M status=progress oflag=sync"
 else
+  st=1
   echo "null-iso: the build FAILED -- last lines of $WORK/livemedia.log" >&2
   tail -25 "$WORK/livemedia.log" 2>/dev/null >&2
 fi

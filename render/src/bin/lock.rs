@@ -113,6 +113,73 @@ fn authenticate(user: &str, password: &str) -> bool {
     ok
 }
 
+#[derive(Default)]
+struct AuthAttempt {
+    result: Option<std::sync::mpsc::Receiver<bool>>,
+}
+
+impl AuthAttempt {
+    fn pending(&self) -> bool { self.result.is_some() }
+
+    fn start(&mut self, check: impl FnOnce() -> bool + Send + 'static) -> bool {
+        if self.pending() { return false }
+        let (send, receive) = std::sync::mpsc::sync_channel(1);
+        if std::thread::Builder::new().name("lock-auth".into()).spawn(move || {
+            let _ = send.send(check());
+        }).is_err() { return false }
+        self.result = Some(receive);
+        true
+    }
+
+    fn poll(&mut self) -> Option<bool> {
+        use std::sync::mpsc::TryRecvError;
+        let result = match self.result.as_ref()?.try_recv() {
+            Ok(ok) => ok,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => false,
+        };
+        self.result = None;
+        Some(result)
+    }
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::AuthAttempt;
+    use std::sync::{mpsc, Arc, atomic::{AtomicUsize, Ordering}};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn slow_authentication_does_not_block_or_queue_another_attempt() {
+        let (release, gate) = mpsc::channel();
+        let mut attempt = AuthAttempt::default();
+        assert!(attempt.start(move || gate.recv_timeout(Duration::from_secs(1)).is_ok()));
+        assert_eq!(attempt.poll(), None, "authentication blocked instead of returning to the event loop");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let checked = calls.clone();
+        assert!(!attempt.start(move || { checked.fetch_add(1, Ordering::SeqCst); true }));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let result = loop {
+            if let Some(result) = attempt.poll() { break result }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert!(result);
+        assert!(!attempt.pending());
+    }
+
+    #[test]
+    fn a_lost_authentication_worker_is_a_rejection() {
+        let (send, receive) = mpsc::channel();
+        let mut attempt = AuthAttempt { result: Some(receive) };
+        drop(send);
+        assert_eq!(attempt.poll(), Some(false));
+        assert!(!attempt.pending());
+    }
+}
+
 // --------------------------------------------------------------- assets ------
 //
 // Per output, the same choice the wallpaper makes: shell out to `machine
@@ -145,6 +212,7 @@ fn text(buf: &mut [u8], stride_px: usize, a: &Atlas, x0: usize, y0: usize,
         for cy in 0..a.cell_h {
             let row = (y0 + cy) * stride_px;
             for cx in 0..a.cell_w {
+                if cx0 + cx >= stride_px { break }
                 let o = (row + cx0 + cx) * 4;
                 if o + 3 >= buf.len() { continue }
                 let lit = bits.map_or(false, |b| b[cy * a.cell_w + cx] != 0);
@@ -156,7 +224,7 @@ fn text(buf: &mut [u8], stride_px: usize, a: &Atlas, x0: usize, y0: usize,
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum Auth { Idle, Wrong }
+enum Auth { Idle, Checking, Wrong }
 
 struct Surf {
     output: wl_output::WlOutput,
@@ -196,6 +264,7 @@ struct Lock {
     start: Instant,
     password: String,
     auth: Auth,
+    attempt: AuthAttempt,
     exit: bool,
 }
 
@@ -227,22 +296,14 @@ impl Lock {
         // the canvas, or the two borrows collide.
         let idx = match &self.surfaces[i].cells { Some(c) => self.frame_index(c), None => 0 };
 
-        // Throttle. The hero animates at cells.fps (~24) but frame callbacks
-        // arrive at the compositor's refresh (~60Hz). Repainting on every
-        // callback did ~2.5x the work for no visible change and starved keystroke
-        // handling on this single thread -- the lock felt laggy. When neither the
-        // animation frame nor the typed state (mask length, auth colour) has
-        // changed, re-arm the callback and commit WITHOUT repainting, exactly as
-        // the wallpaper does. A keypress changes `state`, so the mask still
-        // updates the instant a key is pressed.
+        // The timer wakes more often than the hero frame changes. Paint only
+        // when the animation frame or typed state (mask length, auth colour)
+        // changes. Keypresses draw immediately; the timer remains the sole
+        // animation scheduler, with no extra commits or callback chains.
         let state = (idx, self.password.chars().count(), self.auth);
         if self.surfaces[i].last_draw == Some(state) {
-            let surface = self.surfaces[i].lock_surface.wl_surface().clone();
-            surface.frame(qh, surface.clone());
-            surface.commit();
             return;
         }
-        self.surfaces[i].last_draw = Some(state);
 
         let (buffer, canvas) = match self.pool.create_buffer(
             w as i32, h as i32, stride, wayland_client::protocol::wl_shm::Format::Argb8888) {
@@ -323,6 +384,7 @@ impl Lock {
             let mask: String = "•".repeat(self.password.chars().count());
             let (pass_fg, label_fg) = match self.auth {
                 Auth::Idle => (accent, dim),
+                Auth::Checking => (dim, dim),
                 Auth::Wrong => (error, error),
             };
 
@@ -334,7 +396,8 @@ impl Lock {
                 .min((h as usize).saturating_sub(3 * atlas.cell_h));
             let ch = atlas.cell_h;
             text(canvas, w as usize, atlas, px, base,            &top, line, self.bg);
-            text(canvas, w as usize, atlas, px, base + ch,       "pass", label_fg, self.bg);
+            let label = if self.auth == Auth::Checking { "wait" } else { "pass" };
+            text(canvas, w as usize, atlas, px, base + ch,       label, label_fg, self.bg);
             text(canvas, w as usize, atlas, px + 5 * cw, base + ch, &mask, pass_fg, self.bg);
             text(canvas, w as usize, atlas, px, base + 2 * ch,   &bot, line, self.bg);
             let _ = neutral;
@@ -348,9 +411,10 @@ impl Lock {
         // Buffer coordinates, whole surface.
         let surface = self.surfaces[i].lock_surface.wl_surface().clone();
         surface.damage_buffer(0, 0, w as i32, h as i32);
-        surface.frame(qh, surface.clone());
         buffer.attach_to(&surface).ok();
         surface.commit();
+        self.surfaces[i].last_draw = Some(state);
+        let _ = qh;
     }
 
     fn redraw_all(&mut self, qh: &QueueHandle<Self>) {
@@ -361,12 +425,27 @@ impl Lock {
 
     fn submit(&mut self, qh: &QueueHandle<Self>) {
         // Empty password never bothers PAM.
-        if self.password.is_empty() { return }
-        if authenticate(&self.user, &self.password) {
+        if self.password.is_empty() || self.attempt.pending() { return }
+        let user = self.user.clone();
+        let password = self.password.clone();
+        // PAM can delay or wait for a network module. It owns no Wayland
+        // handles: only its boolean result returns to the event thread.
+        if self.attempt.start(move || authenticate(&user, &password)) {
+            self.auth = Auth::Checking;
+        } else {
+            self.password.clear();
+            self.auth = Auth::Wrong;
+        }
+        self.redraw_all(qh);
+    }
+
+    fn finish_authentication(&mut self, qh: &QueueHandle<Self>) {
+        let Some(ok) = self.attempt.poll() else { return };
+        self.password.clear();
+        if ok {
             if let Some(l) = self.session_lock.take() { l.unlock(); }
             self.exit = true;
         } else {
-            self.password.clear();
             self.auth = Auth::Wrong;
             self.redraw_all(qh);
         }
@@ -422,11 +501,9 @@ impl SessionLockHandler for Lock {
 }
 
 impl CompositorHandler for Lock {
-    fn frame(&mut self, _c: &Connection, qh: &QueueHandle<Self>, surface: &wl_surface::WlSurface, _t: u32) {
-        if let Some(i) = self.surfaces.iter().position(|s| s.lock_surface.wl_surface() == surface) {
-            if self.surfaces[i].configured { self.draw(qh, i) }
-        }
-    }
+    // The 33ms timer is the only animation scheduler; adding callback chains
+    // here would multiply pending callbacks on every timer/keyboard wakeup.
+    fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {}
     fn scale_factor_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: i32) {}
     fn transform_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: wl_output::Transform) {}
     fn surface_enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
@@ -441,7 +518,8 @@ impl KeyboardHandler for Lock {
     fn update_repeat_info(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: smithay_client_toolkit::seat::keyboard::RepeatInfo) {}
 
     fn press_key(&mut self, _c: &Connection, qh: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard,
-                 _serial: u32, event: KeyEvent) {
+                  _serial: u32, event: KeyEvent) {
+        if self.attempt.pending() { return }
         match event.keysym {
             Keysym::Return | Keysym::KP_Enter => { self.submit(qh); }
             Keysym::BackSpace => { self.password.pop(); self.auth = Auth::Idle; self.redraw_all(qh); }
@@ -487,7 +565,11 @@ impl OutputHandler for Lock {
         self.ensure_surface(output, qh);
     }
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
-    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
+    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        // A re-enabled connector receives a new wl_output and a new lock
+        // surface. Release the old surface and its assets when its global goes.
+        self.surfaces.retain(|s| s.output != output);
+    }
 }
 
 impl ShmHandler for Lock {
@@ -580,6 +662,7 @@ fn main() {
         start: Instant::now(),
         password: String::new(),
         auth: Auth::Idle,
+        attempt: AuthAttempt::default(),
         exit: false,
     };
 
@@ -602,15 +685,23 @@ fn main() {
     use std::os::fd::{AsFd, AsRawFd};
     let wl_fd = conn.as_fd().as_raw_fd();
     loop {
-        queue.flush().ok();
+        if queue.flush().is_err() { std::process::exit(1); }
         if let Some(g) = queue.prepare_read() {
             let mut fds = [libc::pollfd { fd: wl_fd, events: libc::POLLIN, revents: 0 }];
             // ~30 Hz wake: enough for the animation, cheap on a potato.
             let n = unsafe { libc::poll(fds.as_mut_ptr(), 1, 33) };
-            if n > 0 && fds[0].revents & libc::POLLIN != 0 { g.read().ok(); }
+            if n > 0 && fds[0].revents & (libc::POLLHUP | libc::POLLERR) != 0 {
+                std::process::exit(1);
+            }
+            if n > 0 && fds[0].revents & libc::POLLIN != 0 {
+                if g.read().is_err() { std::process::exit(1); }
+            }
             else { drop(g); }
         }
-        queue.dispatch_pending(&mut lock).ok();
+        if queue.dispatch_pending(&mut lock).is_err() { std::process::exit(1); }
+        if lock.exit { break }
+        lock.finish_authentication(&qh);
+        if lock.exit { break }
         // TEST ONLY -- never compiled into the shipped binary. The headless test
         // VM has no keyboard device, so no keymap ever reaches us and sctk drops
         // every key; live typing cannot be exercised there. This injects one

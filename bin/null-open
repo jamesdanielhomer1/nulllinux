@@ -1,47 +1,28 @@
 #!/usr/bin/env bash
-# Pick the best available tool per ROLE, rather than hard-coding binaries
-# (NULL.md §8.4-adjacent).
-#
-# A binding that silently does nothing is worse than one that opens a lesser
-# tool, so each role degrades through what is actually installed.
-#
-# WHAT THIS USED TO KNOW: dir, reveal, editor. Three roles. Opening a
-# screenshot, a PDF, a video or a zip had no answer at all -- and grim is
-# installed and bound to Print, so the system could take a picture it had no
-# way to show you. The roles below are the ones a person actually opens.
-#
-# THE TOOLS ARE CHOSEN FOR THE DESIGN SYSTEM, not only for capability. imv,
-# zathura and mpv are keyboard-driven and take every colour from a config file,
-# so config/ puts them in the palette rather than leaving them at a toolkit
-# default; xarchiver is GTK3, so it resolves
-# /usr/share/themes/nullLinux/gtk-3.0/gtk.css and arrives styled by
-# inheritance. A GTK4/libadwaita tool would do neither, which is why none of
-# them is listed first.
+# Open a role using the person's default, then an installed fallback (§8.4).
 set -euo pipefail
 role=${1:?usage: null-open ROLE TARGET}
 target=${2:-}
-
-first() { for c in "$@"; do if command -v "${c%% *}" >/dev/null 2>&1; then echo "$c"; return 0; fi; done; return 1; }
-
-# A PERSON'S OWN CHOICE COMES FIRST. bin/null-defaults reads the desktop's
-# registry (what the settings panel and every other app consult), so a default
-# changed there must change what opens HERE too -- otherwise the file browser
-# would keep opening this file's built-in preference while the file manager
-# opened the chosen one. `prefer` returns the chosen command when it names
-# something installed; the `first` lists below stay as the fallback when nothing
-# is set, and as the whole answer where null-defaults is somehow absent.
 SELF_DIR=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
-prefer() {  # <role> -> a command, or nothing
-  local c
-  c=$("$SELF_DIR/null-defaults" resolve "$1" 2>/dev/null) || return 1
-  [ -n "$c" ] && command -v "${c%% *}" >/dev/null 2>&1 && printf '%s\n' "$c"
+cmd=()
+launch_dir=""
+
+first() {
+  local candidate
+  for candidate in "$@"; do
+    # These candidates are fixed program/flag strings, never desktop Exec text.
+    read -r -a cmd <<<"$candidate"
+    command -v "${cmd[0]}" >/dev/null 2>&1 && return 0
+  done
+  cmd=(); return 1
+}
+prefer() {
+  mapfile -d '' -t cmd < <("$SELF_DIR/null-defaults" resolve-launch "$1" "${@:2}" 2>/dev/null)
+  [ ${#cmd[@]} -gt 1 ] || { cmd=(); return 1; }
+  launch_dir=${cmd[0]}; cmd=("${cmd[@]:1}")
+  command -v "${cmd[0]}" >/dev/null 2>&1
 }
 
-# `file` DISPATCHES ON WHAT THE FILE IS, not on what it is called.
-#
-# An extension is a hint a user can get wrong and a download can lose; the MIME
-# type is read from the bytes. This is the role a file manager and a picker
-# both want, and its absence is why neither could open anything.
 if [ "$role" = file ]; then
   [ -n "$target" ] || { echo "null-open: file needs a path" >&2; exit 2; }
   [ -e "$target" ] || { echo "null-open: no such file: $target" >&2; exit 1; }
@@ -49,82 +30,51 @@ if [ "$role" = file ]; then
   else
     mime=$(file -b --mime-type -- "$target" 2>/dev/null || echo '')
     case $mime in
-      image/*)                           role=image ;;
-      video/*)                           role=video ;;
-      audio/*)                           role=audio ;;
+      image/*) role=image ;; video/*) role=video ;; audio/*) role=audio ;;
       application/pdf|application/x-pdf) role=pdf ;;
       application/zip|application/x-tar|application/gzip|application/x-bzip*|\
       application/x-xz|application/zstd|application/x-7z-compressed|\
-      application/vnd.rar|application/x-rar*)
-                                         role=archive ;;
-      text/*|application/json|application/xml|inode/x-empty)
-                                         role=editor ;;
-      *)
-        # An unknown type opens its FOLDER. That is more use than an error and
-        # cannot run something the system did not recognise.
-        echo "null-open: no role for '${mime:-unknown}' -- opening the folder instead" >&2
-        role=dir; target=$(dirname -- "$target") ;;
+      application/vnd.rar|application/x-rar*) role=archive ;;
+      text/*|application/json|application/xml|inode/x-empty) role=editor ;;
+      *) echo "null-open: no role for '${mime:-unknown}' -- opening the folder instead" >&2
+         role=dir; target=$(dirname -- "$target") ;;
     esac
   fi
 fi
 
-case $role in
-  # THE DEFAULT BROWSER, not a hard-coded `firefox`. The $mod+Shift+b binding
-  # was `exec firefox`, which is a bare name that does not exist when the browser
-  # is a Flatpak (no /usr/bin/firefox) or anything but Firefox -- the key did
-  # nothing. This launches whatever answers for the web (bin/null-defaults, the
-  # registry), with a URL if one was given.
-  browser)
-    cmd=$(prefer browser) || cmd=$(first "firefox" "chromium" "chromium-browser" "epiphany" "brave-browser" "org.mozilla.firefox") || :
-    [ -n "${cmd:-}" ] || { echo "null-open: no browser installed" >&2; exit 1; }
-    [ -n "$target" ] && exec $cmd "$target"
-    exec $cmd ;;
-  dir)    cmd=$(prefer dir)    || cmd=$(first "thunar" "nemo" "dolphin" "nautilus" "yazi" "foot -e ls -la") || : ;;
-  reveal) # Selecting a file is a DIFFERENT verb from opening it, and the tools
-          # that can do it say so with a flag.
-          if command -v nemo   >/dev/null; then exec nemo   --no-desktop "$target"; fi
-          if command -v nautilus >/dev/null; then exec nautilus --select "$target"; fi
-          if command -v dolphin >/dev/null; then exec dolphin --select "$target"; fi
-          cmd=$(first "foot -e ls -la") ; target=$(dirname "$target") ;;
-  # vi IS IN THIS LIST because vim-minimal, which @core installs, provides
-  # /usr/bin/vi and no `vim` at all -- so a list without it would skip straight
-  # past the editor the machine actually has.
-  # NANO FIRST, and nano is the one that is declared.
-  #
-  # This read nvim, vim, vi, nano -- and nvim is not in packages/fedora/base.list,
-  # so on an installed machine `first` fell through to `vi` from @core: the least
-  # friendly of the four, modal, and the only everyday window in this system not
-  # drawn in its own colours. config/nano/nanorc is generated from the palette
-  # like every other surface, so this one is now.
-  #
-  # The others stay as fallbacks for a machine that has them and not nano.
-  # `|| :` on each: `cmd=$(prefer) || cmd=$(first)` exits the script under set -e
-  # when BOTH fail (the last assignment's non-zero status propagates), which
-  # skipped the "nothing installed" message below and left a silent exit. The
-  # trailing no-op keeps cmd empty and lets that guard speak.
-  editor) cmd=$(prefer editor) || cmd=$(first "nano" "nvim" "vim" "vi") || : ;;
-  image)  cmd=$(prefer image)  || cmd=$(first "imv" "imv-wayland" "swayimg" "nsxiv" "feh") || : ;;
-  pdf)    cmd=$(prefer pdf)     || cmd=$(first "zathura" "mupdf" "evince" "okular") || : ;;
-  video)  cmd=$(prefer video)  || cmd=$(first "mpv" "vlc" "ffplay") || : ;;
-  # Audio opens in the same player. A video player with nothing to show is a
-  # player, and a second program for the same verb is a second thing to style.
-  audio)  cmd=$(prefer audio)  || cmd=$(first "mpv" "vlc" "ffplay") || : ;;
-  archive) cmd=$(prefer archive) || cmd=$(first "xarchiver" "file-roller" "ark") || : ;;
-  *) echo "null-open: unknown role $role" >&2; exit 2 ;;
-esac
-[ -n "${cmd:-}" ] || { echo "null-open: nothing installed for role $role" >&2; exit 1; }
+if [ "$role" = reveal ]; then
+  if command -v thunar >/dev/null; then exec thunar "$(dirname -- "$target")"; fi
+  if command -v nemo >/dev/null; then exec nemo --no-desktop "$target"; fi
+  if command -v nautilus >/dev/null; then exec nautilus --select "$target"; fi
+  if command -v dolphin >/dev/null; then exec dolphin --select "$target"; fi
+  role=dir; target=$(dirname -- "$target")
+fi
 
-# A TERMINAL PROGRAM NEEDS A TERMINAL.
-#
-# nvim, vim, vi, nano, micro and hx are terminal programs. Exec'ing one from a
-# keybinding, where there is no terminal attached, is a process that exits
-# without drawing anything -- indistinguishable from the binding not working at
-# all. null-defaults can resolve any of these (its editor list offers them); the
-# GUI-capable emacs is deliberately left unwrapped.
-case $cmd in
-  nvim|vim|vi|nano|micro|hx)
-    [ -t 1 ] && exec $cmd "$target"
-    exec foot -e $cmd "$target" ;;
-esac
+args=()
+if [ -n "$target" ] && [ "$role" != browser ] && [[ $target != *://* ]]; then
+  target=$(realpath -m -- "$target")
+fi
+[ -z "$target" ] || args=("$target")
+if ! prefer "$role" "${args[@]}"; then
+  launch_dir=""
+  case $role in
+    browser) first firefox chromium chromium-browser epiphany brave-browser org.mozilla.firefox || : ;;
+    dir) first thunar nemo dolphin nautilus yazi "foot -e ls -la" || : ;;
+    editor) first nano nvim vim vi || : ;;
+    image) first imv imv-wayland swayimg nsxiv feh || : ;;
+    pdf) first zathura mupdf evince okular || : ;;
+    video|audio) first mpv vlc ffplay || : ;;
+    archive) first xarchiver file-roller ark || : ;;
+    terminal) first foot alacritty kitty wezterm gnome-terminal xterm || : ;;
+    *) echo "null-open: unknown role $role" >&2; exit 2 ;;
+  esac
+  [ ${#cmd[@]} -gt 0 ] || { echo "null-open: nothing installed for role $role" >&2; exit 1; }
+  cmd+=("${args[@]}")
+fi
 
-exec $cmd "$target"
+[ -z "$launch_dir" ] || cd -- "$launch_dir"
+case "${cmd[0]##*/}" in
+  nvim|vim|vi|nano|micro|hx|yazi)
+    [ -t 1 ] || exec foot -e "${cmd[@]}" ;;
+esac
+exec "${cmd[@]}"

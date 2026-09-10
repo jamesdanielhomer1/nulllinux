@@ -12,9 +12,10 @@ grid, for two reasons:
 """
 
 import argparse
+import json
 import subprocess
 import sys
-import time
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bake as bakemod
 import ladder
 from formats import read_hdr, write_hdr
+from provenance import sha256
+from quantise import HYSTERESIS_DEFAULT
 
 
 def downsample_dir(src, dst, factor, frames):
@@ -48,6 +51,41 @@ def quantise(frames_dir, out, ramp, black, white, gamma, hysteresis, report=None
     return r.stdout
 
 
+def preparation_key(master, frames, ss, max_steps):
+    paths = sorted(Path(master).glob('*.hdr'))
+    if [p.name for p in paths] != [f'{i:04d}.hdr' for i in range(frames)]:
+        raise ValueError('the HDR master does not contain exactly the requested frame sequence')
+    return {'frames': frames, 'ss': ss, 'max_steps': max_steps,
+            'master': {p.name: sha256(p) for p in paths},
+            'renderer': sha256(bakemod.GPU),
+            'sources': {p: sha256(Path(__file__).parent / p) for p in
+                        ('derive_targets.py', 'bake.py', 'scene.py', 'ladder.py', 'formats.py')}}
+
+
+def prepare(master, cache, frames, ss, max_steps):
+    """Trace camera geometry once; a font changes quantisation, never HDR."""
+    cache = Path(cache)
+    cache.mkdir(parents=True, exist_ok=True)
+    key = preparation_key(master, frames, ss, max_steps)
+    for name, factor in (('target-2', 2), ('target-4', 4)):
+        downsample_dir(master, cache / name, factor, frames)
+    for name, cols, rows in (('tty', 80, 24), ('logo', 40, 16)):
+        print(f'  tracing {name} once at {cols}x{rows}', flush=True)
+        bakemod.bake(cols, rows, frames, ss, cache / name, max_steps, quiet=True)
+    key['targets'] = {str(p.relative_to(cache)): sha256(p) for p in sorted(cache.glob('*/*.hdr'))}
+    (cache / 'prepared.json').write_text(json.dumps(key, sort_keys=True) + '\n')
+
+
+def verify_prepared(master, cache, frames, ss, max_steps):
+    cache = Path(cache)
+    doc = json.loads((cache / 'prepared.json').read_text())
+    expected = preparation_key(master, frames, ss, max_steps)
+    target_hashes = doc.pop('targets')
+    actual = {str(p.relative_to(cache)): sha256(p) for p in sorted(cache.glob('*/*.hdr'))}
+    if doc != expected or target_hashes != actual or len(actual) != frames * 4:
+        raise ValueError(f'{cache}: prepared HDR targets are incomplete or belong to different inputs')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -56,10 +94,23 @@ def main():
     ap.add_argument("--black-pct", type=float, required=True)
     ap.add_argument("--white-pct", type=float, required=True)
     ap.add_argument("--gamma", type=float, required=True)
-    ap.add_argument("--hysteresis", type=float, default=0.40)
+    ap.add_argument("--hysteresis", type=float, default=HYSTERESIS_DEFAULT)
     ap.add_argument("--ss", type=int, default=4)
     ap.add_argument("--max-steps", type=int, default=3000)
+    ap.add_argument('--prepared', type=Path, help='reuse verified HDR target geometry from this directory')
+    ap.add_argument('--prepare-only', action='store_true', help='write HDR targets once, without quantising')
     args = ap.parse_args()
+
+    if args.prepare_only and not args.prepared:
+        ap.error('--prepare-only requires --prepared')
+    if args.prepare_only:
+        prepare(args.master, args.prepared, args.frames, args.ss, args.max_steps)
+        return
+    scratch = tempfile.TemporaryDirectory(prefix='null-targets-')
+    prepared = args.prepared or Path(scratch.name)
+    if not args.prepared:
+        prepare(args.master, prepared, args.frames, args.ss, args.max_steps)
+    verify_prepared(args.master, prepared, args.frames, args.ss, args.max_steps)
 
     curve = dict(black=args.black_pct, white=args.white_pct,
                  gamma=args.gamma, hysteresis=args.hysteresis)
@@ -72,7 +123,7 @@ def main():
     # --- divides the master: downsample in the HDR domain ---------------
     for name, factor, grid in (("target-2", 2, "320x90"), ("target-4", 4, "160x45")):
         print(f"\n{name} {grid}  (master / {factor}, box-averaged in HDR)")
-        d = downsample_dir(args.master, f"/tmp/null-{name}", factor, args.frames)
+        d = prepared / name
         print(quantise(d, f"assets/{name}.cells", "assets/ramp-bake.json",
                        report=f"assets/{name}-report.json", **curve).rstrip())
 
@@ -87,16 +138,14 @@ def main():
     for name, cols, rows, half in (("tty", 80, 24, bakemod.HALF_WIDTH),
                                    ("logo", 40, 16, bakemod.HALF_WIDTH)):
         print(f"\n{name} {cols}x{rows}  (RE-RENDERED: the grid does not divide the master)")
-        t0 = time.time()
-        d = bakemod.bake(cols, rows, args.frames, args.ss, f"/tmp/null-{name}",
-                         args.max_steps, half_width=half, quiet=True)
-        print(f"  re-traced in {time.time()-t0:.1f}s")
+        d = prepared / name
         print(quantise(d, f"assets/{name}.cells", "assets/ramp-bake.json",
                        report=f"assets/{name}-report.json", **curve).rstrip())
 
     print("\nderived:")
     for p in sorted(Path("assets").glob("*.cells")):
         print(f"  {p.name:<18} {p.stat().st_size:>9,} bytes")
+    scratch.cleanup()
 
 
 if __name__ == "__main__":

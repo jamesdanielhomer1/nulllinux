@@ -25,7 +25,7 @@ Environment=NULL_ROOT=/opt/nulllinux
 ExecStart=/opt/nulllinux/bin/null-machine-sync
 # 0 is "reconciled", 1 is "could not detect a display" -- neither is a failed
 # unit, and a machine with no display attached must still finish booting.
-SuccessExitStatus=0 1
+SuccessExitStatus=0
 
 [Install]
 WantedBy=graphical.target multi-user.target

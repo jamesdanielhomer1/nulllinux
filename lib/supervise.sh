@@ -11,6 +11,8 @@
 # and sets $RENDER (used to ask the compositor what screens exist) and $TAG
 # (what to call itself in messages). Then calls `supervise`.
 
+. "$(dirname -- "${BASH_SOURCE[0]}")/session.sh"
+
 declare -A CHILD=()
 declare -A GEOM=()       # output name -> WxH it was started for
 
@@ -22,8 +24,8 @@ _supervise_cleanup() {
   for p in "${CHILD[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
   # Remove the pidfile only if it is still OURS -- a newer supervisor that just
   # displaced us already owns it and must not have it deleted from under it.
-  [ "$(cat "${XDG_RUNTIME_DIR:-/tmp}/$TAG.pid" 2>/dev/null || true)" = "$$" ] \
-    && rm -f "${XDG_RUNTIME_DIR:-/tmp}/$TAG.pid"
+  [ "$(cat "$_supervise_pidfile" 2>/dev/null || true)" = "$$" ] \
+    && rm -f "$_supervise_pidfile"
   exit 0
 }
 
@@ -87,10 +89,12 @@ supervise() {
   # pidfile (per $TAG); killing it fires the EXIT trap that takes its surfaces
   # down. The cmdline is checked too, since pids are recycled, and it is exactly
   # the displacement the column and dwindle supervisors already do.
-  local pidfile="${XDG_RUNTIME_DIR:-/tmp}/$TAG.pid" old i
+  local pidfile old i
+  pidfile=$(null_session_file "$TAG" pid) || return 1
+  _supervise_pidfile=$pidfile
   if [ -r "$pidfile" ]; then
     old=$(cat "$pidfile" 2>/dev/null || true)
-    if [ -n "${old:-}" ] && [ "$old" != "$$" ] && kill -0 "$old" 2>/dev/null \
+    if [ -n "${old:-}" ] && [ "$old" != "$$" ] && null_same_session "$old" && kill -0 "$old" 2>/dev/null \
        && tr '\0' ' ' < "/proc/$old/cmdline" 2>/dev/null | grep -q "$TAG"; then
       kill "$old" 2>/dev/null || true
       for i in 1 2 3 4 5; do kill -0 "$old" 2>/dev/null || break; sleep 0.1; done

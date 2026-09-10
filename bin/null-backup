@@ -53,8 +53,10 @@ if [ -z "$DEST" ]; then
 fi
 
 # A destination on this machine's own disk does not satisfy the gate.
-src_dev=$(df --output=source "$MASTER" | tail -1)
-dst_dev=$(df --output=source "$DEST" 2>/dev/null | tail -1)
+[ -d "$DEST" ] || { echo "REFUSING: $DEST must be an existing mounted destination directory" >&2; exit 1; }
+src_dev=$(df --output=source "$MASTER" | tail -1) || { echo "REFUSING: cannot identify the master filesystem" >&2; exit 1; }
+dst_dev=$(df --output=source "$DEST" 2>/dev/null | tail -1) || { echo "REFUSING: cannot identify the destination filesystem" >&2; exit 1; }
+[ -n "$src_dev" ] && [ -n "$dst_dev" ] || { echo "REFUSING: filesystem identity is unknown" >&2; exit 1; }
 if [ "$src_dev" = "$dst_dev" ]; then
   echo "REFUSING: $DEST is on $dst_dev, the same device as the master." >&2
   echo "  The gate is 'somewhere that is not this machine' (§11 Phase 9)." >&2
@@ -65,7 +67,7 @@ have_manifest || { echo "REFUSING: no manifest to verify against" >&2; exit 1; }
 target="$DEST/null-hdr-master-$(basename "$MASTER")"
 echo
 echo "copying to $target ..."
-mkdir -p "$target"
+mkdir -p "$target" || { echo "cannot create the backup directory" >&2; exit 1; }
 cp -a "$MASTER"/. "$target"/ || { echo "copy failed" >&2; exit 1; }
 sync
 

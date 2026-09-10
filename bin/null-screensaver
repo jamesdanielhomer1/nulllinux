@@ -15,7 +15,8 @@
 # owns one renderer per screen and kills them all when it goes.
 set -uo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
-PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/null-screensaver.pid"
+. "$ROOT/lib/session.sh"
+PIDFILE=$(null_session_file null-screensaver pid) || exit 1
 RENDER="$ROOT/render/target/release/render"
 TAG=null-screensaver
 
@@ -23,6 +24,7 @@ running() {
   [ -r "$PIDFILE" ] || return 1
   local pid; pid=$(cat "$PIDFILE" 2>/dev/null) || return 1
   [ -n "$pid" ] || return 1
+  null_same_session "$pid" || return 1
   kill -0 "$pid" 2>/dev/null || return 1
   # Confirm it is OURS before signalling it: pids are recycled, and this
   # script's whole job is to send a signal to one particular process. The

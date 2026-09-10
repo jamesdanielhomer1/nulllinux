@@ -89,10 +89,11 @@ fn count_windows(json: &str, visible: &[String]) -> usize {
 }
 
 /// Names of the workspaces currently on screen.
-fn visible_workspaces(ws_json: &str) -> Vec<String> {
+fn visible_workspaces(ws_json: &str, output: Option<&str>) -> Vec<String> {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(ws_json) else { return Vec::new() };
     v.as_array().map(|a| a.iter()
         .filter(|w| w.get("visible").and_then(|b| b.as_bool()).unwrap_or(false))
+        .filter(|w| output.map_or(true, |name| w.get("output").and_then(|o| o.as_str()) == Some(name)))
         .filter_map(|w| w.get("name").and_then(|s| s.as_str()).map(String::from))
         .collect()).unwrap_or_default()
 }
@@ -104,11 +105,12 @@ fn visible_workspaces(ws_json: &str) -> Vec<String> {
 /// that is NOT reliable: with the display off the surface still received
 /// callbacks and kept drawing -- burning CPU behind a dark screen, which is
 /// the exact cost the rule exists to avoid. So the state is asked for.
-fn all_outputs_off(outputs_json: &str) -> bool {
+fn all_outputs_off(outputs_json: &str, output: Option<&str>) -> bool {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(outputs_json) else { return false };
     let Some(arr) = v.as_array() else { return false };
     let real: Vec<_> = arr.iter()
         .filter(|o| o.get("active").and_then(|b| b.as_bool()).unwrap_or(false))
+        .filter(|o| output.map_or(true, |name| o.get("name").and_then(|n| n.as_str()) == Some(name)))
         .collect();
     if real.is_empty() { return false }
     real.iter().all(|o| {
@@ -122,16 +124,16 @@ fn all_outputs_off(outputs_json: &str) -> bool {
 ///
 /// Two independent reasons, and both must be asked: a window is covering the
 /// output, or the output is powered down.
-fn sample(path: &str) -> Option<bool> {
+fn sample(path: &str, output: Option<&str>) -> Option<bool> {
     let mut s = UnixStream::connect(path).ok()?;
     send(&mut s, GET_WORKSPACES, b"").ok()?;
     let (_, ws) = recv(&mut s).ok()?;
-    let visible = visible_workspaces(&String::from_utf8_lossy(&ws));
+    let visible = visible_workspaces(&String::from_utf8_lossy(&ws), output);
 
     let mut s2 = UnixStream::connect(path).ok()?;
     send(&mut s2, GET_OUTPUTS, b"").ok()?;
     let (_, outs) = recv(&mut s2).ok()?;
-    if all_outputs_off(&String::from_utf8_lossy(&outs)) { return Some(true) }
+    if all_outputs_off(&String::from_utf8_lossy(&outs), output) { return Some(true) }
 
     let mut s3 = UnixStream::connect(path).ok()?;
     send(&mut s3, GET_TREE, b"").ok()?;
@@ -154,10 +156,14 @@ fn socket_path() -> Option<String> {
 /// Returns false if no compositor socket could be found, so the caller can
 /// decide rather than silently animating for ever.
 pub fn spawn_occlusion_watch(occluded: Arc<AtomicBool>) -> bool {
+    spawn_occlusion_watch_for_output(occluded, None)
+}
+
+pub fn spawn_occlusion_watch_for_output(occluded: Arc<AtomicBool>, output: Option<String>) -> bool {
     let Some(path) = socket_path() else { return false };
 
     // Prime it once, so the first frame is already correct.
-    if let Some(o) = sample(&path) { occluded.store(o, Ordering::Relaxed) }
+    if let Some(o) = sample(&path, output.as_deref()) { occluded.store(o, Ordering::Relaxed) }
 
     std::thread::spawn(move || {
         // The thread must NEVER return. If it does, whatever value was last
@@ -208,10 +214,29 @@ pub fn spawn_occlusion_watch(occluded: Arc<AtomicBool>) -> bool {
             // contains the window that is going away, and a sample taken then
             // records the state that is about to stop being true.
             if woke { std::thread::sleep(settle) }
-            if let Some(o) = sample(&path) { occluded.store(o, Ordering::Relaxed) }
+            if let Some(o) = sample(&path, output.as_deref()) { occluded.store(o, Ordering::Relaxed) }
         }
     });
     true
+}
+
+#[cfg(test)]
+mod output_scope_tests {
+    use super::*;
+    #[test]
+    fn a_window_on_another_output_does_not_hide_a_bare_desktop() {
+        let ws = r#"[{"name":"1","output":"A","visible":true},{"name":"2","output":"B","visible":true}]"#;
+        let tree = r#"{"nodes":[{"type":"workspace","name":"1","nodes":[{"pid":42}]},{"type":"workspace","name":"2","nodes":[]}]}"#;
+        assert_eq!(count_windows(tree, &visible_workspaces(ws, Some("A"))), 1);
+        assert_eq!(count_windows(tree, &visible_workspaces(ws, Some("B"))), 0);
+    }
+    #[test]
+    fn power_is_scoped_to_the_surface_output() {
+        let outs = r#"[{"name":"A","active":true,"power":false},{"name":"B","active":true,"power":true}]"#;
+        assert!(all_outputs_off(outs, Some("A")));
+        assert!(!all_outputs_off(outs, Some("B")));
+        assert!(!all_outputs_off(outs, None));
+    }
 }
 
 /// True when running on battery. Absent hardware reads as mains (§8.4): a

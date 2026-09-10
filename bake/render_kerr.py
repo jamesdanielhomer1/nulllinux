@@ -24,7 +24,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import kerr
 import ladder
-from formats import write_hdr
+from formats import LUMA, write_hdr
 from derive_palette import planckian_xy, xy_to_linear_srgb, T_MIN, T_MAX
 
 import scene
@@ -116,8 +116,12 @@ def render(cols, rows, a=scene.SPIN, inclination=scene.INCLINATION,
                     rgb = np.array(xy_to_linear_srgb(*planckian_xy(float(tk))))
                     w = inten[sel]
                     np.add.at(acc_rgb, ii[sel], rgb[None, :] * w[:, None])
-                    np.add.at(acc_t, ii[sel], tt[sel] * w)
-                    np.add.at(acc_w, ii[sel], w)
+                    # Observed T is the luminance-weighted mean. The moments
+                    # (L, L*T) remain additive over crossings and subsamples,
+                    # matching box_average and on-screen master resampling.
+                    light = w * float(rgb @ LUMA)
+                    np.add.at(acc_t, ii[sel], tt[sel] * light)
+                    np.add.at(acc_w, ii[sel], light)
 
     out = np.zeros((rows * cols, 4), dtype=np.float32)
     lit = acc_w > 0

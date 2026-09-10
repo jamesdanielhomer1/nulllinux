@@ -30,9 +30,20 @@ esac
 # ALREADY LOCKED? Do nothing. A second lock would lose the race for the
 # compositor's one-lock-at-a-time and then fall back and fight the first.
 uid=$(id -u)
-if pgrep -x -u "$uid" lock >/dev/null 2>&1 || pgrep -x -u "$uid" swaylock >/dev/null 2>&1; then
-  exit 0
-fi
+runtime=${XDG_RUNTIME_DIR:-/run/user/$uid}
+session=$(printf '%s' "${WAYLAND_DISPLAY:-wayland-0}" | sha256sum | cut -c1-16)
+ready="$runtime/null-lock-$uid-$session.ready"
+# Only a successful protocol handshake in this session proves readiness.
+# Process names alone also match unrelated programs and other Wayland sessions.
+already_locked() {
+  local pid started now
+  [ -r "$ready" ] || return 1
+  read -r pid started < "$ready" 2>/dev/null || return 1
+  [[ $pid =~ ^[0-9]+$ && $started =~ ^[0-9]+$ ]] || return 1
+  now=$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null) || return 1
+  [ "$now" = "$started" ] && kill -0 "$pid" 2>/dev/null
+}
+if already_locked; then exit 0; fi
 
 # 1. The preferred locker, if it is built and no extra swaylock args were asked
 #    for (those only make sense for the fallback).
@@ -40,11 +51,18 @@ if [ $# -eq 0 ] && [ -x "$LOCKBIN" ]; then
   # Detached in its own session so it survives this wrapper and swayidle; its
   # stdout is a pipe we read one line from to learn it has locked.
   exec 3< <(exec setsid env NULL_ROOT="$ROOT" "$LOCKBIN")
+  locker_pid=$!
   if read -t 15 -r line <&3 && [ "$line" = LOCKED ]; then
+    started=$(awk '{print $22}' "/proc/$locker_pid/stat" 2>/dev/null || true)
+    if [ -n "$started" ] && [ -d "$runtime" ] && [ -O "$runtime" ]; then
+      (umask 077; printf '%s %s\n' "$locker_pid" "$started" > "$ready.$$") \
+        && mv -f "$ready.$$" "$ready"
+    fi
     exec 3<&-        # stop reading; the locker keeps running
     exit 0
   fi
   exec 3<&- || true  # no LOCKED: it failed before locking -- fall through
+  if already_locked; then exit 0; fi
   echo "null-lock: the session-lock client did not lock; falling back to swaylock" >&2
 fi
 

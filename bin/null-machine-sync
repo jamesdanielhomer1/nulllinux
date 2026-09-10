@@ -24,7 +24,7 @@
 # raytrace was done when the package was built. On a machine with no prebuilt
 # hero for its strike this says so and leaves the placeholder, rather than
 # starting a two-hour bake on a machine someone is waiting to log into.
-set -uo pipefail
+set -euo pipefail
 ROOT=${NULL_ROOT:-/opt/nulllinux}
 # NOT "firstboot-done": this runs every boot. The stamp records that the
 # SURFACES have been placed, which is a different question from whether the
@@ -52,6 +52,9 @@ if [ -e "$STAMP" ] && bin/machine check-profile >/dev/null 2>&1; then
   echo "  profile matches the hardware, surfaces already placed -- nothing to do"
   exit 0
 fi
+# A profile regenerated below can match even if placing its surfaces fails.
+# Invalidate the old success before either operation so the next boot retries.
+rm -f -- "$STAMP"
 
 if ! bin/machine profile >/dev/null 2>&1; then
   echo "  no profile yet"
@@ -83,7 +86,7 @@ took=0
 # identical content, so cp is sometimes asked to copy a file onto itself and
 # refuses. That is not a failure; it means the file is already right.
 copy() {
-  [ -e "$1" ] || return 0
+  [ -e "$1" ] || { echo "  required prebuilt file is missing: $1" >&2; return 1; }
   [ "$1" -ef "$2" ] && return 0
   cp -a --remove-destination "$1" "$2" && took=$((took+1))
 }
@@ -109,6 +112,7 @@ else
   echo "        The package ships heroes for the bake strikes common panels"
   echo "        select. This machine chose one outside that set."
   echo "        Bake it with:  $ROOT/bin/null-build --force"
+  exit 1
 fi
 
 # 4. The palette-derived surfaces, TAKEN FROM THE PACKAGE rather than rebuilt.
@@ -124,15 +128,35 @@ if [ -d "$T" ]; then
     copy "$T/$f" "$f"
   done
   for d in config/gtk-3.0 config/gtk-4.0; do
-    [ -d "$T/$d" ] && mkdir -p "$d" && cp -a "$T/$d/." "$d/" && took=$((took+1))
+    [ -d "$T/$d" ] || { echo "  required theme directory is missing: $T/$d" >&2; exit 1; }
+    mkdir -p "$d"
+    cp -a "$T/$d/." "$d/"
+    took=$((took+1))
   done
   echo "  theme: prebuilt"
 else
-  echo "  theme: not in the package -- deriving it here (needs python)"
-  python3 bake/export_theme.py >/dev/null 2>&1 || echo "  warning: export_theme did not complete"
+  echo "  theme: missing from the package" >&2
+  exit 1
 fi
 
-# 5. The boot splash and the login greeter, which are the first two surfaces
+# 5. The system-wide install, which is what makes a new account need no setup.
+# NOT >/dev/null. This discarded every line null-install prints, including
+# "no <file> -- skipping", which is how a missing session entry produced a
+# greeter offering Fedora's Sway on a fresh install with nothing said anywhere:
+# the tool reported the problem and the caller threw the report away.
+#
+# Run ONCE, output kept, then filtered to the lines that report a problem -- so
+# an ordinary boot stays quiet and an unusual one does not.
+install_rc=0
+install_log=$(bin/null-install --apply 2>&1) || install_rc=$?
+printf '%s\n' "$install_log" \
+  | grep -iE '^[[:space:]]*(no |could not|refus|warn|fail)' \
+  | sed 's/^/    /' || true
+[ "$install_rc" -eq 0 ] && echo "  installed system-wide" \
+  || { echo "  the system-wide install did not complete (exit $install_rc)" >&2; exit 1; }
+
+
+# 6. The boot splash and the login greeter, which are the first two surfaces
 #    anyone sees and were the two that never got installed. bin/null-system
 #    puts them where plymouth and sddm look; it was only ever SUGGESTED, by a
 #    line bin/null-bootstrap prints, so on every machine installed from an ISO
@@ -145,6 +169,7 @@ if [ -d "$P/boot" ]; then
     echo "  greeter: installed and selected"
   else
     echo "  greeter: could NOT be installed"
+    exit 1
   fi
   # PLYMOUTH IS NOT APPLIED HERE, and that is deliberate.
   #
@@ -163,22 +188,10 @@ if [ -d "$P/boot" ]; then
   fi
 else
   echo "  boot surfaces: not in the package -- splash and greeter stay stock"
+  exit 1
 fi
 
-# 6. The system-wide install, which is what makes a new account need no setup.
-# NOT >/dev/null. This discarded every line null-install prints, including
-# "no <file> -- skipping", which is how a missing session entry produced a
-# greeter offering Fedora's Sway on a fresh install with nothing said anywhere:
-# the tool reported the problem and the caller threw the report away.
-#
-# Run ONCE, output kept, then filtered to the lines that report a problem -- so
-# an ordinary boot stays quiet and an unusual one does not.
-install_log=$(bin/null-install --apply 2>&1); install_rc=$?
-printf '%s\n' "$install_log" \
-  | grep -iE '^[[:space:]]*(no |could not|refus|warn|fail)' \
-  | sed 's/^/    /' || true
-[ "$install_rc" -eq 0 ] && echo "  installed system-wide" \
-  || echo "  warning: the system-wide install did not complete (exit $install_rc)"
 
-mkdir -p "$(dirname "$STAMP")" && date -Iseconds > "$STAMP"
+mkdir -p "$(dirname "$STAMP")"
+date -Iseconds > "$STAMP"
 echo "  done ($took prebuilt files placed)"

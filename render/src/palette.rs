@@ -33,10 +33,20 @@ pub struct Palette {
 
 fn parse_hex(s: &str) -> Option<[u8; 3]> {
     let s = s.trim().trim_start_matches('#');
-    if s.len() != 6 { return None }
+    if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_hexdigit()) { return None }
     Some([u8::from_str_radix(&s[0..2], 16).ok()?,
           u8::from_str_radix(&s[2..4], 16).ok()?,
           u8::from_str_radix(&s[4..6], 16).ok()?])
+}
+
+#[cfg(test)]
+mod hex_tests {
+    use super::parse_hex;
+    #[test]
+    fn invalid_unicode_hex_returns_none() {
+        assert_eq!(parse_hex("#aéabc"), None);
+        assert_eq!(parse_hex("#abcdef"), Some([171,205,239]));
+    }
 }
 
 impl Palette {

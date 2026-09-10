@@ -116,7 +116,9 @@ impl TextGrid {
             copied += 1;
             for x in 0..self.cols {
                 let c = self.cells[y * self.cols + x];
-                let src = if c.bold { bold.unwrap_or(atlas) } else { atlas };
+                let src = if c.bold {
+                    bold.filter(|a| a.cell_w == atlas.cell_w && a.cell_h == atlas.cell_h).unwrap_or(atlas)
+                } else { atlas };
                 // A cell the atlas cannot draw must show something VISIBLE.
                 // A blank reads as the program having printed nothing, which
                 // is indistinguishable from a bug (§7.3).
@@ -126,6 +128,7 @@ impl TextGrid {
                 for cy in 0..atlas.cell_h {
                     let row = (y0 + cy) * stride_px;
                     for cx in 0..atlas.cell_w {
+                        if x0 + cx >= stride_px { break }
                         let o = (row + x0 + cx) * 4;
                         if o + 3 >= buf.len() { continue }
                         let lit = bits.map_or(false, |b| b[cy * atlas.cell_w + cx] != 0);
@@ -156,5 +159,23 @@ mod tests {
             assert_eq!(px[3], 0xff, "pixel {i} is transparent after fill");
             assert_eq!([px[2], px[1], px[0]], [5, 6, 10], "pixel {i} is not the bg");
         }
+    }
+
+    #[test]
+    fn a_different_bold_strike_falls_back_to_the_regular_atlas() {
+        fn atlas(w: u16, h: u16) -> Atlas {
+            let mut d = b"RATL".to_vec();
+            for n in [1,w,h,1] { d.extend_from_slice(&n.to_le_bytes()); }
+            d.extend_from_slice(&[0;32]);
+            d.extend_from_slice(&1u16.to_le_bytes());
+            d.extend_from_slice(&[b'#',0,0,0,0,0]);
+            d.extend(vec![1; w as usize * h as usize]);
+            Atlas::from_bytes(&d, "test").unwrap()
+        }
+        let mut g = TextGrid::new(1,1,[0,0,0]);
+        g.set_full(0,0,Cell { ch:'#', fg:[1,2,3], bg:None, bold:true });
+        let mut buf = [0;16];
+        g.blit(&atlas(2,2), &mut buf, 2, 0, Some(&atlas(1,1)));
+        assert!(buf.chunks_exact(4).all(|p| p == [3,2,1,255]));
     }
 }

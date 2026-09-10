@@ -26,14 +26,20 @@ impl Atlas {
     /// FAIL a surface, not crash-loop it -- the supervisor would respawn it
     /// straight back into the same panic every few seconds.
     pub fn from_bytes(d: &[u8], path: &str) -> Result<Self, String> {
-        // The fixed header runs to offset 46: magic[0..4], cell_w@6, cell_h@8,
+        // The fixed header runs to offset 46: magic[0..4], version@4, cell_w@6, cell_h@8,
         // count@10, sha256[12..44], tbl@44. Guard the whole thing at once.
         if d.len() < 46 || &d[0..4] != MAGIC {
             return Err(format!("{path}: not an atlas (short or bad magic)"));
         }
         let g = |o: usize| u16::from_le_bytes([d[o], d[o + 1]]) as usize;
+        if g(4) != 1 {
+            return Err(format!("{path}: unsupported atlas version {}", g(4)));
+        }
         let cell_w = g(6);
         let cell_h = g(8);
+        if cell_w == 0 || cell_h == 0 {
+            return Err(format!("{path}: cell dimensions must be positive"));
+        }
         let count = g(10);
         let mut font_sha256 = [0u8; 32];
         font_sha256.copy_from_slice(&d[12..44]);
@@ -88,7 +94,7 @@ mod tests {
 
     fn header(cell_w: u16, cell_h: u16, count: u16, tbl: u16) -> Vec<u8> {
         let mut d = MAGIC.to_vec();
-        d.extend_from_slice(&[0, 0]);               // 4..6 reserved
+        d.extend_from_slice(&[1, 0]);               // 4..6 version
         d.extend_from_slice(&cell_w.to_le_bytes()); // 6
         d.extend_from_slice(&cell_h.to_le_bytes()); // 8
         d.extend_from_slice(&count.to_le_bytes());  // 10
@@ -101,6 +107,22 @@ mod tests {
     fn short_header_errors_not_panics() {
         assert!(Atlas::from_bytes(b"RATL", "t").is_err());
         assert!(Atlas::from_bytes(&header(8, 16, 1, 1)[..20], "t").is_err());
+    }
+
+    #[test]
+    fn unsupported_versions_are_rejected() {
+        for version in [0u16, 2, u16::MAX] {
+            let mut d = header(1, 1, 0, 0);
+            d[4..6].copy_from_slice(&version.to_le_bytes());
+            assert!(Atlas::from_bytes(&d, "test").is_err());
+        }
+    }
+
+    #[test]
+    fn zero_cell_dimensions_are_rejected() {
+        for (w, h) in [(0,16), (8,0)] {
+            assert!(Atlas::from_bytes(&header(w, h, 0, 0), "test").is_err());
+        }
     }
 
     #[test]

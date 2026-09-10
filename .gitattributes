@@ -1,0 +1,9 @@
+# Keep Linux script and build-input line endings valid on Windows checkouts.
+* text=auto eol=lf
+*.png binary
+*.gz binary
+*.bin binary
+*.cells binary
+*.hero binary
+*.hdrcells binary
+licenses/OFL.txt -text

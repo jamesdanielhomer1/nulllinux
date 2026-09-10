@@ -27,7 +27,8 @@ printf 'console keymap   : %s\n' "${console:-<unset>}"
 
 greeter=$(localectl status 2>/dev/null | sed -n 's/.*X11 Layout: *//p' | head -1)
 printf 'greeter layout   : %s\n' "${greeter:-<unset>}"
-if [ "$greeter" != "$console" ]; then
+if [ "$greeter" != "$console" ] && ! awk -v vc="$console" -v xkb="$greeter" \
+    '$1 == vc && $2 == xkb {found=1} END {exit !found}' /usr/share/systemd/kbd-model-map 2>/dev/null; then
   echo "  FAIL: the greeter follows localectl, which says '${greeter:-<unset>}'," \
        "not '$console'. Fix with: localectl set-x11-keymap $console"
   fail=1
@@ -41,11 +42,11 @@ fi
 # Report EVERY keyboard, not just the first: sway applies input rules per
 # device, and a rule scoped to one identifier leaves the others on the default.
 XKB_LST=/usr/share/X11/xkb/rules/evdev.lst
-expected=$(awk -v want="$console" '/^! layout/{f=1;next} /^!/{f=0}
+expected=$(awk -v want="$greeter" '/^! layout/{f=1;next} /^!/{f=0}
                                    f && $1==want {$1=""; sub(/^ +/,""); print; exit}' \
            "$XKB_LST" 2>/dev/null)
 if [ -z "$expected" ]; then
-  echo "  FAIL: '$console' is not a layout xkb knows ($XKB_LST)"
+  echo "  FAIL: '$greeter' is not a layout xkb knows ($XKB_LST)"
   fail=1
   expected="<unknown>"
 fi
