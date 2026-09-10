@@ -166,10 +166,14 @@ fi
 # 6c. THE PAM STACK MUST SHIP. Named service "null-lock"; with no such file the
 #     handle falls to /etc/pam.d/other, which denies every password -- an
 #     unpassable lock. This is the single most dangerous omission here.
+#     Either shared stack is acceptable: system-auth OR password-auth. The lock
+#     ships password-auth deliberately -- it is the password-only sibling of
+#     system-auth, without pam_fprintd, which on a machine with a fingerprint
+#     reader blocks the password-only locker ~30s and makes it look unpassable.
 if [ -r config/pam.d/null-lock ] \
-   && grep -qE '^auth[[:space:]]+include[[:space:]]+system-auth' config/pam.d/null-lock \
-   && grep -qE '^account[[:space:]]+include[[:space:]]+system-auth' config/pam.d/null-lock; then
-  note "ok    config/pam.d/null-lock exists and stacks auth+account on system-auth"
+   && grep -qE '^auth[[:space:]]+include[[:space:]]+(system|password)-auth' config/pam.d/null-lock \
+   && grep -qE '^account[[:space:]]+include[[:space:]]+(system|password)-auth' config/pam.d/null-lock; then
+  note "ok    config/pam.d/null-lock exists and stacks auth+account on a shared stack"
 else
   note "config/pam.d/null-lock is missing or does not stack auth+account -- every unlock would be denied"
   fail=1
