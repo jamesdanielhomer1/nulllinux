@@ -166,7 +166,13 @@ struct Surf {
     cells: Option<Cells>,
     atlas: Option<Atlas>,
     configured: bool,
-    last_frame: Option<usize>,
+    // Cached bottom of the drawn hero art; the input box sits just under it.
+    // Computed once (a whole-canvas scan) and reused, so the box never jitters
+    // with the animation and the scan does not run every frame.
+    hero_bottom: Option<usize>,
+    // Throttle key of the last painted frame: (animation frame index, mask
+    // length, auth colour). While it is unchanged there is nothing new to show.
+    last_draw: Option<(usize, usize, Auth)>,
 }
 
 struct Lock {
@@ -201,7 +207,8 @@ impl Lock {
         let ls = lock.create_lock_surface(surface, &output, qh);
         self.surfaces.push(Surf {
             output, lock_surface: ls, w: 0, h: 0,
-            cells: None, atlas: None, configured: false, last_frame: None,
+            cells: None, atlas: None, configured: false,
+            hero_bottom: None, last_draw: None,
         });
     }
 
@@ -219,6 +226,24 @@ impl Lock {
         // The frame index needs &self; take it BEFORE the pool is borrowed for
         // the canvas, or the two borrows collide.
         let idx = match &self.surfaces[i].cells { Some(c) => self.frame_index(c), None => 0 };
+
+        // Throttle. The hero animates at cells.fps (~24) but frame callbacks
+        // arrive at the compositor's refresh (~60Hz). Repainting on every
+        // callback did ~2.5x the work for no visible change and starved keystroke
+        // handling on this single thread -- the lock felt laggy. When neither the
+        // animation frame nor the typed state (mask length, auth colour) has
+        // changed, re-arm the callback and commit WITHOUT repainting, exactly as
+        // the wallpaper does. A keypress changes `state`, so the mask still
+        // updates the instant a key is pressed.
+        let state = (idx, self.password.chars().count(), self.auth);
+        if self.surfaces[i].last_draw == Some(state) {
+            let surface = self.surfaces[i].lock_surface.wl_surface().clone();
+            surface.frame(qh, surface.clone());
+            surface.commit();
+            return;
+        }
+        self.surfaces[i].last_draw = Some(state);
+
         let (buffer, canvas) = match self.pool.create_buffer(
             w as i32, h as i32, stride, wayland_client::protocol::wl_shm::Format::Argb8888) {
             Ok(v) => v, Err(_) => return,
@@ -244,13 +269,16 @@ impl Lock {
             let oy = oy.saturating_sub(h as usize / 12);
             raster::blit_frame(cells, atlas, idx, canvas, w as usize, self.bg, (ox, oy), None);
         }
-        self.surfaces[i].last_frame = Some(idx);
-
         // The hero grid carries wide empty margins, so its cell height is no
         // guide to where the ART ends. Measure what was actually drawn: the
         // lowest row of the canvas that carries a non-background pixel is the
         // visible bottom of the hero, and the input box sits just under it.
-        let hero_bottom = {
+        // Cached per surface (reset on reconfigure): the scan is a whole-canvas
+        // sweep and the box must not wobble as the animation pulses, so it is
+        // computed once from the first frame and reused.
+        let hero_bottom = if let Some(hb) = self.surfaces[i].hero_bottom {
+            hb
+        } else {
             let (bb, bg, br) = (self.bg[2], self.bg[1], self.bg[0]);
             let mut bottom = (h as usize) / 2; // fallback: mid-screen if nothing drew
             'scan: for y in (0..h as usize).rev() {
@@ -262,6 +290,7 @@ impl Lock {
                     }
                 }
             }
+            self.surfaces[i].hero_bottom = Some(bottom);
             bottom
         };
 
@@ -376,6 +405,12 @@ impl SessionLockHandler for Lock {
         self.surfaces[i].w = w;
         self.surfaces[i].h = h;
         self.surfaces[i].configured = true;
+        if changed {
+            // Geometry moved: the cached art-bottom and the throttle key no
+            // longer describe this surface, so drop them and let draw recompute.
+            self.surfaces[i].hero_bottom = None;
+            self.surfaces[i].last_draw = None;
+        }
         if changed || self.surfaces[i].cells.is_none() {
             match assets_for(&self.root, w, h) {
                 Some((c, a)) => { self.surfaces[i].cells = Some(c); self.surfaces[i].atlas = Some(a); }
