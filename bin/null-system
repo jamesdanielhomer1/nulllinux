@@ -230,7 +230,11 @@ cmd_plymouth() {
   head_ "boot splash (§9.6)"
   command -v plymouth-set-default-theme >/dev/null || refuse "plymouth is not installed"
   say "current theme: $(plymouth-set-default-theme 2>/dev/null)"
-  local theme="$ROOT/system/plymouth-theme"
+  # The SHIPPED theme. system/plymouth-theme is gitignored (null-build generates
+  # it), so it exists only on a build machine like nox -- which is why `--apply`
+  # worked there but the theme is absent on every ISO install. The package ships
+  # it under assets/prebuilt/boot (the prebuilt tarball).
+  local theme="$ROOT/assets/prebuilt/boot/plymouth-theme"
   [ -d "$theme" ] || refuse "no theme at $theme (run bake/make_boot_assets.py first)"
 
   # The check that matters most, and the cheapest one to skip. A theme naming a
