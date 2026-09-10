@@ -285,10 +285,13 @@ impl Lock {
             };
             let bot: String = format!("└{}┘", "─".repeat(inner.saturating_sub(2)));
 
-            // Password echoed as typed rather than masked -- James's explicit
-            // preference on his personal machine over dot-masking (the shoulder-
-            // surf tradeoff is accepted). The accent is state; Wrong flashes error.
-            let shown: String = self.password.clone();
+            // Password masked, one dot per character -- never the plaintext. Use
+            // U+2022 BULLET, not U+25CF BLACK CIRCLE: the Terminus strikes carry no
+            // U+25CF, so the old ● fell back (atlas.rs) to the tiny U+00B7 middle
+            // dot -- a 2px sliver that read as no feedback at all. U+2022 is a
+            // proper round dot present in every strike. Accent is state; Wrong
+            // flashes error.
+            let mask: String = "•".repeat(self.password.chars().count());
             let (pass_fg, label_fg) = match self.auth {
                 Auth::Idle => (accent, dim),
                 Auth::Wrong => (error, error),
@@ -303,7 +306,7 @@ impl Lock {
             let ch = atlas.cell_h;
             text(canvas, w as usize, atlas, px, base,            &top, line, self.bg);
             text(canvas, w as usize, atlas, px, base + ch,       "pass", label_fg, self.bg);
-            text(canvas, w as usize, atlas, px + 5 * cw, base + ch, &shown, pass_fg, self.bg);
+            text(canvas, w as usize, atlas, px + 5 * cw, base + ch, &mask, pass_fg, self.bg);
             text(canvas, w as usize, atlas, px, base + 2 * ch,   &bot, line, self.bg);
             let _ = neutral;
         }
