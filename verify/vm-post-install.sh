@@ -300,8 +300,8 @@ if [ "$(g 'test -x /opt/nulllinux/render/target/release/lock && echo yes || echo
 else
   bad "render/target/release/lock is missing -- every lock falls back to swaylock"
 fi
-if [ "$(g 'grep -qE "^auth[[:space:]]+include[[:space:]]+system-auth" /etc/pam.d/null-lock 2>/dev/null && grep -qE "^account[[:space:]]+include[[:space:]]+system-auth" /etc/pam.d/null-lock 2>/dev/null && echo yes || echo no')" = yes ]; then
-  ok "/etc/pam.d/null-lock stacks auth+account on system-auth"
+if [ "$(g 'grep -qE "^auth[[:space:]]+include[[:space:]]+(system|password)-auth" /etc/pam.d/null-lock 2>/dev/null && grep -qE "^account[[:space:]]+include[[:space:]]+(system|password)-auth" /etc/pam.d/null-lock 2>/dev/null && echo yes || echo no')" = yes ]; then
+  ok "/etc/pam.d/null-lock stacks auth+account on a shared stack (system- or password-auth)"
 else
   bad "/etc/pam.d/null-lock is missing or wrong -- the locker would deny every password (an unpassable lock)"
 fi
