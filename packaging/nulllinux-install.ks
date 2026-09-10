@@ -226,7 +226,38 @@ cat > /etc/dracut.conf.d/00-nulllinux-generic.conf <<'DRACUT'
 # happened to use. See `null-system initramfs`.
 hostonly="no"
 DRACUT
-dracut --force --regenerate-all >/dev/null 2>&1 || \
+
+# THE BOOT SPLASH, BAKED IN (confirmed on metal, so no longer deferred to a
+# manual `null-system plymouth --apply`).
+#
+# Set the theme and the default.plymouth symlink dracut's plymouth module reads
+# BEFORE the regenerate below, so the theme lands in the initramfs in the same
+# rebuild and the splash draws from the very first boot. null-system's plymouth
+# verb is the running-machine twin of this -- it rebuilds only the running kernel
+# and confirms the rescue entry first; a fresh install regenerates every kernel,
+# and the read-back further down is the safety net.
+PLYMOUTH_SPLASH=
+_theme=/opt/nulllinux/system/plymouth-theme
+if command -v plymouth-set-default-theme >/dev/null 2>&1 && [ -f "$_theme/nullLinux.plymouth" ]; then
+  rm -rf /usr/share/plymouth/themes/nullLinux
+  cp -a "$_theme" /usr/share/plymouth/themes/nullLinux
+  command -v restorecon >/dev/null 2>&1 && restorecon -RF /usr/share/plymouth/themes/nullLinux 2>/dev/null || true
+  plymouth-set-default-theme nullLinux
+  # plymouth-set-default-theme writes plymouthd.conf and stops; dracut resolves
+  # the theme through this symlink, whose absence once produced an initramfs that
+  # named nullLinux but contained none of its files (see null-system).
+  ln -sfn /usr/share/plymouth/themes/nullLinux/nullLinux.plymouth \
+          /usr/share/plymouth/themes/default.plymouth
+  PLYMOUTH_SPLASH=nullLinux
+  echo "nullLinux: boot splash set; baking it into every initramfs"
+else
+  echo "nullLinux: WARNING -- plymouth theme missing; no boot splash" >&2
+fi
+
+# PLYMOUTH_THEME_NAME is not optional here: without it dracut can build an image
+# whose plymouthd.conf says nullLinux while the theme's files are absent -- the
+# exact failure null-system was written around.
+PLYMOUTH_THEME_NAME="$PLYMOUTH_SPLASH" dracut --force --regenerate-all >/dev/null 2>&1 || \
   echo "nullLinux: WARNING -- dracut --regenerate-all failed" >&2
 
 for img in /boot/initramfs-*.img; do
@@ -241,6 +272,21 @@ for img in /boot/initramfs-*.img; do
     echo "nullLinux: this disk may not boot in another machine" >&2
   fi
 done
+
+# AND CONFIRM THE SPLASH IS ACTUALLY IN THE IMAGE, not merely named in the
+# config -- read the artefact (§10.1). Named-but-absent falls back to grey dots,
+# which is the failure this whole block exists to prevent.
+if [ -n "$PLYMOUTH_SPLASH" ]; then
+  for img in /boot/initramfs-*.img; do
+    case $img in *rescue*) continue ;; esac
+    n=$(lsinitrd "$img" 2>/dev/null | grep -c 'themes/nullLinux/' || true)
+    if [ "${n:-0}" -gt 0 ]; then
+      echo "nullLinux: splash present in $(basename "$img"): $n theme files"
+    else
+      echo "nullLinux: WARNING -- $(basename "$img") names the splash but carries NONE of its files" >&2
+    fi
+  done
+fi
 
 # A way in, for a test that has no console. Not a thing a real image would do.
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
