@@ -214,6 +214,22 @@ done
 # leaves the machine unable to install its next kernel, which is a slow failure.
 info "/boot: $(g 'df -h /boot | tail -1')"
 
+# --- the boot splash -------------------------------------------------------
+#
+# THE SPLASH HAS TO BE IN THE INITRAMFS, not merely named. A theme set in
+# plymouthd.conf whose files never reached the image falls back to a grey
+# screen -- and this whole suite once passed with ZERO splash files in the
+# initramfs, because nothing looked (the installer staged the theme from a
+# build-only path that is absent on a real install). It looks now.
+head_ "boot splash"
+sn=$(g 'lsinitrd /boot/initramfs-$(uname -r).img 2>/dev/null | grep -c "themes/nullLinux/"')
+info "$sn nullLinux theme files in the running kernel's initramfs"
+[ "${sn:-0}" -gt 0 ] && ok "the nullLinux splash is baked into the initramfs" \
+  || bad "the initramfs carries NO nullLinux theme files -- the splash falls back to grey dots"
+dt=$(g 'plymouth-set-default-theme 2>/dev/null')
+[ "$dt" = nullLinux ] && ok "the default plymouth theme is nullLinux" \
+  || bad "the default plymouth theme is '${dt:-unset}', not nullLinux"
+
 # --- the session the greeter offers ----------------------------------------
 #
 # THIS SECTION EXISTS BECAUSE THE CHECK DID NOT HAVE IT.
