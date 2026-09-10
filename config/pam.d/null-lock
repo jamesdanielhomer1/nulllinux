@@ -5,12 +5,21 @@
 # `account` (the account is still valid) are stacked -- the two the client calls
 # (pam_authenticate then pam_acct_mgmt, both of which must pass).
 #
-# system-auth is Fedora's shared stack: the same rules that gate a console login
-# gate the unlock. That is deliberate -- a screen lock should be exactly as hard
-# to pass as logging in, no weaker and no stronger.
+# We include `password-auth`, NOT `system-auth`. The two are Fedora's shared
+# stacks and are identical for our purposes EXCEPT that `system-auth` also runs
+# the interactive console-login modules -- notably `pam_fprintd.so` (fingerprint),
+# ordered `sufficient` before `pam_unix`. On a machine with a fingerprint reader
+# (e.g. a ThinkPad), that module engages during pam_authenticate and BLOCKS for
+# ~30s waiting for a finger swipe -- which the lock client, a password-only UI,
+# can never supply -- before falling through to the password check. The screen
+# appears frozen and "won't unlock". `password-auth` is the password-only sibling
+# stack (same pam_unix, same account rules, same faillock policy, no fingerprint),
+# which is exactly right for a locker that only ever reads a typed password.
+# (Fingerprint-at-unlock would need the client to drive the fprintd conversation;
+# that is a possible post-1.0 feature, not a regression here.)
 #
 # Without this file the client's PAM handle would resolve to /etc/pam.d/other,
 # which on Fedora denies everything -- every password would be refused and the
 # machine could never be unlocked by its own locker. It must ship.
-auth       include      system-auth
-account    include      system-auth
+auth       include      password-auth
+account    include      password-auth
