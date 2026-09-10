@@ -71,6 +71,7 @@ Requires:       dosfstools
 Requires:       dracut-config-generic
 Requires:       dunst
 Requires:       exfatprogs
+Requires:       fastfetch
 Requires:       fd-find
 Requires:       file
 Requires:       firefox
