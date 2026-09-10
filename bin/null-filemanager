@@ -74,6 +74,11 @@ case "${1:-open}" in
     set_one /misc-show-about-templates bool false
     set_one /last-details-view-visible-columns string \
       'THUNAR_COLUMN_NAME,THUNAR_COLUMN_SIZE,THUNAR_COLUMN_TYPE,THUNAR_COLUMN_DATE_MODIFIED'
+    # HIDE THE MENUBAR. File/Edit/View/Go/Help is the most "stock file manager"
+    # element there is; Thunar 4.18+ folds its contents into a hamburger in the
+    # toolbar when it is hidden, so nothing is lost -- a cleaner window that
+    # matches the rest of the desktop's chrome.
+    set_one /last-menubar-visible bool false
     echo "applied"
     ;;
   check)
@@ -88,6 +93,7 @@ case "${1:-open}" in
     want /misc-single-click false
     want /last-location-bar ThunarLocationButtons
     want /last-side-pane ThunarShortcutsPane
+    want /last-menubar-visible false
     exit $fail ;;
   *) echo "usage: null-filemanager [apply|check]" >&2; exit 2 ;;
 esac
