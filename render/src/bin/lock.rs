@@ -285,8 +285,10 @@ impl Lock {
             };
             let bot: String = format!("└{}┘", "─".repeat(inner.saturating_sub(2)));
 
-            // Password shown as dots; the accent is state. Wrong flashes error.
-            let dots: String = "●".repeat(self.password.chars().count());
+            // Password echoed as typed rather than masked -- James's explicit
+            // preference on his personal machine over dot-masking (the shoulder-
+            // surf tradeoff is accepted). The accent is state; Wrong flashes error.
+            let shown: String = self.password.clone();
             let (pass_fg, label_fg) = match self.auth {
                 Auth::Idle => (accent, dim),
                 Auth::Wrong => (error, error),
@@ -301,7 +303,7 @@ impl Lock {
             let ch = atlas.cell_h;
             text(canvas, w as usize, atlas, px, base,            &top, line, self.bg);
             text(canvas, w as usize, atlas, px, base + ch,       "pass", label_fg, self.bg);
-            text(canvas, w as usize, atlas, px + 5 * cw, base + ch, &dots, pass_fg, self.bg);
+            text(canvas, w as usize, atlas, px + 5 * cw, base + ch, &shown, pass_fg, self.bg);
             text(canvas, w as usize, atlas, px, base + 2 * ch,   &bot, line, self.bg);
             let _ = neutral;
         }
