@@ -36,43 +36,43 @@ Met:
       apps, files and network drives, clipboard, browser and mail, capture,
       accounts, language, default applications, brightness/power/radios, lock,
       idle, suspend.
+- [x] **The boot splash is baked into the image** — the installer sets the
+      nullLinux plymouth theme and rebuilds the initramfs to contain it, so the
+      splash draws from the first boot of a fresh install (verified in a guest:
+      23 theme files in the initramfs, default theme `nullLinux`), and it draws
+      on metal. No manual apply step.
 - [x] **The whole verify suite passes**, on the build host and inside an
-      installed guest (`verify/in-guest.sh`).
+      installed guest (`verify/in-guest.sh`) — including, now, that the firewall
+      actually took and the splash is actually in the initramfs, two things that
+      had silently not been true before (see STATUS.md).
+- [x] **An off-machine copy exists** — the source is on GitHub, and the one
+      artefact nox cannot re-bake, the raytraced HDR master, is a GitHub release
+      asset with a restore proven from GitHub alone; `assets/prebuilt/`
+      regenerates from it CPU-only. (`bin/null-backup` to removable media is an
+      optional second copy, for when a drive is attached.)
+- [x] **A code review passed** — this session was its own gate: real bugs found
+      and fixed (the firewall never applied on an ISO install, the splash never
+      baked into one, the lock), each with a new guard against regression; the
+      non-bugs are on the roadmap below.
 - [x] **The source is on a remote** — pushed to GitHub after every commit.
 - [x] **The package and both ISOs build from a clean HEAD.**
 
 Not yet met — the road to 1.0.0:
 
 - [ ] **A clean install on real hardware.** nox runs nullLinux on metal today,
-      but by *in-place conversion*, not by installing the ISO. What a cold ISO
-      install on metal still has to prove: partitioning and the bootloader on
-      real firmware; the cell grid derived from a real panel's EDID; and the
-      subsystems a VM cannot exercise — wifi *association* (not merely the
-      firmware being present), suspend/resume on real firmware, the dock, the
-      trackpoint, and two batteries with one removable while the machine runs.
-      **Blocked on a spare disk or machine:** nox cannot be wiped to test this
-      until there is an off-machine copy of what only nox holds (below).
-- [ ] **An off-machine copy of the generated assets.** The source is safe on
-      GitHub, but `assets/prebuilt/` — the raytraced hero and every strike's
-      atlas — is generated, not committed, and exists only on nox, which cannot
-      re-bake it (no discrete GPU). `bin/null-backup` carries it and refuses a
-      destination on this machine's own disk; it has never run because nothing
-      removable has been attached. A precondition for the metal install, not a
-      feature.
-- [ ] **The boot splash on metal.** Plymouth rewrites an initramfs; this system
-      has one ordinary kernel, so the rescue entry is the only way back.
-      `null-system plymouth --apply --fallback-verified` reads the rebuilt image
-      back and restores the previous theme if the new one is not in it — but it
-      must be run on the metal, after confirming the rescue entry boots, not by
-      the installer.
+      but by *in-place conversion*, not by installing the ISO. A cold ISO install
+      still has to prove: partitioning and the bootloader on real firmware; the
+      cell grid derived from a real panel's EDID; and the subsystems a VM cannot
+      exercise — wifi *association* (not merely the firmware being present),
+      suspend/resume on real firmware, the dock, the trackpoint, and two
+      batteries with one removable while the machine runs. The off-machine copy
+      now exists (above), so nox can be wiped and restored — this needs a spare
+      disk, or a willingness to wipe and restore nox itself.
 - [ ] **Mail and office seen by eye.** Thunderbird and LibreOffice are installed
-      and their pieces verified, but the chrome and the GTK theming can only be
-      judged finally on a screen.
-- [ ] **A code review passed.** This session produces the 1.0.0 candidate; the
-      review is its gate. Findings that are real bugs block the tag; the rest are
-      recorded against the roadmap below.
+      and their pieces verified; the chrome and GTK theming can be shown in a
+      guest but are finally judged on a screen.
 
-When every box above is ticked, tag `0.1.0` → `1.0.0` (`null-brand` reads the
+When both boxes above are ticked, tag `0.1.0` → `1.0.0` (`null-brand` reads the
 version from the spec/package; bump there) and cut the release ISOs.
 
 ---

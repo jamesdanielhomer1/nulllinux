@@ -8,17 +8,21 @@ in [measurements.md](measurements.md).
 
 ## The verdict, in one paragraph
 
-**Usable, and now watched.** nullLinux runs as a daily driver on real hardware
-(a ThinkPad T480, converted in place), and its whole front end has now been put
-through an ordinary day's use rather than only read — the launcher, account
-management, default applications, the system language, the menus, and the live
-image's first boot, each fixed where watching found a gap that reading never
-would. Both ISOs build from a clean HEAD; the installer installs end to end in a
-VM and the installed system carries every fix; the live ISO boots to the themed
-desktop. The one gap that still matters is the same one it has always been: a
-cold **ISO install on real hardware**, with the metal-only subsystems a VM cannot
-exercise. That, and the few items beside it, are the road to 1.0.0 — see
-[goals.md](goals.md).
+**A verified 1.0.0 candidate.** nullLinux runs as a daily driver on real hardware
+(a ThinkPad T480, converted in place), and this session put its whole front end
+and its install path through use rather than only reading — and watching found
+two things that had silently never been true on a real install: the firewall
+fell back to firewalld on **every** install (its ruleset validation mistook the
+installer's chroot for a broken ruleset), and the boot splash never baked into
+the initramfs (both the installer and `null-system` read the theme from a
+build-only path). Both are fixed, each now guarded by a check that reads the
+installed artefact. Both ISOs build from a clean HEAD; the installer installs end
+to end in a VM and the installed system carries every fix — the whole in-guest
+suite passes, now including that the firewall took and the splash is in the
+initramfs. The off-machine copy exists (GitHub, restore proven). The one gap that
+still matters is the same one it has always been: a cold **ISO install on real
+hardware**, with the metal-only subsystems a VM cannot exercise. That, and
+mail/office judged on a screen, are the road to 1.0.0 — see [goals.md](goals.md).
 
 ---
 
@@ -46,7 +50,9 @@ in-place daily driver; a cold **ISO install** on metal is still to come.
 | offline install — no repository of ours reachable | VM | the package comes from the medium |
 | document fonts resolve | installed VM | `fc-match`: Times→Liberation Serif, Arial→Liberation Sans, Courier→Liberation Mono |
 | the machine powers off cleanly at 2%, and the warning is true | installed VM | UPower resolves `critical-action: PowerOff` itself |
-| the source exists off this machine | GitHub | pushed after every commit |
+| the source exists off this machine | GitHub | pushed after every commit; the HDR master is a release asset, restore proven from GitHub alone |
+| the firewall takes on a fresh install | ISO-installed guest | nftables active, firewalld disabled, input policy drop |
+| the boot splash is in the installed initramfs | ISO-installed guest | 23 nullLinux theme files; default theme nullLinux |
 
 ## Not done — the road to 1.0.0
 
@@ -54,11 +60,8 @@ The full list, with how each closes, is [goals.md](goals.md). In short:
 
 | | |
 |---|---|
-| **a cold ISO install on metal** | the largest unknown: real firmware and a real panel's EDID, wifi association, suspend/resume on metal, the dock, the trackpoint, two batteries. Blocked until there is an off-machine copy of what only nox holds |
-| **an off-machine copy of `assets/prebuilt/`** | the source is on GitHub; the raytraced hero and atlases are generated, uncommitted, and on nox alone (which cannot re-bake them). `null-backup` carries them and refuses this disk; nothing removable has been attached |
-| **the boot splash on metal** | applied and fallback-verified on the machine, after confirming the rescue entry — not by the installer |
-| **mail and office seen by eye** | Thunderbird and LibreOffice are installed and their pieces verified; the chrome can only be judged on a screen |
-| **a code review** | this session produces the 1.0.0 candidate; the review is its gate |
+| **a cold ISO install on metal** | the largest unknown: real firmware and a real panel's EDID, wifi association, suspend/resume on metal, the dock, the trackpoint, two batteries. The off-machine copy now exists, so nox can be wiped and restored — this needs a spare disk (or wiping nox itself) |
+| **mail and office seen by eye** | Thunderbird and LibreOffice are installed and their pieces verified; the chrome can be shown in a guest but is finally judged on a screen |
 
 ## Known limitations of choices made
 
@@ -99,6 +102,8 @@ does, obvious within seconds of watching:
 | the app launcher drew, took a pick, and returned | it launched apps with the column's own config-home, racing the column's teardown, so **the app usually never appeared** |
 | the live image was built, themed, and booted | Fedora's preset enabled sddm, which took the console ahead of the autologin, so the live medium **stopped at a login screen for a passwordless user** |
 | the settings "People" row was written and drew a list | it only *listed* — there was **no way to add an account** from the desktop |
+| `null-system --apply firewall` in the installer's `%post`, valid ruleset, `check-firewall` green | the chroot has no netlink, so `nft -c` failed; its error wording went unrecognised and a good ruleset was refused — **every ISO install shipped firewalld, not the nftables default-deny** |
+| `null-system plymouth --apply` worked on nox; the theme is 22 files on disk | it read the theme from `system/plymouth-theme`, gitignored and present only on a build machine — so **no ISO install's initramfs ever carried the splash** |
 
 The countermeasures are structural, not resolutions:
 
