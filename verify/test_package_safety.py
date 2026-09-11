@@ -137,6 +137,33 @@ printf 'called\n' > "$NULL_ROOT/builder-called"
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(sorted(p.name for p in (self.root / "packaging/repo").glob("*.rpm")), ["nulllinux-1.0.0-1.x86_64.rpm"])
 
+    def test_prebuilt_archive_normalizes_windows_permissions(self):
+        self.prebuilts()
+        for path in (self.root / "assets/prebuilt").rglob("*"):
+            path.chmod(0o777)
+        (self.root / "assets/prebuilt").chmod(0o777)
+        result = self.run_package()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with tarfile.open(self.root / "rpmbuild/SOURCES/nulllinux-prebuilt-1.0.0.tar.gz") as archive:
+            for member in archive:
+                self.assertEqual(member.mode, 0o755 if member.isdir() else 0o644, member.name)
+
+    def test_rpm_staging_removes_write_access_and_keeps_programs_executable(self):
+        for relative in ("bin/command", "verify/check.sh", "assets/prebuilt/theme/config/data.ini", "config/data.ini"):
+            self.write("stage/opt/nulllinux/" + relative, b"fixture")
+        stage = self.root / "stage"
+        for path in stage.rglob("*"):
+            path.chmod(0o777)
+        (stage / "opt/nulllinux/config/data.ini").chmod(0o666)
+        commands = [line for line in (ROOT / "packaging/nulllinux.spec").read_text().splitlines()
+                    if line.startswith("find %{buildroot}")]
+        self.assertEqual(len(commands), 3)
+        script = "\n".join(commands).replace("%{buildroot}", str(stage)).replace("%{_prefix}", "/opt").replace("%{name}", "nulllinux")
+        subprocess.run(["bash", "-ec", script], check=True)
+        for path in stage.rglob("*"):
+            expected = 0o755 if path.is_dir() or path.name in {"command", "check.sh"} else 0o644
+            self.assertEqual(path.stat().st_mode & 0o777, expected, path)
+
     def test_failed_metadata_preserves_previous_repository(self):
         self.prebuilts()
         self.write("packaging/repo/nulllinux-old.rpm", b"previous good package")

@@ -38,7 +38,7 @@ else
 fi
 #    1b. bin/null-open's fallback, for a machine where null-defaults is absent.
 line=$(grep -E '^[[:space:]]*editor\)' bin/null-open | head -1)
-if printf '%s' "$line" | grep -qE 'first[[:space:]]+"nano"'; then
+if printf '%s' "$line" | grep -qE 'first[[:space:]]+("nano"|nano)([[:space:]]|$)'; then
   note "ok    null-open's fallback opens the editor role with nano"
 else
   note "null-open's editor fallback does not start with nano: ${line:-<not found>}"; fail=1

@@ -236,7 +236,9 @@ for v in 3.0 4.0; do
   [ -r "$src" ] || { say "no $src -- skipping gtk-$v"; continue; }
   if [ "$APPLY" -eq 1 ]; then
     mkdir -p "/usr/share/themes/nullLinux/gtk-$v"
+    chmod 0755 /usr/share/themes/nullLinux "/usr/share/themes/nullLinux/gtk-$v"
     cp -a "$src" "/usr/share/themes/nullLinux/gtk-$v/gtk.css"
+    chmod 0644 "/usr/share/themes/nullLinux/gtk-$v/gtk.css"
     say "installed /usr/share/themes/nullLinux/gtk-$v/gtk.css"
   else
     say "would install /usr/share/themes/nullLinux/gtk-$v/gtk.css"
@@ -245,6 +247,7 @@ done
 if [ "$APPLY" -eq 1 ]; then
   printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=nullLinux\nComment=Derived from the hero\n' \
     > /usr/share/themes/nullLinux/index.theme
+  chmod 0644 /usr/share/themes/nullLinux/index.theme
   restore_selinux /usr/share/themes/nullLinux
 fi
 
@@ -333,7 +336,9 @@ for v in 3.0 4.0; do
   [ -r "$src" ] || continue
   if [ "$APPLY" -eq 1 ]; then
     mkdir -p "/etc/xdg/gtk-$v"; backup "/etc/xdg/gtk-$v/settings.ini"
+    chmod 0755 "/etc/xdg/gtk-$v"
     cp -a "$src" "/etc/xdg/gtk-$v/settings.ini"
+    chmod 0644 "/etc/xdg/gtk-$v/settings.ini"
     restore_selinux "/etc/xdg/gtk-$v"
     say "installed /etc/xdg/gtk-$v/settings.ini"
   else
@@ -383,6 +388,7 @@ for entry in \
       if [ "$APPLY" -eq 1 ]; then
         backup "${to%/}"; mkdir -p "$to"
         cp -a "$src"/. "$to"
+        chmod 0755 "$to"
         restore_selinux "${to%/}"
         say "installed $to ($(ls "$src" | tr '\n' ' '))"
       else

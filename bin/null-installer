@@ -99,12 +99,34 @@ if [ "$DRY" != 1 ] && [ -z "$CONSOLE" ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
   exit 3
 fi
 
+# The boot runtime has its own console defaults. Apply the ISO's staged font
+# and palette to this installer's VT before drawing; never reconfigure a PTY.
+installer_console() {
+  [ "${DRY:-0}" != 1 ] || return 0
+  [ -e "$ROOT/console-palette.ansi" ] || return 0
+  local console
+  console=$(tty 2>/dev/null) || return 0
+  case $console in /dev/tty[0-9]*) ;; *) return 0 ;; esac
+  if [ ! -r "$ROOT/console.psf" ] || ! command -v setfont >/dev/null 2>&1; then
+    echo "null-installer: the console font or setfont is missing" >&2
+    return 1
+  fi
+  setfont -C "$console" "$ROOT/console.psf" || {
+    echo "null-installer: could not apply the installer console font" >&2
+    return 1
+  }
+  cat "$ROOT/console-palette.ansi" || return 1
+  # Palette changes affect newly drawn cells; repaint the blank screen too.
+  printf '\033[0m\033[2J\033[H'
+}
+installer_console || exit 1
+
 # --- the surface -----------------------------------------------------------
 #
 # Colours by NAME, from config/sway/colours.conf, resolved once. Writing an
 # escape with a hex value in it would be the one thing this project does not
 # do -- and on a virtual console the sixteen slots ARE the palette, because
-# vt.default_red/grn/blu put them there.
+# the installed system's boot arguments or the ISO's console setup put them there.
 C_RESET=$'\033[0m'; C_DIM=$'\033[33m'; C_TEXT=$'\033[37m'
 C_ACCENT=$'\033[34m'; C_ERROR=$'\033[31m'; C_LINE=$'\033[90m'
 

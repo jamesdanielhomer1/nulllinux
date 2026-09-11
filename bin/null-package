@@ -48,6 +48,7 @@ git archive --format=tar --prefix="$NAME-$VERSION/" "$REV" \
 mkdir -p "$work/source" "$work/prebuilt"
 tar -xzf "$TOP/SOURCES/$NAME-$VERSION.tar.gz" -C "$work/source" --strip-components=1
 tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+  --mode='a=r,u+w,a+X' \
   -czf "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" assets/prebuilt
 tar -xzf "$TOP/SOURCES/$NAME-prebuilt-$VERSION.tar.gz" -C "$work/prebuilt"
 # Validate Source1 itself, not a directory another bake could change meanwhile.

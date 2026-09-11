@@ -16,31 +16,20 @@ cd "$ROOT"
 NAME=nulllinux
 VERSION=$(rpmspec -q --qf '%{version}\n' packaging/$NAME.spec 2>/dev/null | head -1)
 WORK=${NULL_ISO_WORK:-/var/lib/nulllinux-iso}
-KS="$WORK/$NAME-live.ks"
 
-# AN UNRECOGNISED ARGUMENT MUST NOT START A MULTI-HOUR DESTRUCTIVE BUILD.
-#
-# This file parsed no arguments at all. `null-iso --help` therefore printed no
-# help: it fell straight through to `rm -rf "$WORK/results"` below, deleting
-# the ISO already built there, and then started livemedia-creator for several
-# hours.
-#
-# bin/null-installer-iso has carried the identical guard since the evening it
-# deleted its own boot media the same way. The lesson was written down in one
-# file and never carried across to its sibling, which is its own kind of
-# defect: a fix that does not travel is a fix that will be needed again.
-ASSUME_YES=0
+# Parse arguments before creating build state. Each compose keeps its own
+# intermediate images and logs; the last published ISO survives a failed run.
 usage() {
   echo "usage: null-iso [--yes]"
   echo
-  echo "  --yes, -y   do not ask before deleting the previously built ISO"
+  echo "  --yes, -y   accepted for compatibility; earlier builds are retained"
   echo
-  echo "  Builds the live ISO. This DELETES $WORK/results and then runs"
-  echo "  livemedia-creator, which takes hours. Run bin/null-package first."
+  echo "  Builds a Try / Install live ISO in a fresh compose directory."
+  echo "  Publishes the final image only after success. Run bin/null-package first."
 }
 while [ $# -gt 0 ]; do
   case $1 in
-    --yes|-y)  ASSUME_YES=1 ;;
+    --yes|-y)  : ;;
     -h|--help) usage; exit 0 ;;
     *) echo "null-iso: unknown argument '$1'" >&2; echo >&2; usage >&2; exit 2 ;;
   esac
@@ -53,40 +42,53 @@ need livemedia-creator || fail=1
 need createrepo_c || fail=1
 need mkksiso || fail=1
 need ksvalidator || fail=1
+need git || fail=1
+need python3 || fail=1
 [ -d packaging/repo/repodata ] || { echo "null-iso: no local repository at packaging/repo" >&2
   echo "  Build the package first:  bin/null-package" >&2; fail=1; }
 [ "$(id -u)" -eq 0 ] || { echo "null-iso: must be root -- anaconda needs mounts and loop devices" >&2; fail=1; }
 [ "$fail" -eq 0 ] || exit 1
 
+# The image's scripts and its RPM must describe the same source revision.
+revision=$(git rev-parse --verify HEAD) || exit 1
+[ -z "$(git status --porcelain --untracked-files=normal)" ] || {
+  echo "null-iso: commit working changes and rebuild the package first" >&2; exit 1;
+}
+python3 - "$ROOT/packaging/repo/BUILD-INFO.json" "$revision" <<'PROVENANCE' || exit 1
+import json, sys
+from pathlib import Path
+info = json.loads(Path(sys.argv[1]).read_text())
+if info['source_commit'] != sys.argv[2]:
+    raise SystemExit('null-iso: the package is stale; run bin/null-package for this revision')
+PROVENANCE
+
 # Space. An ISO build writes the whole installed tree, then an image of it,
 # then squashfs -- several times the size of the result.
-avail=$(df --output=avail -BG "$(dirname "$WORK")" 2>/dev/null | tail -1 | tr -dc '0-9')
+mkdir -p "$WORK" || exit 1
+WORK=$(cd "$WORK" && pwd -P) || exit 1
+avail=$(df --output=avail -BG "$WORK" 2>/dev/null | tail -1 | tr -dc '0-9')
 [ "${avail:-0}" -ge 20 ] || { echo "null-iso: ${avail}G free; an ISO build wants 20G or more" >&2; exit 1; }
 
-mkdir -p "$WORK"
-
-# AND THE DELETION IS ANNOUNCED. There is an ISO in there that took hours, and
-# the only thing standing between it and this line used to be remembering what
-# this command does.
-if [ -d "$WORK/results" ] && [ "$ASSUME_YES" != 1 ]; then
-  echo "null-iso: this deletes what is already built:"
-  find "$WORK/results" -maxdepth 2 -name '*.iso' -printf '  %p  (%s bytes)\n' 2>/dev/null
-  if [ -t 0 ]; then
-    printf 'null-iso: delete it and rebuild? [y/N] '
-    read -r a
-    case $a in y|Y|yes) ;; *) echo "null-iso: nothing deleted."; exit 1 ;; esac
-  else
-    echo "null-iso: not a terminal, so nothing was asked and nothing was deleted." >&2
-    echo "  Pass --yes to rebuild anyway." >&2
-    exit 1
-  fi
-fi
-rm -rf "$WORK/results"
+compose=$(mktemp -d "$WORK/compose.XXXXXX") || exit 1
+KS="$compose/$NAME-live.ks"
 
 # The kickstart names the repository by absolute path, which is only known
 # here. Substituted rather than hard-coded so the tree can live anywhere.
-sed "s|file://NULLLINUX_REPO|file://$ROOT/packaging/repo|" \
-    packaging/$NAME-live.ks > "$KS"
+REL=$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)
+python3 - "$ROOT" "$KS" "$REL" <<'KICKSTART' || exit 1
+import os, sys
+from pathlib import Path
+root, output = map(Path, sys.argv[1:3])
+release = sys.argv[3]
+if not release.isdecimal():
+    raise SystemExit('null-iso: invalid Fedora release')
+source = (root/'packaging/nulllinux-live.ks').read_text()
+source = source.replace('file://NULLLINUX_REPO', (root/'packaging/repo').as_uri())
+source = source.replace('$releasever', release).replace('$basearch', 'x86_64')
+source = source.replace('https://download.fedoraproject.org/pub/fedora/linux',
+                        os.environ.get('NULL_MIRROR', 'https://dl.fedoraproject.org/pub/fedora/linux').rstrip('/'))
+output.write_text(source)
+KICKSTART
 ksvalidator "$KS" >/dev/null 2>&1 || { echo "null-iso: the kickstart does not validate" >&2
   ksvalidator "$KS" >&2; exit 1; }
 
@@ -101,22 +103,21 @@ echo
 # Fedora's release, for the package repos -- and, because livemedia-creator has
 # no separate product version, the number lorax puts in the boot-menu titles.
 # The post-build step below puts the product's own version there instead.
-REL=$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)
-livemedia-creator \
+( cd "$compose" && livemedia-creator \
   --ks "$KS" \
   --no-virt \
-  --resultdir "$WORK/results" \
+  --resultdir "$compose/results" \
   --project "nullLinux" \
   --releasever "$REL" \
   --volid "nullLinux-$VERSION" \
   --iso-name "$NAME-$VERSION.iso" \
   --make-iso \
   --lorax-templates /usr/share/lorax/templates.d/99-generic \
-  --logfile "$WORK/livemedia.log"
+  --logfile "$compose/livemedia.log" )
 st=$?
 
 echo
-if [ $st -eq 0 ] && built=$(find "$WORK/results" -name '*.iso' | head -1) && [ -n "$built" ]; then
+if [ $st -eq 0 ] && built=$(find "${compose:-$WORK}/results" -name '*.iso' | head -1) && [ -n "$built" ]; then
   # A SHIPPABLE NAME. In --no-virt mode livemedia-creator writes the live image
   # as results/images/boot.iso and does NOT honour --iso-name, so left alone the
   # artefact ships as "boot.iso". It is moved to the product's own name, beside
@@ -157,12 +158,14 @@ if [ $st -eq 0 ] && built=$(find "$WORK/results" -name '*.iso' | head -1) && [ -
   fi
   echo "built: $iso"
   echo "  $(du -h "$iso" | cut -f1)"
+  sha256sum "$iso" > "$iso.sha256" || exit 1
+  cp "$ROOT/packaging/repo/BUILD-INFO.json" "$iso.build-info.json" || exit 1
   echo
   echo "Write it to a stick with:"
   echo "  dd if=$iso of=/dev/sdX bs=4M status=progress oflag=sync"
 else
   st=1
-  echo "null-iso: the build FAILED -- last lines of $WORK/livemedia.log" >&2
-  tail -25 "$WORK/livemedia.log" 2>/dev/null >&2
+  echo "null-iso: the build FAILED -- last lines of ${compose:-$WORK}/livemedia.log" >&2
+  tail -25 "${compose:-$WORK}/livemedia.log" 2>/dev/null >&2
 fi
 exit $st

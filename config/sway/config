@@ -137,6 +137,11 @@ exec_always NULL_ROOT=$null $null/bin/null-battery watch
 # the browser is open. It is idempotent, cheap, and skips what is already done.
 exec NULL_ROOT=$null $null/bin/null-firstrun
 
+# The live medium offers a desktop trial and a guided installation. The helper
+# exits immediately on an installed system, and does not repeat on reload.
+for_window [app_id="null-welcome"] floating enable, move position center
+exec NULL_ROOT=$null $null/bin/null-live welcome
+
 # Systemd session integration from the distribution. Taken deliberately, by
 # literal path: these two files set up the user session, dbus activation and
 # the portal. The distribution's BINDING files are deliberately NOT included --

@@ -62,7 +62,9 @@ for tool in "${TOOLS[@]}"; do
   # The GUARD, not the identifier: 'ASSUME_YES' also matches its own
   # initialisation and its flag parser, so deleting the whole confirmation
   # block while leaving --yes wired up still printed ok here.
-  if ! grep -qE 'ASSUME_YES"? *!= *"?1' "$tool"; then
+  if ! grep -qE '^[[:space:]]*rm -rf ' "$tool"; then
+    note "ok    $tool retains previous compose directories"
+  elif ! grep -qE 'ASSUME_YES"? *!= *"?1' "$tool"; then
     note "$tool: the rebuild deletes existing media with no confirmation"
     fail=1
   else

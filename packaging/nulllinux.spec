@@ -26,10 +26,9 @@ Version:        0.1.0
 Release:        2%{?dist}
 Summary:        A desktop where every surface is one baked artefact
 
-# MIT for this project's own code; OFL-1.1 because assets/atlas-*.bin are
-# glyph bitmaps derived from Terminus, which is OFL. The field has to be true
-# rather than convenient -- rpmlint and Fedora's review both check it.
-License:        MIT AND OFL-1.1
+# MIT crate alternatives, native zstd BSD terms, Wayland protocol notices,
+# Rust's Unicode data, Terminus atlases, and recolored Adwaita icons.
+License:        MIT AND BSD-3-Clause AND HPND-sell-variant AND Unicode-3.0 AND OFL-1.1 AND (LGPL-3.0-only OR CC-BY-SA-3.0)
 URL:            https://github.com/jamesdanielhomer1/nulllinux
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}-prebuilt-%{version}.tar.gz
@@ -39,6 +38,7 @@ ExclusiveArch:  x86_64
 
 # Build-time only. None of these are needed on the installed machine.
 BuildRequires:  rust
+BuildRequires:  rust-std-static
 BuildRequires:  cargo
 BuildRequires:  systemd-rpm-macros
 BuildRequires:  pam-devel
@@ -46,6 +46,7 @@ BuildRequires:  pam-devel
 BuildRequires:  gcc
 BuildRequires:  pkgconf-pkg-config
 BuildRequires:  libxkbcommon-devel
+BuildRequires:  python3
 
 # Runtime. GENERATED from packages/fedora/base.list by bin/null-package, and
 # checked by verify/check-package-list.sh.
@@ -177,6 +178,8 @@ tar -xzf %{SOURCE1} -C .
 # Source1 or is cheap enough to do at first boot.
 cargo build --locked --release --manifest-path render/Cargo.toml --offline || \
   cargo build --locked --release --manifest-path render/Cargo.toml
+python3 packaging/cargo_licenses.py --manifest-path render/Cargo.toml \
+  --target x86_64-unknown-linux-gnu --out licenses/cargo
 
 %install
 install -d %{buildroot}%{_prefix}/%{name}
@@ -250,6 +253,13 @@ install -D -m 0644 packaging/nulllinux-session.desktop \
 install -D -m 0644 packaging/nulllinux-netfilter-modules.service \
   %{buildroot}%{_prefix}/%{name}/packaging/nulllinux-netfilter-modules.service
 
+# Windows checkouts/prebakes can carry 0777/0666 modes. Source executables keep
+# their execute bits; generated assets are data. No installed payload is writable
+# by a non-owner, including directories later copied by machine-sync.
+find %{buildroot} -type d -exec chmod 0755 {} +
+find %{buildroot} -type f -exec chmod u=rwX,go=rX {} +
+find %{buildroot}%{_prefix}/%{name}/assets/prebuilt -type f -exec chmod 0644 {} +
+
 %post
 %systemd_post nulllinux-machine-sync.service
 # Enabled rather than run. Generating a machine profile needs a display, and
@@ -295,10 +305,11 @@ fi
 %postun
 
 %files
-# BOTH licences ship. The OFL text has to travel with the font-derived
-# atlases; shipping only MIT would be shipping OFL material without its terms.
+# Ship upstream terms and attribution with the derived font and icon assets.
 %license LICENSE
 %license licenses/OFL.txt
+%license licenses/adwaita
+%license licenses/cargo
 %doc README.md
 %{_prefix}/%{name}
 %{_unitdir}/nulllinux-machine-sync.service
@@ -310,6 +321,8 @@ fi
 - Refresh copied surfaces on upgrades and validate prebuilt asset provenance.
 - Publish only current build outputs and preserve the previous repository on failure.
 - Keep the previous firewall enabled until replacement rules are verified.
+- Include Adwaita icon license notices, attribution, and modification details.
+- Collect locked Rust dependency and embedded native/protocol notices.
 
 * Wed Sep 09 2026 nullLinux <noreply@anthropic.com> - 0.1.0-1
 - First package. Ships the raytraced hero prebuilt for the four bake strikes

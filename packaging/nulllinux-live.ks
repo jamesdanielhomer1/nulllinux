@@ -1,17 +1,6 @@
-# nullLinux live ISO (NULL.md §0.5).
-#
-# A LIVE image that also installs, which is the shape every desktop
-# distribution ships: you boot it, you look at it, and if you like it you press
-# install. Anaconda is on the image for the second half.
-#
-# THE DESKTOP IS ALREADY BUILT. Nothing here compiles anything or bakes
-# anything: the nulllinux package carries the raytraced hero for every strike,
-# every atlas, the palette and the palette-derived surfaces, so the image needs
-# no GPU, no Rust and no Python beyond what Fedora already ships. That is what
-# makes a live image possible at all -- a two-hour bake on first boot is not a
-# thing anyone would sit through, and on software Vulkan it does not reliably
-# finish.
-
+# Build-time recipe for the nullLinux Try / Install live medium.
+# Disk directives below apply only to livemedia-creator's disposable image.
+# Installation from the running desktop uses Fedora's interactive liveinst.
 lang en_GB.UTF-8
 keyboard --vckeymap=gb --xlayouts='gb'
 timezone Europe/London --utc
@@ -20,35 +9,16 @@ firewall --enabled --service=mdns
 xconfig --startxonboot
 zerombr
 clearpart --all
-part / --size=8192 --fstype ext4
-services --enabled=NetworkManager,sshd --disabled=network
+part / --size=12288 --fstype ext4
+services --enabled=NetworkManager --disabled=network,sshd
 shutdown
-
-# No password. A live image with a root password is a live image with a
-# published root password, and this one is meant to be booted by strangers.
 rootpw --lock
-
-# THE INSTALL SOURCE. livemedia-creator refuses a kickstart with `repo` lines
-# and no `url`: "repo can only be used with the url install method". The url is
-# where the base system comes from; the repo lines below add to it.
-# A CONCRETE URL, NOT A MIRRORLIST. livemedia-creator does
-#   ks.handler.method.url.startswith("file:")
-# in creator.py, and --mirrorlist leaves that url as None -- which surfaces as
-# "'NoneType' object has no attribute 'startswith'" and no other clue at all.
-# The `repo` lines below still use mirrorlists; it is only the install method
-# that must be a URL.
-# Networking, ACTIVATED. anaconda refuses a url install method without it:
-# "The kickstart must activate networking if the url install method is used."
-# This is the build-time network, not the installed machine's -- NetworkManager
-# owns that once the system is running.
 network --bootproto=dhcp --device=link --activate --hostname=nulllinux
 
 url --url=https://download.fedoraproject.org/pub/fedora/linux/releases/$releasever/Everything/$basearch/os/
-
 repo --name=fedora --mirrorlist=https://mirrors.fedoraproject.org/metalink?repo=fedora-$releasever&arch=$basearch
 repo --name=updates --mirrorlist=https://mirrors.fedoraproject.org/metalink?repo=updates-released-f$releasever&arch=$basearch
-# The local repository holding the package built by bin/null-package. It is
-# rewritten by bin/null-iso to the absolute path of packaging/repo.
+# bin/null-iso substitutes the local repository path.
 repo --name=nulllinux --baseurl=file://NULLLINUX_REPO
 
 %packages
@@ -62,16 +32,11 @@ memtest86+
 syslinux
 anaconda
 anaconda-install-env-deps
-# anaconda-live provides /usr/bin/liveinst, which is HOW A LIVE IMAGE INSTALLS
-# ITSELF. `anaconda` alone gives the installer that boot media runs; liveinst
-# is the wrapper a running live session calls. Without it the desktop's install
-# entry and the unattended inst.ks path both point at a command that is not
-# there -- which is what happened: the image booted, found the kickstart, and
-# could not act on it.
 anaconda-live
+anaconda-webui
 @anaconda-tools
-# The desktop itself. Its Requires pull in sway, foot, fzf, thunar and the
-# rest, so this one line is the whole desktop.
+firefox
+polkit
 nulllinux
 -@dial-up
 -@input-methods
@@ -79,130 +44,118 @@ nulllinux
 -reiserfs-utils
 %end
 
-%post
-# The live user. Created here rather than by a %post --nochroot because it must
-# exist in the image, not on the build host.
-useradd -m -G wheel -s /bin/bash live 2>/dev/null || true
-passwd -d live 2>/dev/null || true
+%post --erroronfail --interpreter=/usr/bin/bash
+set -euo pipefail
+test -x /usr/bin/liveinst
+test -d /usr/share/cockpit/anaconda-webui
+test -x /opt/nulllinux/bin/null-live
+test -f /opt/nulllinux/lib/live.sh
+echo nulllinux > /etc/hostname
+mkdir -p /usr/libexec /usr/share/anaconda/post-scripts /usr/share/applications
+mkdir -p /etc/systemd/system/getty@tty1.service.d /etc/systemd/system/sddm.service.d
 
-# Passwordless sudo for the live user, as every live image does. The account
-# has no password at all, so a sudo that PROMPTS is a sudo that can never
-# succeed -- which is how the unattended install above would have hung waiting
-# for input nobody was there to give.
-#
-# This is a property of the live session only. An installed system creates its
-# own users through the installer and never sees this file.
-echo 'live ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/live-nulllinux
-chmod 0440 /etc/sudoers.d/live-nulllinux
+# The marker and temporary account are created at live boot, not in the base
+# image. All privilege checks require the live kernel argument and marker.
+cat > /usr/libexec/nulllinux-live-check <<'CHECK'
+#!/usr/bin/env bash
+. /opt/nulllinux/lib/live.sh
+null_is_live
+CHECK
 
-# THE GREETER STANDS DOWN ON THE LIVE BOOT, AND ONLY THERE. The package Requires
-# sddm, and Fedora's 85-display-manager.preset enables sddm.service the moment
-# it is installed; sddm then takes VT1 -- the very console the autologin below
-# owns. On the first image built with the 2026-09-09 package that race went to
-# sddm: the live image booted to a login screen, for a user that deliberately
-# has no password. A dead end, for a stranger with a USB stick.
-#
-# Not `systemctl disable`: a live image boots as a first boot every time, and
-# systemd may re-apply the presets and enable sddm again. Not `mask` either:
-# liveinst copies this filesystem onto the installed disk, and a mask would
-# ride along and leave the installed machine with no greeter. A CONDITION:
-# rd.live.image is on the kernel command line only when this image boots as
-# the live medium, so sddm skips itself there and runs everywhere else.
-mkdir -p /etc/systemd/system/sddm.service.d
+cat > /usr/libexec/nulllinux-live-setup <<'SETUP'
+#!/usr/bin/env bash
+set -euo pipefail
+case " $(cat /proc/cmdline) " in *" rd.live.image "*) ;; *) exit 0 ;; esac
+if ! getent passwd live >/dev/null; then
+  useradd -m -c "nullLinux Live Session" -s /bin/bash live
+fi
+passwd -d live
+install -m 0644 /dev/null /run/nulllinux-live
+cat >> /home/live/.bash_profile <<'PROF'
+# BEGIN NULLLINUX LIVE SESSION
+if [ -z "${WAYLAND_DISPLAY:-}" ] && [ "${XDG_VTNR:-}" = 1 ] &&
+   /usr/libexec/nulllinux-live-check; then
+  exec /opt/nulllinux/bin/null-session
+fi
+# END NULLLINUX LIVE SESSION
+PROF
+chown live:live /home/live/.bash_profile
+mkdir -p /etc/polkit-1/rules.d
+cat > /etc/polkit-1/rules.d/49-nulllinux-live.rules <<'RULE'
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.fedoraproject.pkexec.liveinst" &&
+        subject.user == "live" && subject.active && subject.local) {
+        try {
+            polkit.spawn(["/usr/libexec/nulllinux-live-check"]);
+            return polkit.Result.YES;
+        } catch (error) {}
+    }
+});
+RULE
+chmod 0644 /etc/polkit-1/rules.d/49-nulllinux-live.rules
+SETUP
+
+cat > /etc/systemd/system/nulllinux-live-setup.service <<'LIVESETUP'
+[Unit]
+Description=Prepare the temporary nullLinux live session
+ConditionKernelCommandLine=rd.live.image
+After=local-fs.target
+Before=getty@tty1.service nulllinux-machine-sync.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/nulllinux-live-setup
+
+[Install]
+WantedBy=multi-user.target
+LIVESETUP
+
+cat > /usr/libexec/nulllinux-live-getty <<'GETTY'
+#!/usr/bin/env bash
+if /usr/libexec/nulllinux-live-check; then
+  exec /sbin/agetty --autologin live --noclear "$@"
+fi
+exec /sbin/agetty --noclear "$@"
+GETTY
+
+cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<'AUTO'
+[Unit]
+Requires=nulllinux-live-setup.service nulllinux-machine-sync.service
+After=nulllinux-live-setup.service nulllinux-machine-sync.service
+
+[Service]
+ExecStart=
+ExecStart=-/usr/libexec/nulllinux-live-getty %I $TERM
+AUTO
+
 cat > /etc/systemd/system/sddm.service.d/live.conf <<'LIVE'
 [Unit]
 ConditionKernelCommandLine=!rd.live.image
 LIVE
 
-# Its own name. `network --hostname` above names the build-time environment
-# anaconda runs in, not the image: the live session came up as "localhost".
-echo nulllinux > /etc/hostname
+# A normal application entry works with the Sway launcher; no desktop-file
+# execution permission or desktop-icons component is needed.
+cat > /usr/share/applications/install-nulllinux.desktop <<'DESK'
+[Desktop Entry]
+Type=Application
+Name=Install nullLinux
+Comment=Install nullLinux on this computer
+Exec=/opt/nulllinux/bin/null-live install
+Terminal=false
+Categories=System;
+DESK
 
-# Autologin into sway on tty1. A live image that stops at a text prompt has
-# failed at the only job a live image has.
-mkdir -p /etc/systemd/system/getty@tty1.service.d
-cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<'AUTO'
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty --autologin live --noclear %I $TERM
-AUTO
-
-# sway from the login shell, once, on tty1 only. The system-wide configuration
-# the package installed is what it reads -- the live user has no ~/.config/sway
-# and does not need one, which is the whole point of installing system-wide.
-cat >> /home/live/.bash_profile <<'PROF'
-if [ -z "$WAYLAND_DISPLAY" ] && [ "$XDG_VTNR" = 1 ]; then
-  # AN UNATTENDED INSTALL BEATS THE DESKTOP.
-  #
-  # Booting with inst.ks= means somebody asked for an installation, not a look
-  # around -- and autologin into sway silently won that argument. The image
-  # booted to a desktop and the kickstart on it was never read, which is a
-  # defect in the image and not merely in a test: `mkksiso` puts inst.ks on
-  # every boot entry precisely so an image can install itself, and this made
-  # that impossible.
-  ks=$(sed -n 's/.*inst\.ks=\([^ ]*\).*/\1/p' /proc/cmdline)
-  if [ -n "$ks" ]; then
-    # inst.ks TAKES SEVERAL FORMS AND THEY PARSE DIFFERENTLY.
-    #
-    # The first version of this handled only `hd:LABEL=X:/path` and split on
-    # the LAST colon to get the path. Given a URL that yields "8899/install.ks"
-    # out of "http://10.0.2.2:8899/install.ks", which is on no medium anywhere,
-    # so it fell through and started the desktop -- with the error scrolling
-    # past on a tty nobody was looking at.
-    got=""
-    case "$ks" in
-      http://*|https://*|ftp://*)
-        # Fetched, not looked for. A URL is not a path on the medium.
-        got=/tmp/inst.ks
-        curl -fsS --retry 5 --retry-delay 2 -o "$got" "$ks" || got=""
-        ;;
-      nfs:*)
-        echo "inst.ks over NFS is not handled here" >&2 ;;
-      *)
-        # hd:LABEL=X:/path, or a bare path. The medium is already mounted, so
-        # the path on it is what matters and the label did its work earlier.
-        f=${ks##*:}
-        for d in /run/initramfs/live /run/install/repo /mnt/install/repo ""; do
-          [ -r "$d$f" ] && { got="$d$f"; break; }
-        done
-        ;;
-    esac
-    if [ -n "$got" ] && [ -s "$got" ]; then
-      exec sudo liveinst --kickstart="$got"
-    fi
-    # SAID SOMEWHERE IT WILL BE SEEN. The last version wrote to stderr on a tty
-    # that sway then took over, so the one message explaining the fall-through
-    # was invisible.
-    echo "inst.ks=$ks was asked for and could not be resolved" \
-      | tee /run/nulllinux-install-failed >&2
-    sleep 5
-  fi
-  # THE PRODUCT'S SESSION, not bare sway. null-session is what the greeter
-  # runs on an installed machine: it sets GTK_THEME, the cursor,
-  # MOZ_ENABLE_WAYLAND and the desktop's own name before becoming sway. Bare
-  # `sway` here gave a live desktop whose applications were unthemed -- the
-  # exact defect the build host had when it booted the plain Sway session.
-  exec /opt/nulllinux/bin/null-session
-fi
-PROF
-chown live:live /home/live/.bash_profile
-
-# A WAY IN, FOR DEBUGGING, THAT SHIPS INERT.
-#
-# Anaconda writes why it failed to /tmp/*.log inside the live session, and with
-# root locked and no key there is no way to read them -- so an install that
-# stalls can only be guessed at, which is where this one is.
-#
-# NO KEY IS IN THIS IMAGE. The unit below does nothing at all unless someone
-# passes nulllinux.sshkey=<url> on the kernel command line, which is a
-# deliberate act at boot time and not a property of the medium. A shipped ISO
-# booted normally has no authorised key, and root stays locked.
-cat > /usr/lib/systemd/system/nulllinux-testkey.service <<'UNIT'
+# Optional test access is enabled only by a deliberate live-boot argument.
+# No authorized key or SSH login exception is included in the base image.
+cat > /etc/systemd/system/nulllinux-testkey.service <<'UNIT'
 [Unit]
-Description=nullLinux: fetch a debugging ssh key named on the kernel command line
-After=network-online.target
-Wants=network-online.target
+Description=Fetch the explicitly requested live debugging key
+ConditionKernelCommandLine=rd.live.image
 ConditionKernelCommandLine=nulllinux.sshkey
+Requires=nulllinux-live-setup.service
+After=nulllinux-live-setup.service network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
@@ -215,111 +168,90 @@ UNIT
 
 cat > /usr/libexec/nulllinux-testkey <<'HOOK'
 #!/usr/bin/env bash
-# Fetch an authorised key named on the kernel command line. Debugging only.
-set -uo pipefail
+set -euo pipefail
+/usr/libexec/nulllinux-live-check || exit 0
 url=$(sed -n 's/.*nulllinux\.sshkey=\([^ ]*\).*/\1/p' /proc/cmdline)
 [ -n "$url" ] || exit 0
-mkdir -p /root/.ssh && chmod 700 /root/.ssh
-curl -fsS --retry 5 --retry-delay 2 -o /root/.ssh/authorized_keys "$url" || exit 1
-chmod 600 /root/.ssh/authorized_keys
-# Root has no password in a live image, so PermitRootLogin must allow keys.
+install -d -m 0700 /root/.ssh
+temporary=$(mktemp /root/.ssh/.authorized_keys.XXXXXX)
+trap 'rm -f "$temporary"' EXIT
+curl -fsS --retry 5 --retry-delay 2 -o "$temporary" "$url"
+ssh-keygen -l -f "$temporary" >/dev/null
+chmod 0600 "$temporary"
+mv -f "$temporary" /root/.ssh/authorized_keys
 mkdir -p /etc/ssh/sshd_config.d
 printf 'PermitRootLogin prohibit-password\n' > /etc/ssh/sshd_config.d/60-nulllinux-test.conf
-systemctl restart sshd 2>/dev/null || systemctl start sshd 2>/dev/null || true
-echo "nulllinux: debugging key installed from $url"
+systemctl restart sshd
 HOOK
-chmod 0755 /usr/libexec/nulllinux-testkey
-systemctl enable nulllinux-testkey.service 2>/dev/null || true
 
-# The machine half of the installation runs on the first boot that has a
-# display, which for a live image is this one.
-systemctl enable nulllinux-machine-sync.service 2>/dev/null || true
+# Anaconda appends these internal Kickstart post-scripts to the interactive
+# install. The default %post context is the installed target's chroot.
+cat > /usr/libexec/nulllinux-live-cleanup <<'CLEANUP'
+#!/usr/bin/env bash
+set -euo pipefail
+systemctl --root=/ disable nulllinux-live-setup.service nulllinux-testkey.service
+rm -f /etc/systemd/system/getty@tty1.service.d/autologin.conf
+rm -f /etc/systemd/system/sddm.service.d/live.conf
+rm -f /etc/systemd/system/nulllinux-live-setup.service /etc/systemd/system/nulllinux-testkey.service
+rm -f /usr/lib/systemd/system/nulllinux-testkey.service
+rm -f /etc/sudoers.d/live-nulllinux /etc/polkit-1/rules.d/49-nulllinux-live.rules
+if [ -f /etc/ssh/sshd_config.d/60-nulllinux-test.conf ]; then
+  rm -f /root/.ssh/authorized_keys /etc/ssh/sshd_config.d/60-nulllinux-test.conf
+fi
+rm -f /usr/share/applications/install-nulllinux.desktop
+rm -f /run/nulllinux-live /var/lib/nulllinux/surfaces-placed
+# Remove only the blank temporary account. A user explicitly configured as
+# "live" by Anaconda has a new password and must survive installation.
+if account=$(getent passwd live); then
+  password=$(getent shadow live | cut -d: -f2)
+  description=$(printf '%s\n' "$account" | cut -d: -f5)
+  if [ -z "$password" ] && [ "$description" = "nullLinux Live Session" ]; then
+    # The live desktop can still have this UID running outside the target
+    # chroot. Remove the copied temporary account despite those live processes.
+    userdel --force --remove live
+  elif [ -f /home/live/.bash_profile ]; then
+    sed -i '/^# BEGIN NULLLINUX LIVE SESSION$/,/^# END NULLLINUX LIVE SESSION$/d' /home/live/.bash_profile
+  fi
+fi
+systemctl --root=/ enable sddm.service nulllinux-machine-sync.service
+systemctl --root=/ set-default graphical.target
+rm -f /usr/libexec/nulllinux-live-check /usr/libexec/nulllinux-live-setup
+rm -f /usr/libexec/nulllinux-live-getty /usr/libexec/nulllinux-testkey
+rm -f /usr/share/anaconda/post-scripts/99-nulllinux-live-cleanup.ks
+rm -f /usr/libexec/nulllinux-live-cleanup
+CLEANUP
 
-# An installer that is findable. A live image nobody can install from is a
-# demonstration, not a distribution.
-mkdir -p /home/live/Desktop
-cat > /home/live/Desktop/install-nulllinux.desktop <<'DESK'
-[Desktop Entry]
-Type=Application
-Name=Install nullLinux to this machine
-Exec=liveinst
-Terminal=true
-DESK
-chown -R live:live /home/live/Desktop
+# Print section delimiters so the outer compose Kickstart does not consume them.
+printf '%s\n' '%post --erroronfail --interpreter=/usr/bin/bash' \
+  '/usr/libexec/nulllinux-live-cleanup' '%end' \
+  > /usr/share/anaconda/post-scripts/99-nulllinux-live-cleanup.ks
+chmod 0755 /usr/libexec/nulllinux-live-{check,setup,getty,cleanup} /usr/libexec/nulllinux-testkey
+chmod 0644 /usr/share/applications/install-nulllinux.desktop
+systemctl --root=/ enable nulllinux-live-setup.service nulllinux-testkey.service
+systemctl --root=/ enable nulllinux-machine-sync.service
 
-# ---------------------------------------------------------------------------
-# THE GPL SOURCE OFFER, AND THE MANIFEST IT REFERS TO.
-#
-# This image redistributes binaries under GPL-2.0, GPL-3.0, LGPL and other
-# copyleft licences. Distributing those binaries carries an obligation to make
-# the CORRESPONDING SOURCE available -- GPLv2 section 3, GPLv3 section 6 --
-# and "the source is on the internet somewhere" does not discharge it.
-#
-# The manifest is generated HERE, inside the image, by asking its own rpm
-# database what is installed. That is the only way it can be exactly what
-# shipped: a list built beside the image can drift from it, and a list built
-# from the kickstart is a list of what was ASKED for rather than what
-# dependency resolution actually pulled in.
-#
-# Versions are recorded in full, with the source package name for each, because
-# "corresponding source" means the source for THIS build and not whatever is
-# current when someone asks.
+# The image records its actual packages and exact Fedora source package names.
+# Release review must establish the applicable source-delivery arrangements.
 mkdir -p /usr/share/nulllinux
 {
-  echo "nullLinux -- source availability"
+  echo "nullLinux source inventory"
   echo "generated $(date -Iseconds) inside the image"
   echo
-  echo "This image contains software under the GNU General Public License and"
-  echo "other copyleft licences. You are entitled to the corresponding source."
+  echo "Fedora source packages:"
+  echo "https://dl.fedoraproject.org/pub/fedora/linux/releases/RELEASEVER/Everything/source/tree/"
+  echo "https://dl.fedoraproject.org/pub/fedora/linux/updates/RELEASEVER/Everything/SRPMS/"
+  echo "https://kojipkgs.fedoraproject.org/packages/"
   echo
-  echo "WHERE THE SOURCE IS"
+  echo "Retrieve an exact source package with:"
+  /opt/nulllinux/bin/pkg source-command
   echo
-  echo "  Every package below except nulllinux itself comes unmodified from"
-  echo "  Fedora. Its source is published as source RPMs at:"
-  echo
-  echo "    https://dl.fedoraproject.org/pub/fedora/linux/releases/RELEASEVER/Everything/source/tree/"
-  echo "    https://dl.fedoraproject.org/pub/fedora/linux/updates/RELEASEVER/Everything/SRPMS/"
-  echo "    https://kojipkgs.fedoraproject.org/packages/    (all builds, by name and version)"
-  echo
-  echo "  Retrieve the exact source for any package here with:"
-  echo "    $(/opt/nulllinux/bin/pkg source-command)"
-  echo
-  echo "  nulllinux's own source is MIT and is at:"
-  echo "    https://github.com/jamesdanielhomer1/nulllinux"
-  echo
-  echo "WRITTEN OFFER"
-  echo
-  echo "  For three years from the date of this build, the distributor of this"
-  echo "  image will provide, on request and for no more than the cost of the"
-  echo "  medium and postage, a complete machine-readable copy of the"
-  echo "  corresponding source for any GPL-covered package listed below."
+  echo "nullLinux source and third-party licensing inventory:"
+  echo "https://github.com/jamesdanielhomer1/nulllinux"
+  echo "/opt/nulllinux/docs/LICENSING.md"
   echo
   echo "MANIFEST -- name-version-release.arch  license  source package"
-  echo
   /opt/nulllinux/bin/pkg source-manifest
 } > /usr/share/nulllinux/SOURCES.txt
-
-# The release version is only knowable inside the image, so it is substituted
-# here rather than guessed above.
-sed -i "s|RELEASEVER|$(/opt/nulllinux/bin/pkg distro-version 2>/dev/null || echo 44)|g" \
-  /usr/share/nulllinux/SOURCES.txt
-
-# Copyleft packages counted separately, so the obligation has a size rather
-# than being a general worry.
-copyleft=$(/opt/nulllinux/bin/pkg source-manifest | cut -f2 | grep -icE 'GPL|MPL|EPL|CDDL' || true)
-total=$(/opt/nulllinux/bin/pkg count-installed)
-echo "" >> /usr/share/nulllinux/SOURCES.txt
-echo "$copyleft of $total packages carry a copyleft licence." >> /usr/share/nulllinux/SOURCES.txt
-
-# Findable without a shell. A source offer nobody can locate is not an offer.
-ln -sf /usr/share/nulllinux/SOURCES.txt /root/SOURCES.txt 2>/dev/null || true
-mkdir -p /home/live && ln -sf /usr/share/nulllinux/SOURCES.txt /home/live/SOURCES.txt 2>/dev/null || true
-
-# Branding lives in ONE tool, applied by the nulllinux package's %post, so an
-# installer ISO, a live image and a plain `dnf install nulllinux` all end up
-# saying the same thing.  It replaces the /etc/os-release SYMLINK rather than
-# writing through it into the file fedora-release owns -- an earlier heredoc
-# here did exactly that.  See bin/null-brand and verify/check-branding.sh.
-# Report only: if the scriptlet ever silently fails, the compose log shows it.
-/opt/nulllinux/bin/null-brand report || :
+sed -i "s|RELEASEVER|$(/opt/nulllinux/bin/pkg distro-version)|g" /usr/share/nulllinux/SOURCES.txt
+/opt/nulllinux/bin/null-brand report
 %end

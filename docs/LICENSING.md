@@ -1,80 +1,80 @@
 # Licensing
 
-**Not legal advice.** These are the facts as they stand in the tree, recorded
-so that a decision about them is made deliberately rather than discovered.
+This file records the materials included in nullLinux and the remaining
+release checks. It does not determine ownership or provide legal advice.
 
-## Your own copyright
+## Shipped materials
 
-Copyright is **automatic**. Under the Berne Convention -- and UK law, s.11
-CDPA 1988 -- it exists from the moment an original work is fixed. Nothing is
-applied for, registered or claimed. If you authored and directed this work, it
-is yours by default.
+| Material | Declared license | Notices and provenance |
+| --- | --- | --- |
+| nullLinux project code | MIT | `LICENSE` |
+| Terminus font and derived glyph atlases | OFL-1.1 | `licenses/OFL.txt`, copied from `terminus-fonts`; copyright 2020 Dimitar Toshkov Zhekov, Reserved Font Name "Terminus Font" |
+| Adwaita icons recolored for the nullLinux theme | LGPL-3.0-only OR CC-BY-SA-3.0 | Exact upstream notices and GNOME Project attribution in `licenses/adwaita/` |
+| Rust crates linked into the renderer executables | MIT alternatives selected | Generated `cargo/MANIFEST.json` and per-crate license files in the RPM license directory |
+| Bundled native zstd and generated Wayland protocols | BSD-3-Clause; MIT and HPND-sell-variant | Exact native source files and protocol XML retained with the Cargo notices |
+| Statically linked Rust standard library | MIT and Unicode-3.0 | Fedora toolchain notices plus the verified vendor notice bundle in `licenses/rust-stdlib/` |
+| Other packages included in an ISO | Each package's own license | Installed package notices and the image's package/source inventory |
 
-Two things that could change that, and only you can say:
+The atlases contain glyph bitmaps extracted from Terminus by
+`bake/bake_atlas.py`; the ramps measure that font's ink coverage. The `.cells`
+animations contain glyph indices and colors rather than font bitmaps. Keep the
+font notice with the derived atlases and review the OFL Reserved Font Name
+requirements if distributing them as a modified font.
 
-- **Employment.** Work made in the course of employment belongs to the employer
-  by default (UK: s.11(2) CDPA). If any of this was written on someone's time,
-  that is worth checking before publishing.
-- **Authorship.** Much of this code was written by an assistant at your
-  direction. Anthropic's terms assign output to the user, so this is a
-  practical non-issue for licensing, but it is a fact rather than a nothing.
+Adwaita artwork is attributed to the [GNOME Project](https://www.gnome.org/).
+The upstream [Adwaita Icon Theme repository](https://github.com/GNOME/adwaita-icon-theme)
+offers the license alternatives above. The 0.1.0-2 stabilization prebake used
+Fedora's `adwaita-icon-theme-50.0-1.fc44`; `bake/make_icons.py` recolors its SVG
+and PNG artwork, renames the theme, and sets its inherited themes. The exact
+source package and modification details are recorded in
+`licenses/adwaita/NOTICE`. The derived icons retain the upstream license
+alternatives.
 
-## Does it need a licence?
+## RPM and ISO contents
 
-**No -- but the absence of one means "all rights reserved".** Publishing
-without a licence gives nobody the right to copy, modify or redistribute it.
-For a private test bench that is fine. The moment an ISO is handed to someone
-else, the licence is what makes their copy lawful.
+The RPM declares
+`MIT AND BSD-3-Clause AND HPND-sell-variant AND Unicode-3.0 AND OFL-1.1 AND (LGPL-3.0-only OR CC-BY-SA-3.0)`.
+The RPM's `%license` entries install the project, font, Adwaita, and collected
+dependency notices. This expression records the selections for the reviewed
+build; it is not a claim that dependency metadata alone captures every
+embedded component.
 
-The chosen licence is **MIT** (see LICENSE).
+During `%build`, `packaging/cargo_licenses.py` reads locked, offline Cargo
+metadata for `x86_64-unknown-linux-gnu`. The reviewed renderer graph contains
+53 external crates, including 39 runtime crates. Every runtime crate offers
+an MIT alternative. The collector includes build/proc-macro notices too and
+labels that distinction in its manifest. Native zstd is covered by its BSD
+alternative; embedded protocol copyright blocks require both MIT and
+HPND-sell-variant terms. Exact native source and protocol files preserve the
+additional copyright holders that crate-level license files omit.
 
-## What is NOT yours to license, and travels under its own terms
+The collector also verifies the fourteen pinned standard-library vendor
+versions against Fedora's installed `cargo-vendor.txt`, and copies the build
+host's Rust license, library copyright, and Unicode terms. The output records
+the compiler version, lock checksum, crate source/checksums, selected licenses,
+and notice-file hashes. Updating the lockfile or toolchain requires reviewing
+embedded material and refreshing the relevant notice inventory; a successful
+collector run is a completeness check for these reviewed inputs.
 
-**The font, and the atlases derived from it.** Terminus is **OFL-1.1**, and
-`assets/atlas-*.bin` are glyph bitmaps read out of the Terminus PSF files by
-`bake/bake_atlas.py`. The ramps in `assets/ramp-*.json` are measurements of
-that font's ink coverage. OFL explicitly permits bundling a font into a
-software release, but the derived material is OFL material: the licence text
-must travel with it, and the Reserved Font Name rules apply to anything that
-calls itself a font.
+The ISO includes additional Fedora packages. Its generated
+`/usr/share/nulllinux/SOURCES.txt` and package manifest describe the packages
+present in that particular image. `bin/null-sources <iso>` checks the source
+information and attempts to fetch a source RPM. Those checks provide evidence
+of source availability at the time they run; links to Fedora repositories or
+one successful fetch do not by themselves establish that every redistribution
+obligation has been met. Do not reuse package counts from an older image.
 
-The `.cells` files are a different case -- they hold glyph INDICES and colour,
-not bitmaps -- so the hero itself is your work quantised against a measurement
-of someone else's font.
+## Before public distribution
 
-**Everything in the ISO.** The image is an aggregate of the Fedora package set:
-roughly 259 GPL-2.0-or-later, 147 MIT, 138 LGPL-2.1-or-later, 66 OFL-1.1, 66
-BSD-3-Clause and 64 GPL-3.0-or-later packages at last count. Aggregation is
-what a distribution is and is fine; **redistributing GPL binaries carries a
-source-availability obligation**, which Fedora meets by publishing its source
-repositories and which a remix meets by pointing at them.
-
-**The name.** "Fedora" is a Red Hat trademark. A derivative may describe itself
-as a **Fedora Remix** under Red Hat's trademark guidelines; it may not call
-itself Fedora, and the guidelines are worth reading before publishing.
-
-## What the package declares
-
-`packaging/nulllinux.spec` says `License: MIT AND OFL-1.1`, which is the
-accurate SPDX expression for a binary package containing MIT code of yours and
-font-derived assets under OFL. `rpmlint` and Fedora's review process both care
-about this field being true rather than convenient.
-
-## Before publishing anywhere
-
-- [ ] Confirm no employment claim on the work.
-- [x] Ship the OFL-1.1 text alongside the atlases (`licenses/OFL.txt`, taken
-      from `terminus-fonts` itself: Copyright (C) 2020 Dimitar Toshkov Zhekov,
-      **Reserved Font Name "Terminus Font"**). The reserved name matters: a
-      modified font may not use it, which is a reason not to describe the
-      atlases as a font.
-- [x] Point at Fedora's source repositories for the GPL packages in the ISO.
-      Done, and checkable: the image carries `/usr/share/nulllinux/SOURCES.txt`
-      -- a written offer plus a manifest generated **inside the image** by its
-      own rpm database, so it is exactly what shipped. 1052 packages, 697 of
-      them copyleft, each with its exact version and source package name.
-      `bin/null-sources <iso>` verifies it and, crucially, **fetches a real
-      source RPM** to prove the offer can be fulfilled rather than merely
-      stated.
-- [ ] Read Red Hat's Fedora Remix trademark guidelines.
-- [ ] Get real advice if any of this is going somewhere that matters.
+- Confirm authority to distribute project contributions, including any
+  employment or contributor ownership constraints.
+- Keep the project, Terminus, Adwaita, and dependency notices in the release;
+  inspect the rebuilt RPM's actual license file list.
+- Recheck the locked dependency, embedded material, and toolchain inventories
+  whenever their source versions change.
+- Record the actual ISO's package/source inventory and review applicable
+  source-delivery obligations for its packages and bundled components.
+- Review the current Fedora Remix trademark requirements before using Fedora
+  names or marks publicly.
+- Obtain appropriate legal review where the distribution circumstances require
+  it; this inventory does not substitute for that review.

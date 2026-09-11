@@ -27,6 +27,18 @@ case ${1:-} in
     exit 0 ;;
 esac
 
+# Created by the live boot service only for rd.live.image. The temporary
+# account has no password; an authentication screen would strand its session.
+. "$ROOT/lib/live.sh"
+if null_is_live; then
+  message="Locking is unavailable in the live session. Install nullLinux to use a password-protected session."
+  echo "null-lock: $message" >&2
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send -a nullLinux "Live session" "$message" 2>/dev/null || true
+  fi
+  exit 0
+fi
+
 # ALREADY LOCKED? Do nothing. A second lock would lose the race for the
 # compositor's one-lock-at-a-time and then fall back and fight the first.
 uid=$(id -u)

@@ -14,6 +14,22 @@
 set -euo pipefail
 ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
 
+# A live boot's temporary account has no password. Do not start or restore
+# an idle locker or automatic suspend from the desktop or settings panel.
+# The root-owned boot service creates this marker only for rd.live.image.
+. "$ROOT/lib/live.sh"
+if null_is_live; then
+  case ${1:-show} in
+    start|apply|toggle)
+      . "$ROOT/lib/once.sh"
+      null_only_one 'swayidle -w -C'
+      echo "the idle ladder is off in the live session (automatic lock and suspend are disabled)"
+      exit 0 ;;
+    state) echo "off (live session)"; exit 0 ;;
+    show) echo "the idle ladder is off in the live session; these timings are inactive" ;;
+  esac
+fi
+
 # WHERE THE LADDER IS WRITTEN, AND WHY IT IS NOT ALWAYS THE CHECKOUT.
 #
 # This wrote $ROOT/config/sway/idle.conf unconditionally. On an installed

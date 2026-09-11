@@ -17,6 +17,8 @@ class RuntimeWrappers(unittest.TestCase):
         self.root = Path(self.temp.name)
         for p in ["assets/prebuilt", "render/target/release", "lib", "tools", "runtime"]:
             (self.root / p).mkdir(parents=True)
+        helper = (ROOT / "lib/live.sh").read_text().replace("/run/nulllinux-live", str(self.root / "live-marker"))
+        (self.root / "lib/live.sh").write_text(helper)
         self.env = dict(os.environ, NULL_ROOT=str(self.root),
                         XDG_RUNTIME_DIR=str(self.root / "runtime"), WAYLAND_DISPLAY="test-display",
                         PATH=str(self.root / "tools") + os.pathsep + os.environ["PATH"])

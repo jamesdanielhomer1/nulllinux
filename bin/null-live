@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# The live desktop's Try / Install choice. Disk changes belong to liveinst.
+set -uo pipefail
+ROOT=${NULL_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)}
+. "$ROOT/lib/live.sh"
+
+install_live() {
+  if ! null_is_live; then
+    echo 'null-live: installation is available from the live medium' >&2
+    return 1
+  fi
+  if ! command -v liveinst >/dev/null 2>&1; then
+    echo 'null-live: the live installer is missing' >&2
+    return 1
+  fi
+  # liveinst retains the Wayland connection and performs its own polkit
+  # handoff. Kickstart is unsupported for Fedora live installs.
+  local result=0
+  liveinst || result=$?
+  if [ "$result" != 0 ]; then
+    command -v notify-send >/dev/null 2>&1 && notify-send 'Install nullLinux' \
+      'The installer could not start. You can continue trying nullLinux.' || true
+  fi
+  return "$result"
+}
+
+handoff_install() {
+  # The welcome terminal must be free to close while installation continues.
+  # Sway launches the installer in its session, outside this terminal's PTY.
+  local command result=0
+  command=$(python3 -c 'import shlex,sys; root=sys.argv[1]; print(shlex.join(["env", "NULL_ROOT=" + root, root + "/bin/null-live", "install"]))' "$ROOT") || return 1
+  swaymsg -q exec "$command" || result=$?
+  if [ "$result" != 0 ]; then
+    echo 'null-live: could not hand the installer to the compositor' >&2
+    command -v notify-send >/dev/null 2>&1 && notify-send 'Install nullLinux' \
+      'The installer could not start. You can continue trying nullLinux.' || true
+  fi
+  return "$result"
+}
+
+case ${1:-report} in
+  report)
+    if null_is_live; then
+      printf '%s\n' 'Live session. Use null-live install to open the installer.'
+    else
+      printf '%s\n' 'This is an installed system.'
+    fi ;;
+  welcome)
+    null_is_live || exit 0
+    exec foot --app-id=null-welcome --title='Welcome to nullLinux' \
+      --window-size-chars=72x14 "$ROOT/bin/null-live" choose ;;
+  choose)
+    null_is_live || exit 1
+    . "$ROOT/lib/menu.sh"
+    null_fzf_flags
+    choice=$(printf '%s\n' 'Try nullLinux' 'Install nullLinux' | \
+      fzf "${NULL_FZF[@]}" --no-sort --prompt='nullLinux > ' \
+      --header=$'Try the desktop from this medium.\nInstall opens a guide that asks before changing disks.') || exit 0
+    case $choice in
+      'Install nullLinux') handoff_install ;;
+      'Try nullLinux'|'') exit 0 ;;
+      *) exit 1 ;;
+    esac ;;
+  install) install_live ;;
+  -h|--help) echo 'usage: null-live [report|welcome|install]' ;;
+  *) echo "null-live: unknown command '$1'" >&2; exit 2 ;;
+esac

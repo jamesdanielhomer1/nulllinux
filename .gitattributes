@@ -7,3 +7,6 @@
 *.hero binary
 *.hdrcells binary
 licenses/OFL.txt -text
+# Upstream notice bytes include original line endings and trailing whitespace.
+licenses/adwaita/COPYING* -text whitespace=-blank-at-eol,-blank-at-eof
+licenses/rust-stdlib/** -text whitespace=-blank-at-eol,-blank-at-eof

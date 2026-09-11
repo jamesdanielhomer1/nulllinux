@@ -1,0 +1,24 @@
+Adwaita Icon Theme artwork: GNOME Project
+https://www.gnome.org/
+
+Upstream source:
+https://gitlab.gnome.org/GNOME/adwaita-icon-theme
+Official GitHub mirror:
+https://github.com/GNOME/adwaita-icon-theme
+
+The nullLinux 0.1.0-2 stabilization prebake used the icons installed by Fedora
+package adwaita-icon-theme-50.0-1.fc44.noarch, whose source package is
+adwaita-icon-theme-50.0-1.fc44.src.rpm. Its declared license is
+LGPL-3.0-only OR CC-BY-SA-3.0. The accompanying COPYING, COPYING_CCBYSA3 and
+COPYING_LGPL files are unmodified copies from that installed package.
+
+nullLinux modifications (2026): bake/make_icons.py recolors SVG and PNG icons
+using exact palette substitutions and luminance quantization, retaining SVG
+shapes and PNG alpha. It renames the theme to nullLinux and sets its inherited
+themes to Adwaita and hicolor. Cursor files are excluded.
+
+This attribution and the upstream license alternatives apply to the derived
+icons in assets/prebuilt/theme/icons and copies installed as the nullLinux
+icon theme. The icon artwork and these modifications remain available under
+the upstream license alternatives; the project's MIT license does not replace
+the icon licenses. No endorsement by the GNOME Project is implied.

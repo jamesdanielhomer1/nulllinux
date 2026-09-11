@@ -215,6 +215,25 @@ if [ $st -eq 0 ] && iso=$(find "$OUT" -name 'boot.iso' | head -1) && [ -n "$iso"
   # mkksiso is the supported way to add files and a kickstart to boot media --
   # it rebuilds the boot records rather than corrupting them, which hand-rolled
   # xorriso does not.
+stage_installer_console() {
+  local destination=$1 font=$2
+  gzip -dc -- "$font" > "$destination/console.psf" || return 1
+  python3 - "$ROOT/config/vconsole/vtrgb" "$destination/console-palette.ansi" <<'CONSOLE'
+from pathlib import Path
+import sys
+rows = [[int(value) for value in line.split(',')]
+        for line in Path(sys.argv[1]).read_text().splitlines()]
+if len(rows) != 3 or any(len(row) != 16 for row in rows):
+    raise SystemExit('installer palette must have three rows of sixteen channels')
+if any(not 0 <= value <= 255 for row in rows for value in row):
+    raise SystemExit('installer palette channels must be in 0..255')
+# Linux VT palette escapes, derived from the same generated vtrgb as the OS.
+data = b''.join(f'\x1b]P{i:x}{r:02x}{g:02x}{b:02x}'.encode()
+                for i, (r, g, b) in enumerate(zip(*rows)))
+Path(sys.argv[2]).write_bytes(data)
+CONSOLE
+}
+
   if [ -d "$ROOT/packaging/repo" ] && ls "$ROOT/packaging/repo"/*.rpm >/dev/null 2>&1; then
     stage=$(mktemp -d "$WORK/embed.XXXX") || exit 1
     trap 'rm -rf -- "$stage"' EXIT
@@ -227,8 +246,8 @@ if [ $st -eq 0 ] && iso=$(find "$OUT" -name 'boot.iso' | head -1) && [ -n "$iso"
     # questions there -- in this system's colours, beside its hero -- and hands
     # anaconda the answers. Nobody sees an anaconda screen.
     #
-    # THREE FILES, and no more. The installer environment is anaconda's
-    # runtime: no render binary, no atlas, no cells file, no fzf. So the hero
+    # The installer environment is anaconda's runtime: no render binary,
+    # atlas, cells file or fzf. So the hero
     # travels as what it will be SHOWN as -- one frame, already ANSI --
     # rendered here by the same renderer every other surface uses, and the
     # picker falls back to a numbered list, which is why that fallback exists
@@ -236,6 +255,19 @@ if [ $st -eq 0 ] && iso=$(find "$OUT" -name 'boot.iso' | head -1) && [ -n "$iso"
     mkdir -p "$stage/nulllinux-installer" || exit 1
     install -m 0755 "$ROOT/bin/null-installer" "$stage/nulllinux-installer/null-installer" || exit 1
     install -m 0644 "$ROOT/lib/menu.sh"        "$stage/nulllinux-installer/menu.sh" || exit 1
+
+    # Lorax keeps setfont but prunes the Terminus font. Its VT palette is also
+    # Fedora's until our installer applies the staged escapes on its own VT.
+    console_font=
+    for font_dir in /usr/lib/kbd/consolefonts /usr/share/kbd/consolefonts; do
+      if [ -r "$font_dir/ter-118n.psf.gz" ]; then
+        console_font=$font_dir/ter-118n.psf.gz
+        break
+      fi
+    done
+    [ -n "$console_font" ] || { echo "null-installer-iso: Terminus ter-118n is missing" >&2; exit 1; }
+    stage_installer_console "$stage/nulllinux-installer" "$console_font" || exit 1
+    install -m 0644 "$ROOT/licenses/OFL.txt" "$stage/nulllinux-installer/OFL.txt" || exit 1
 
     # openvt, SHIPPED, because the installer environment does not have it.
     #
