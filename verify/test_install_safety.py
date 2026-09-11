@@ -151,6 +151,25 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((self.root / "state/stamp").exists())
 
+    def test_machine_sync_refreshes_hardlinked_theme_trees(self):
+        self.machine_fixture()
+        pairs = [("theme/config/gtk-3.0/gtk.css", "config/gtk-3.0/gtk.css"),
+                 ("theme/config/gtk-4.0/gtk.css", "config/gtk-4.0/gtk.css"),
+                 ("boot/plymouth-theme/nullLinux.plymouth", "system/plymouth-theme/nullLinux.plymouth"),
+                 ("boot/sddm-theme/Main.qml", "system/sddm-theme/Main.qml")]
+        for source, target in pairs:
+            destination = self.root / target
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.link(self.root / "assets/prebuilt" / source, destination)
+        result = self.run_shell("bin/null-machine-sync", env={"NULL_ROOT": shell_path(self.root)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.root / "state/stamp").exists())
+        for source, target in pairs:
+            original = self.root / "assets/prebuilt" / source
+            destination = self.root / target
+            self.assertEqual(destination.read_bytes(), original.read_bytes())
+            self.assertNotEqual(destination.stat().st_ino, original.stat().st_ino)
+
     def test_missing_machine_asset_does_not_stamp_success(self):
         self.machine_fixture()
         (self.root / "assets/prebuilt/strikes/atlas-ter-116n.bin").unlink()

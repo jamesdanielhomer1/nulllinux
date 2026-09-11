@@ -130,7 +130,9 @@ if [ -d "$T" ]; then
   for d in config/gtk-3.0 config/gtk-4.0; do
     [ -d "$T/$d" ] || { echo "  required theme directory is missing: $T/$d" >&2; exit 1; }
     mkdir -p "$d"
-    cp -a "$T/$d/." "$d/"
+    # RPM can hardlink identical prebuilt and installed theme files. Replace
+    # the destination entries so a same-inode copy does not abort setup.
+    cp -a --remove-destination "$T/$d/." "$d/"
     took=$((took+1))
   done
   echo "  theme: prebuilt"
@@ -163,8 +165,8 @@ printf '%s\n' "$install_log" \
 #    both were stock Fedora.
 if [ -d "$P/boot" ]; then
   mkdir -p system
-  cp -a "$P/boot/plymouth-theme" system/ 2>/dev/null
-  cp -a "$P/boot/sddm-theme" system/ 2>/dev/null
+  cp -a --remove-destination "$P/boot/plymouth-theme" system/ 2>/dev/null
+  cp -a --remove-destination "$P/boot/sddm-theme" system/ 2>/dev/null
   if bin/null-system sddm --apply >/dev/null 2>&1; then
     echo "  greeter: installed and selected"
   else
