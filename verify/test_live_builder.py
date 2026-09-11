@@ -42,6 +42,22 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 cp "$ks" "$NULL_ROOT/used.ks"
+python3 - "$ks" <<'PY'
+import json, os, re, sys
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+root = Path(os.environ['NULL_ROOT'])
+if os.environ.get('TEST_REPUBLISH') == '1':
+    shared = root / 'packaging/repo'
+    shared.rename(root / 'packaging/previous-repo')
+    (shared / 'repodata').mkdir(parents=True)
+    (shared / 'nulllinux-test.rpm').write_bytes(b'replacement package')
+    (shared / 'BUILD-INFO.json').write_text(json.dumps({'source_commit': 'b' * 40}))
+uri = re.search(r'--baseurl=(\\S+)', Path(sys.argv[1]).read_text()).group(1)
+repository = Path(unquote(urlparse(uri).path))
+(root / 'used-package').write_bytes((repository / 'nulllinux-test.rpm').read_bytes())
+(root / 'used-build-info.json').write_bytes((repository / 'BUILD-INFO.json').read_bytes())
+PY
 mkdir -p "$result/images"
 printf 'composed ISO' > "$result/images/boot.iso"
 exit "${TEST_COMPOSE_STATUS:-0}"
@@ -90,6 +106,19 @@ exit "${TEST_COMPOSE_STATUS:-0}"
         self.assertNotEqual(self.build().returncode, 0)
         self.assertFalse((self.root / 'compose-args').exists())
         self.assert_previous_survives()
+
+    def test_repository_republication_does_not_change_composed_package_or_provenance(self):
+        result = self.build(TEST_REPUBLISH='1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / 'used-package').read_bytes(), b'package')
+        self.assertEqual(json.loads((self.root / 'used-build-info.json').read_text())['source_commit'], REVISION)
+        published = self.root / 'work/nulllinux-0.1.0.iso.build-info.json'
+        self.assertEqual(json.loads(published.read_text())['source_commit'], REVISION)
+        original = self.root / 'packaging/repo/BUILD-INFO.json'
+        self.assertEqual(json.loads(original.read_text())['source_commit'], 'b' * 40)
+        used = (self.root / 'used.ks').read_text()
+        self.assertIn('/compose.', used)
+        self.assertNotIn((self.root / 'packaging/repo').as_uri(), used)
 
 
 if __name__ == '__main__':

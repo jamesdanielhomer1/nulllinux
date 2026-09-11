@@ -33,7 +33,15 @@ defect. The table groups related defects by the behavior a user encounters.
 | P1 | A clean prebake wrote into a missing output directory, consumed an atlas before producing it, and lacked required renderer prerequisites. | Build prerequisites first, create output directories before consumers and test a clean filesystem. |
 | P1 | `null-build --skip-hero` made a directory named `placeholder.cells` instead of a loadable cell file; boot assets ran before the renderer and icons went into the builder's home. | Quantize the placeholder into RCEL, fix stage ordering and pass the declared icon output path. Disposable driver fixtures reproduce each failure. |
 | P1 | Incomplete/stale prebuilts could be accepted, and all historical RPMs from a persistent build directory were republished. A dirty working spec could describe archived HEAD from a different revision. | Validate the archived asset set, bind it to source provenance, build spec/Requires from the same revision, publish only the current build through a staging directory and preserve the prior repository if metadata generation fails. |
+| P1 | The actual RPM preserved writable Windows prebake modes; machine-sync propagated writable shell colour/configuration assets and theme directories into system locations. | Normalize Source1, the staged package and copied destination directories. Reproduce with 0777/0666 fixtures and inspect the rebuilt RPM and installed system. |
+| P1 | Binary dependencies and recolored Adwaita icons shipped without their complete upstream notices. | Preserve exact Adwaita notices and collect locked Cargo, embedded native/protocol and Fedora Rust toolchain notices offline; verify every collected file hash and record source-delivery gates separately. |
+| P1 | A passwordless live session could enter the normal screen lock and have no usable password to unlock it. | Require a root-created marker and the exact live boot argument before disabling live-session lock/idle entry. Installed sessions retain normal authentication; marker-only and argument-only fixtures prove the boundary. |
+| P2 | Closing the live welcome terminal sent SIGHUP to its installer child and ended installation. | Launch the installer through the compositor, outside the terminal's process group. A real Sway/foot recording process reproduces the failure before the change and survives after it. |
+| P2 | A failed live compose deleted previous build results and could combine a newer recipe with an older package. | Give each compose its own directory, retain the last image on failure, validate concrete repository URLs, and require matching clean source/package provenance. |
+| P2 | Publishing another RPM while an image composed could change its package or label the completed image with the next build's metadata. | Snapshot the local repository in each compose, validate its captured revision, and use that snapshot for both Anaconda and the published metadata. A concurrent-publication regression proves the package and sidecar stay paired. |
+| P2 | The standalone installer displayed the stock console font/palette, and changing the palette alone left old background cells visible. | Stage the exact Terminus font and generated palette; apply them to the owned VT and repaint before prompting. Actual UEFI framebuffer comparison verifies exact glyphs and colours; final-confirmation cancellation leaves a blank virtual disk unallocated. |
 | P2 | Failed surface installation could still write the machine-sync success stamp; upgrades did not invalidate it. | Stamp only after required operations succeed and invalidate copied-surface state on install/upgrade. |
+| P2 | Correctly normalized RPM theme files were deduplicated as hardlinks, causing first-boot directory copies to fail with a same-file error. | Replace destination entries when refreshing GTK, SDDM and Plymouth trees. A hardlinked fixture fails before the change, then passes with independent destination inodes; the real guest setup also completes. |
 | P2 | Plymouth could report a successful rebuild after dracut failed by inspecting an older image. Snapshot guidance suggested deleting the mounted root. | Build and inspect a candidate initramfs before replacing the active image; restore theme selection on failure. Recovery guidance now requires rescue media and explains separate `/boot` limitations. |
 | P2 | Quotes and backslashes in installer answers changed Kickstart parsing; failed answer output could return success. | Encode answers as Kickstart arguments, propagate output failures and test round trips without running an installer against host storage. |
 | P2 | A nonexistent backup destination bypassed the same-filesystem check. | Resolve/check its existing ancestor before creating it; mocked filesystem identities verify refusal. |
@@ -66,6 +74,14 @@ time. This is an environment measurement, not a hardware performance promise.
 The live lock test's RSS was unchanged over the active-display and powered-off
 observation windows. Longer device-specific power measurements remain necessary.
 
+The live image now uses zstd SquashFS. On the same Fedora Firefox directory
+with two compression workers, xz took 90.62 seconds and produced 132,653,056
+bytes; zstd took 59.80 seconds and produced 139,128,832 bytes (4.9% larger).
+Median extraction time for the identical `libxul.so` was 2.48 versus 0.83
+seconds; all extracted SHA-256 hashes matched. These are sample measurements
+under concurrent build load, not whole-image timing promises. The actual
+Fedora 44 image kernel enables SquashFS zstd decompression.
+
 ## Numerical and runtime evidence
 
 - Baseline Rust suite: 55 library tests and 8 renderer tests passed before fixes;
@@ -94,11 +110,42 @@ observation windows. Longer device-specific power measurements remain necessary.
 - Real `swaymsg exec` preserved a literal argument containing `$()`, semicolons,
   double quotes and a single quote without expanding or splitting it.
 
-The combined `verify/source.sh` run passed: syntax for 137 shell and 44 Python
-sources; structural checks and their negative fixtures; 70 isolated system/UI
+The combined `verify/source.sh` run at
+`9ae6cfbe0cb940db487fb999bba7f54ddf951fd3` passed: syntax for 139 shell and 52
+Python sources; structural checks and their negative fixtures; 111 isolated system/UI
 tests; 26 bake/build tests; 11 physics checks; 94 Rust tests; the Clippy
 correctness gate; and compilation of all five production binaries. Existing
 style and dead-code warnings are not promoted to correctness failures.
+
+The corrected 240-frame master completed at production quality: 640×180 cells,
+24 fps, 4× supersampling and 3000 integration steps. All 27,648,000 cells are
+finite; all 4,256,400 lit cells have nonzero temperatures within the expected
+physical range. Python and Rust derive identical glyph and colour planes for
+all frames at both 80×24 and 227×64. The complete prebake contains 891 validated
+files, nine atlases and 45 RCEL animations. The master archive SHA-256 is
+`6e1a3eb1dc7aa542ab48174de2cab2e8f8b448324f9c7b19c89fb6c6aaaaac20`.
+
+The first actual RPM was installed in a disposable Fedora 44 guest. Its
+production PAM locker rejected a wrong password, remained responsive during
+PAM's delay, then unlocked with the correct password. Real configured sessions
+also exercised layout, column reservation, resized wallpaper, GTK/WebKit font
+selection and launcher quoting. Those tests established runtime behavior but
+also exposed the package-permission defect above; that intermediate RPM is
+not a release artifact. Ten failures from running source-oriented legacy
+verifiers inside the RPM were classified separately: seven expected omitted
+source/build files, two caller checks expected omitted Rust source, and one
+nano pattern was too restrictive and has been fixed.
+
+The primary image now provides a live desktop with Try and Install choices.
+Installation uses Fedora's supported interactive liveinst/WebUI. Temporary
+autologin, the blank live account and the narrowly scoped installer authorization
+are removed from the installed target. Boot and installation of the final live
+image remain integration gates until results below explicitly record them.
+
+The corrected RPM from this revision has SHA-256
+`23398d475e0fc8fbee43eebbfc0cf190925d95c0f7bc81ae625d6d7e0495c5a5`.
+All five production binaries match the earlier tested RPM byte for byte. The
+changes in this rebuild correct packaged first-boot file handling.
 
 Lorax built fresh Fedora 44 installer boot media successfully. Its El Torito
 catalog contains BIOS and UEFI entries. This is boot-media construction evidence;

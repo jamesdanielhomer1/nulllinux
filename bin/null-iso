@@ -54,14 +54,6 @@ revision=$(git rev-parse --verify HEAD) || exit 1
 [ -z "$(git status --porcelain --untracked-files=normal)" ] || {
   echo "null-iso: commit working changes and rebuild the package first" >&2; exit 1;
 }
-python3 - "$ROOT/packaging/repo/BUILD-INFO.json" "$revision" <<'PROVENANCE' || exit 1
-import json, sys
-from pathlib import Path
-info = json.loads(Path(sys.argv[1]).read_text())
-if info['source_commit'] != sys.argv[2]:
-    raise SystemExit('null-iso: the package is stale; run bin/null-package for this revision')
-PROVENANCE
-
 # Space. An ISO build writes the whole installed tree, then an image of it,
 # then squashfs -- several times the size of the result.
 mkdir -p "$WORK" || exit 1
@@ -71,11 +63,26 @@ avail=$(df --output=avail -BG "$WORK" 2>/dev/null | tail -1 | tr -dc '0-9')
 
 compose=$(mktemp -d "$WORK/compose.XXXXXX") || exit 1
 KS="$compose/$NAME-live.ks"
+repository="$compose/repo"
+# Package publication can replace the shared repository while this image is
+# building. Copy its contents once; Anaconda and the final sidecar use only
+# this compose's copy. Staying in the source directory avoids following a
+# replacement of the repository path halfway through the copy.
+( cd "$ROOT/packaging/repo" && cp -aL --reflink=auto . "$repository" ) || {
+  echo "null-iso: could not snapshot the package repository" >&2; exit 1;
+}
+python3 - "$repository/BUILD-INFO.json" "$revision" <<'PROVENANCE' || exit 1
+import json, sys
+from pathlib import Path
+info = json.loads(Path(sys.argv[1]).read_text())
+if info['source_commit'] != sys.argv[2]:
+    raise SystemExit('null-iso: the package is stale; run bin/null-package for this revision')
+PROVENANCE
 
 # The kickstart names the repository by absolute path, which is only known
 # here. Substituted rather than hard-coded so the tree can live anywhere.
 REL=$("$ROOT/bin/pkg" distro-version 2>/dev/null || echo 44)
-python3 - "$ROOT" "$KS" "$REL" <<'KICKSTART' || exit 1
+python3 - "$ROOT" "$KS" "$REL" "$repository" <<'KICKSTART' || exit 1
 import os, sys
 from pathlib import Path
 root, output = map(Path, sys.argv[1:3])
@@ -83,7 +90,7 @@ release = sys.argv[3]
 if not release.isdecimal():
     raise SystemExit('null-iso: invalid Fedora release')
 source = (root/'packaging/nulllinux-live.ks').read_text()
-source = source.replace('file://NULLLINUX_REPO', (root/'packaging/repo').as_uri())
+source = source.replace('file://NULLLINUX_REPO', Path(sys.argv[4]).as_uri())
 source = source.replace('$releasever', release).replace('$basearch', 'x86_64')
 source = source.replace('https://download.fedoraproject.org/pub/fedora/linux',
                         os.environ.get('NULL_MIRROR', 'https://dl.fedoraproject.org/pub/fedora/linux').rstrip('/'))
@@ -94,7 +101,7 @@ ksvalidator "$KS" >/dev/null 2>&1 || { echo "null-iso: the kickstart does not va
 
 echo "building $NAME-$VERSION.iso"
 echo "  work:  $WORK"
-echo "  repo:  $ROOT/packaging/repo ($(ls packaging/repo/*.rpm 2>/dev/null | wc -l) package(s))"
+echo "  repo:  $repository ($(ls "$repository"/*.rpm 2>/dev/null | wc -l) package(s))"
 echo
 
 # --no-virt: build in a chroot on this machine rather than by booting a virtual
@@ -112,6 +119,7 @@ echo
   --volid "nullLinux-$VERSION" \
   --iso-name "$NAME-$VERSION.iso" \
   --make-iso \
+  --compression zstd \
   --lorax-templates /usr/share/lorax/templates.d/99-generic \
   --logfile "$compose/livemedia.log" )
 st=$?
@@ -159,7 +167,7 @@ if [ $st -eq 0 ] && built=$(find "${compose:-$WORK}/results" -name '*.iso' | hea
   echo "built: $iso"
   echo "  $(du -h "$iso" | cut -f1)"
   sha256sum "$iso" > "$iso.sha256" || exit 1
-  cp "$ROOT/packaging/repo/BUILD-INFO.json" "$iso.build-info.json" || exit 1
+  cp "$repository/BUILD-INFO.json" "$iso.build-info.json" || exit 1
   echo
   echo "Write it to a stick with:"
   echo "  dd if=$iso of=/dev/sdX bs=4M status=progress oflag=sync"

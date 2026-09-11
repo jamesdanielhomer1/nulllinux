@@ -6,16 +6,15 @@ browser's own chrome — is a projection of **one baked artefact**: a raytraced
 Kerr black hole, `a = 0.6` prograde, rendered once and then drawn everywhere as
 text.
 
-It is a whole distribution, not a theme laid over someone else's desktop: its
-own installer, its own package, its own boot media, and its own answer for every
-ordinary thing a person does at a computer. It installs itself and asks ten
-questions of whoever is installing it.
+Its primary medium is a **Try / Install live image**: boot the desktop, try it,
+then open Fedora's interactive Anaconda installer when ready to install.
+A separate standalone installer medium remains available.
 
 ## The shape it has
 
 | | |
 |---|---|
-| **one asset, many projections** | the hero is raytraced once, on a machine with a GPU, and ships prebuilt for every font strike a real panel selects. No installed machine needs a compiler or a GPU to draw it. |
+| **one asset, many projections** | the hero is raytraced once and ships prebuilt for all nine supported font strikes. The installed renderer needs normal Wayland graphics support, with no compiler or raytracing GPU required. |
 | **derived, never declared** | the cell grid comes from the panel; the palette from a blackbody locus; the sixteen console slots, GTK, foot, nano and the browser chrome all come from that one palette. No hex is typed by hand. |
 | **one typeface, two strikes** | Terminus, at an interface size and a bake size, everywhere from GRUB to the greeter. |
 | **hardware-derived layout** | the profile comes from the attached displays and is regenerated when the hardware changes. The current package targets Fedora 44 on x86_64; hardware acceptance remains part of the release gates. |
@@ -35,21 +34,41 @@ launch and switch apps, files and network drives, the clipboard, a browser and
 mail, screenshots and recording, accounts, the system language, default
 applications, brightness and power and the radios, locking and idle and suspend.
 
+## Try / Install
+
+The live welcome offers **Try nullLinux** and **Install nullLinux**. Try closes
+the welcome and leaves the desktop available; it starts no installer or disk
+formatting. Changes to the live session are temporary unless explicitly saved
+to other storage. Applications can still access storage the user chooses.
+
+Install opens Anaconda's interactive WebUI through `liveinst`. The installer
+handles target selection and confirmation of disk changes. It is also available
+as **Install nullLinux** in the application launcher. Kickstart automation is
+not supported by this live installation path.
+
+The temporary live account has no password, so screen locking and the automatic
+idle/suspend ladder are disabled there. Installed-target cleanup removes the
+temporary live account and live-only authorization, autologin, installer entry,
+and optional debug access; a user explicitly configured by the installer is
+retained. These behaviors require validation on the final image before release.
+
 ## Building it
 
     bin/null-bootstrap        what is missing on this machine, and how to get it
     bin/null-build            build the renderer, master and derived assets
     bin/null-prebake          prepare every shipped strike from the HDR master
     bin/null-package          build the RPM
-    bin/null-installer-iso    build the installer medium (Anaconda boot.iso)
-    bin/null-iso              build the live medium (livemedia-creator; hours)
+    bin/null-iso              build the primary Try / Install live medium
+    bin/null-installer-iso    build the secondary standalone installer medium
     bash verify/source.sh     source tests and production renderer build (CI)
     verify/run.sh             installed-system checks; read testing.md first
     verify/in-guest.sh        the same suite, inside a real nullLinux guest
 
 The order is `build → prebake → package → iso`. A restored master can replace
 the main raytrace. Vulkan compute (including software Vulkan), Rust and the
-bake dependencies are needed on the build machine. See
+bake dependencies are needed on the build machine. Live composition also needs
+Lorax, Anaconda's build environment and pykickstart, and runs with root access
+on an isolated Linux build host. See
 [`docs/testing.md`](docs/testing.md) for the separate source, artifact and
 installed-system checks, and the bake provenance requirements.
 
@@ -71,7 +90,7 @@ kept separately in [`docs/STATUS.md`](docs/STATUS.md).
 | [`docs/goals.md`](docs/goals.md) | the road to 1.0.0 — acceptance criteria — and the scoped work that comes after it. |
 | [`docs/STATUS.md`](docs/STATUS.md) | what is verified, where, what is not, and what is deliberately out of scope. |
 | [`docs/measurements.md`](docs/measurements.md) | every figure quoted anywhere, with the method that produced it. |
-| [`docs/LICENSING.md`](docs/LICENSING.md) | the licences, and why the font-derived assets carry their own. |
+| [`docs/LICENSING.md`](docs/LICENSING.md) | project, font, icon, native-library and Rust dependency licences, notices and release checks. |
 | `bin/` | the desktop, system and build commands. |
 | `lib/` | shared menus, session ownership, desktop-entry parsing, battery readings and snapshots. |
 | `verify/` | the checks, and the harnesses that install and drive a guest. |
@@ -81,5 +100,9 @@ kept separately in [`docs/STATUS.md`](docs/STATUS.md).
 
 ## Licensing
 
-MIT, and the font-derived assets carry the OFL with them. See
-[`docs/LICENSING.md`](docs/LICENSING.md).
+Project code is MIT. Terminus-derived assets carry OFL-1.1; recolored Adwaita
+icons retain their LGPL-3.0-only or CC-BY-SA-3.0 alternatives and GNOME
+attribution. Bundled Rust, native zstd, Wayland protocol and Unicode material
+carry additional notices and terms collected into the RPM. See
+[`docs/LICENSING.md`](docs/LICENSING.md) for the reviewed license selections and
+the checks required before public distribution.
