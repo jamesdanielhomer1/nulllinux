@@ -22,8 +22,8 @@
 %global _prefix /opt
 
 Name:           nulllinux
-Version:        0.1.0
-Release:        2%{?dist}
+Version:        1.0.0
+Release:        1%{?dist}
 Summary:        A desktop where every surface is one baked artefact
 
 # MIT crate alternatives, native zstd BSD terms, Wayland protocol notices,
@@ -316,6 +316,12 @@ fi
 %config(noreplace) %{_sysconfdir}/pam.d/null-lock
 
 %changelog
+* Fri Sep 11 2026 nullLinux maintainers - 1.0.0-1
+- Release the Try / Install live medium with interactive Anaconda installation.
+- Preserve Fedora Btrfs defaults and account creation with nullLinux branding.
+- Correct enforcing SELinux live startup and discard cloned image identities.
+- Include the reviewed runtime, packaging, asset provenance, and license fixes.
+
 * Fri Sep 11 2026 nullLinux maintainers - 0.1.0-2
 - Preserve installer credentials and fail closed on incomplete installation.
 - Refresh copied surfaces on upgrades and validate prebuilt asset provenance.

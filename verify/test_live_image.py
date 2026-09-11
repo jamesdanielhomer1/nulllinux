@@ -195,6 +195,29 @@ chcon() {
         # before PAM starts the user shell, even when its argv are identical.
         self.assertNotIn("cat > /usr/libexec/nulllinux-live-getty", SOURCE)
 
+    def test_live_compose_removes_conflicting_display_manager_boot_job(self):
+        if not shutil.which("systemctl"):
+            self.skipTest("systemctl is not installed")
+        unit = self.file("/usr/lib/systemd/system/sddm.service")
+        unit.write_text("[Unit]\nConflicts=getty@tty1.service\n"
+                        "[Service]\nExecStart=/bin/true\n"
+                        "[Install]\nAlias=display-manager.service\n")
+        alias = self.root / "etc/systemd/system/display-manager.service"
+        alias.parent.mkdir(parents=True)
+        alias.symlink_to("/usr/lib/systemd/system/sddm.service")
+        # Evaluate only compose commands, excluding the installed cleanup
+        # heredoc, which must restore the display manager after installation.
+        compose = re.sub(r"<<'([A-Z_]+)'\n.*?\n\1\n", "", SOURCE, flags=re.S)
+        commands = re.findall(r"^systemctl --root=/ (?:enable|disable) sddm\.service$",
+                              compose, flags=re.M)
+        for command in commands:
+            result = subprocess.run(command.replace("--root=/", f"--root={self.root}").split(),
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(alias.is_symlink(), "SDDM's skipped start job still conflicts with live tty1")
+        self.assertIn("systemctl --root=/ enable sddm.service nulllinux-machine-sync.service",
+                      heredoc("CLEANUP"))
+
     def test_real_anaconda_detects_btrfs_profile_with_accounts_visible(self):
         try:
             from pyanaconda.core.configuration.anaconda import AnacondaConfiguration

@@ -81,7 +81,7 @@ sudo bin/null-iso
 The builder checks package/source identity, validates the composed Kickstart,
 and uses a fresh compose directory. A failed compose keeps the previously
 published ISO. The default output is
-`/var/lib/nulllinux-iso/nulllinux-0.1.0.iso`, with `.sha256` and
+`/var/lib/nulllinux-iso/nulllinux-1.0.0.iso`, with `.sha256` and
 `.build-info.json` sidecars. `NULL_ISO_WORK` selects another build/output
 directory. Keep the compose logs and identify the exact image checksum in
 test results.

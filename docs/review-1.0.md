@@ -1,4 +1,4 @@
-# Code review and stabilization toward 1.0
+# Code review and release validation for 1.0
 
 Review date: 11 September 2026. Baseline:
 `1cbc7817b0d08d6d20414b7d266cfc41a803ed7e` (0.1.0).
@@ -6,12 +6,15 @@ Work branch: `codex/stabilize-1.0`.
 
 ## Release verdict
 
-The baseline is not ready to be certified as 1.0. The review found reproducible
+The baseline review found reproducible
 faults in clean builds, package publication, account protection, lock scheduling,
 surface resize, application launching and the numerical pipeline. The
 stabilization changes address these faults and add independent regression
-coverage. The version remains 0.1.0, with RPM Release 2 so an installed package
-can receive the fixes through a normal upgrade.
+coverage. The distribution version is now 1.0.0, with RPM Release 1. The RPM and
+release images must be built from this versioned source; the earlier 0.1.0-2
+artifacts retain their original identity and evidence. Publication of the
+Try / Install release is authorized, subject to the final artifact checks below.
+Real-hardware coverage remains incomplete and must be stated in release notes.
 
 This review covers the implementation, build scripts, packaging, installation,
 desktop controls, generated assets, verification tools and release documentation.
@@ -37,6 +40,7 @@ defect. The table groups related defects by the behavior a user encounters.
 | P1 | Binary dependencies and recolored Adwaita icons shipped without their complete upstream notices. | Preserve exact Adwaita notices and collect locked Cargo, embedded native/protocol and Fedora Rust toolchain notices offline; verify every collected file hash and record source-delivery gates separately. |
 | P1 | A passwordless live session could enter the normal screen lock and have no usable password to unlock it. | Require a root-created marker and the exact live boot argument before disabling live-session lock/idle entry. Installed sessions retain normal authentication; marker-only and argument-only fixtures prove the boundary. |
 | P1 | A shell wrapper around live `agetty` ran in the wrong SELinux domain. PAM accepted the live login, then SELinux denied the user shell, leaving a blank screen and a failed getty unit. | Invoke Fedora's labeled `agetty` directly, with a separate live-session condition. The actual guest starts Sway and the welcome with SELinux still enforcing. |
+| P1 | SDDM's queued boot job stopped the live getty through its stock conflict, even though a live-only condition subsequently skipped the greeter. | Disable its boot alias in the composed live base; installed cleanup restores the greeter. A real systemctl fixture verifies the live base has no display-manager alias. |
 | P1 | Polkit's installer guard could not inspect the root-created live marker with its default SELinux label. Install fell back to an unavailable authentication prompt and exited. | Label that runtime authorization marker with Fedora's existing Polkit runtime type. The original marker/kernel checks authorize Anaconda under enforcing SELinux without a new allow policy. |
 | P1 | Branding the OS as nullLinux prevented Anaconda from detecting its Fedora profile. Guided installation inherited generic LVM defaults instead of the intended Btrfs layout and Fedora EFI directory. | Add a detected nullLinux profile inheriting Fedora, retain Firefox, and keep the account page visible. The real Anaconda configuration loader verifies Btrfs, zstd compression, EFI placement and account controls. |
 | P2 | The read-only live base retained its composed machine ID and random seed. The running preview reused that machine ID. | Clear the base ID and remove its seed at the end of compose; remove copied seed state during target cleanup while preserving Anaconda's newly generated installed ID. Redirected filesystem tests cover both paths. |
@@ -179,15 +183,17 @@ checks; enforced Linux line endings across platforms; removed duplicate ignore
 rules; corrected stale spin/build/status descriptions; retained the original
 license bytes. All code work is isolated from the user's `master` checkout.
 
-## Gates before 1.0
+## Final release checks and follow-up coverage
 
 1. Verify the final corrected master, prebuilts, package and release ISOs from
    the revision being released, including a cold install from the final ISO.
 2. Prove graphical login and successful PAM unlock in the installed system;
    a lock handshake/fail-closed test alone does not prove password acceptance.
-3. Complete cold installation on real hardware and its firmware, EDID/GPU,
-   Wi-Fi association, suspend/resume, docking, trackpoint and battery tests.
-4. Judge Thunderbird/LibreOffice and the regenerated hero/boot surfaces on a
-   screen against the project's visual rules.
-5. Retain off-machine source and corrected-master backups and their checksums
-   before tagging/publishing 1.0. No release was published by this review.
+3. Retain the released source, corrected master, artifacts and checksums with
+   the release evidence. Record the publication result when the release exists.
+
+Real-hardware cold installation, firmware, EDID/GPU, Wi-Fi association,
+suspend/resume, docking, trackpoint and battery tests remain follow-up work.
+Thunderbird/LibreOffice and the regenerated hero/boot surfaces also need wider
+on-screen acceptance against the project's visual rules. These limitations
+must accompany the release; the version bump does not close them.

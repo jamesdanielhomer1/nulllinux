@@ -248,6 +248,11 @@ chmod 0755 /usr/libexec/nulllinux-live-{check,setup,cleanup} /usr/libexec/nullli
 chmod 0644 /usr/share/applications/install-nulllinux.desktop
 systemctl --root=/ enable nulllinux-live-setup.service nulllinux-testkey.service
 systemctl --root=/ enable nulllinux-machine-sync.service
+# A failed unit condition does not remove Conflicts= from the boot transaction.
+# SDDM conflicts with tty1, so its alias must be absent from the live base.
+# Installed-target cleanup restores it; live machine-sync only enables it for
+# a future boot and does not start the display manager in this transaction.
+systemctl --root=/ disable sddm.service
 
 # The image records its actual packages and exact Fedora source package names.
 # Release review must establish the applicable source-delivery arrangements.

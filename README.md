@@ -74,12 +74,13 @@ installed-system checks, and the bake provenance requirements.
 
 ## Where it is
 
-Version **0.1.0**, undergoing stabilization toward **1.0.0**. The current code
-review found defects beyond the historical VM acceptance results. Its fixes and
-fresh evidence are recorded in [`docs/review-1.0.md`](docs/review-1.0.md).
-Release criteria, including a cold install on real hardware and visual
-acceptance, remain in [`docs/goals.md`](docs/goals.md). Historical results are
-kept separately in [`docs/STATUS.md`](docs/STATUS.md).
+Version **1.0.0**. The release provides a Try / Install live image for x86_64
+systems based on Fedora 44. Review fixes and verification evidence are recorded
+in [`docs/review-1.0.md`](docs/review-1.0.md). Real-hardware installation,
+firmware, Wi-Fi, suspend/resume and peripheral coverage remain limited; the VM
+results do not establish those hardware claims. Follow-up acceptance work is
+tracked in [`docs/goals.md`](docs/goals.md), with historical results kept in
+[`docs/STATUS.md`](docs/STATUS.md).
 
 ## What is here
 
