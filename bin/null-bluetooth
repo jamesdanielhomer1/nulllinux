@@ -45,7 +45,7 @@ case "${1:-menu}" in
   menu)
     sel=$(printf '%s\n' \
       "$(null_row 'power'   "$(powered)")" \
-      "$(null_row 'devices' "$(devices | grep -c . || echo 0) known")" \
+      "$(null_row 'devices' "$(devices | grep -c . || true) known")" \
       "$(null_row 'scan'    'look for new devices')" \
       | fzf "${NULL_FZF[@]}" --prompt='bluetooth > ' --no-sort \
             | awk '{print $1}')

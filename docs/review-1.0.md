@@ -36,6 +36,10 @@ defect. The table groups related defects by the behavior a user encounters.
 | P1 | The actual RPM preserved writable Windows prebake modes; machine-sync propagated writable shell colour/configuration assets and theme directories into system locations. | Normalize Source1, the staged package and copied destination directories. Reproduce with 0777/0666 fixtures and inspect the rebuilt RPM and installed system. |
 | P1 | Binary dependencies and recolored Adwaita icons shipped without their complete upstream notices. | Preserve exact Adwaita notices and collect locked Cargo, embedded native/protocol and Fedora Rust toolchain notices offline; verify every collected file hash and record source-delivery gates separately. |
 | P1 | A passwordless live session could enter the normal screen lock and have no usable password to unlock it. | Require a root-created marker and the exact live boot argument before disabling live-session lock/idle entry. Installed sessions retain normal authentication; marker-only and argument-only fixtures prove the boundary. |
+| P1 | A shell wrapper around live `agetty` ran in the wrong SELinux domain. PAM accepted the live login, then SELinux denied the user shell, leaving a blank screen and a failed getty unit. | Invoke Fedora's labeled `agetty` directly, with a separate live-session condition. The actual guest starts Sway and the welcome with SELinux still enforcing. |
+| P1 | Polkit's installer guard could not inspect the root-created live marker with its default SELinux label. Install fell back to an unavailable authentication prompt and exited. | Label that runtime authorization marker with Fedora's existing Polkit runtime type. The original marker/kernel checks authorize Anaconda under enforcing SELinux without a new allow policy. |
+| P1 | Branding the OS as nullLinux prevented Anaconda from detecting its Fedora profile. Guided installation inherited generic LVM defaults instead of the intended Btrfs layout and Fedora EFI directory. | Add a detected nullLinux profile inheriting Fedora, retain Firefox, and keep the account page visible. The real Anaconda configuration loader verifies Btrfs, zstd compression, EFI placement and account controls. |
+| P2 | The read-only live base retained its composed machine ID and random seed. The running preview reused that machine ID. | Clear the base ID and remove its seed at the end of compose; remove copied seed state during target cleanup while preserving Anaconda's newly generated installed ID. Redirected filesystem tests cover both paths. |
 | P2 | Closing the live welcome terminal sent SIGHUP to its installer child and ended installation. | Launch the installer through the compositor, outside the terminal's process group. A real Sway/foot recording process reproduces the failure before the change and survives after it. |
 | P2 | A failed live compose deleted previous build results and could combine a newer recipe with an older package. | Give each compose its own directory, retain the last image on failure, validate concrete repository URLs, and require matching clean source/package provenance. |
 | P2 | Publishing another RPM while an image composed could change its package or label the completed image with the next build's metadata. | Snapshot the local repository in each compose, validate its captured revision, and use that snapshot for both Anaconda and the published metadata. A concurrent-publication regression proves the package and sidecar stay paired. |
@@ -59,6 +63,7 @@ defect. The table groups related defects by the behavior a user encounters.
 | P2 | Default application resolution lost quoted arguments/field positions, ignored XDG precedence and could expose shell interpretation. | Share desktop-entry discovery/argument expansion, preserve NUL-separated argv for direct execution, shell-quote the compositor handoff and respect hidden entries and desktop visibility. Tests launch recording executables with spaces and metacharacters. |
 | P2 | Invalid input values were persisted; keyboard authorization failures looked successful; settings discarded useful error output. | Validate before atomic replacement, use localed's authorized keyboard conversion and display failed mutations in the settings panel. |
 | P2 | A failed system upgrade still ran orphan removal/cache cleanup and returned success; failed orphan queries reported zero. | Stop at the failing update channel, preserve its exit status and report an unknown count when the query fails. Five isolated command tests cover report-only behavior and upgrade, cleanup, firmware and query failures. |
+| P2 | A successful first-run log produced two zeroes in its problem count and an integer-comparison error. The same pattern split the empty Bluetooth device count across lines. | Keep the single zero already emitted by `grep -c`; clean, duplicate-error and distinct-error log fixtures verify reporting. |
 
 ## Performance work
 
@@ -111,8 +116,8 @@ Fedora 44 image kernel enables SquashFS zstd decompression.
   double quotes and a single quote without expanding or splitting it.
 
 The combined `verify/source.sh` run at
-`9ae6cfbe0cb940db487fb999bba7f54ddf951fd3` passed: syntax for 139 shell and 52
-Python sources; structural checks and their negative fixtures; 111 isolated system/UI
+`d262d5fe7bdf077b79b2792434449c95a7ed739a` passed: syntax for 139 shell and 52
+Python sources; structural checks and their negative fixtures; 112 isolated system/UI
 tests; 26 bake/build tests; 11 physics checks; 94 Rust tests; the Clippy
 correctness gate; and compilation of all five production binaries. Existing
 style and dead-code warnings are not promoted to correctness failures.
@@ -142,10 +147,26 @@ autologin, the blank live account and the narrowly scoped installer authorizatio
 are removed from the installed target. Boot and installation of the final live
 image remain integration gates until results below explicitly record them.
 
-The corrected RPM from this revision has SHA-256
+The corrected RPM from `9ae6cfbe0cb940db487fb999bba7f54ddf951fd3` has SHA-256
 `23398d475e0fc8fbee43eebbfc0cf190925d95c0f7bc81ae625d6d7e0495c5a5`.
 All five production binaries match the earlier tested RPM byte for byte. The
 changes in this rebuild correct packaged first-boot file handling.
+
+That exact RPM was also installed from the standalone installer image onto a
+fresh virtual disk. The unchanged installed-system verifier passed 53 checks,
+with zero failures, against a frozen copy of the ISO's package. Ordinary disk
+boots reached the graphical target in 28.662 and 37.364 seconds with no failed
+units. Greeter login, a wrong-password rejection, correct-password unlock and
+a further ordinary reboot passed using the actual keyboard and production
+locker. This harness boots the installer kernel/initrd directly, so it does
+not substitute for firmware-menu or guided live-install acceptance.
+
+The subsequent `d262d5fe7bdf077b79b2792434449c95a7ed739a` RPM has SHA-256
+`cebb15c1bcf3881ad3ba1bdfa298039bb824165582aa9e1f544be4679e5849c7`.
+Its runtime binaries, other 59 commands, 12 libraries, PAM files, configuration,
+895 asset entries and 311 license files match the accepted package in bytes,
+modes and ownership. Only the live builder, its regression, provenance and
+documentation changed. All 303 collected notice hashes were verified.
 
 Lorax built fresh Fedora 44 installer boot media successfully. Its El Torito
 catalog contains BIOS and UEFI entries. This is boot-media construction evidence;

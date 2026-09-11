@@ -54,6 +54,23 @@ echo nulllinux > /etc/hostname
 mkdir -p /usr/libexec /usr/share/anaconda/post-scripts /usr/share/applications
 mkdir -p /etc/systemd/system/getty@tty1.service.d /etc/systemd/system/sddm.service.d
 
+# Anaconda detects ID and VARIANT_ID, not ID_LIKE. Keep Fedora's Btrfs and
+# EFI defaults for our branded ID. Its base profile leaves account creation
+# visible; Workstation/KDE defer it to first-boot tools we do not ship.
+mkdir -p /etc/anaconda/profile.d
+cat > /etc/anaconda/profile.d/nulllinux.conf <<'ANACONDA_PROFILE'
+[Profile]
+profile_id = nulllinux
+base_profile = fedora
+
+[Profile Detection]
+os_id = nulllinux
+
+[User Interface]
+webui_web_engine = firefox
+ANACONDA_PROFILE
+chmod 0644 /etc/anaconda/profile.d/nulllinux.conf
+
 # The marker and temporary account are created at live boot, not in the base
 # image. All privilege checks require the live kernel argument and marker.
 cat > /usr/libexec/nulllinux-live-check <<'CHECK'
@@ -71,6 +88,11 @@ if ! getent passwd live >/dev/null; then
 fi
 passwd -d live
 install -m 0644 /dev/null /run/nulllinux-live
+# The existing Fedora polkit policy can inspect its runtime state type. The
+# default var_run_t label denies this guard when polkit spawns it under SELinux.
+if [ -e /sys/fs/selinux/enforce ]; then
+  chcon -t policykit_var_run_t /run/nulllinux-live
+fi
 cat >> /home/live/.bash_profile <<'PROF'
 # BEGIN NULLLINUX LIVE SESSION
 if [ -z "${WAYLAND_DISPLAY:-}" ] && [ "${XDG_VTNR:-}" = 1 ] &&
@@ -111,22 +133,17 @@ ExecStart=/usr/libexec/nulllinux-live-setup
 WantedBy=multi-user.target
 LIVESETUP
 
-cat > /usr/libexec/nulllinux-live-getty <<'GETTY'
-#!/usr/bin/env bash
-if /usr/libexec/nulllinux-live-check; then
-  exec /sbin/agetty --autologin live --noclear "$@"
-fi
-exec /sbin/agetty --noclear "$@"
-GETTY
-
 cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<'AUTO'
 [Unit]
 Requires=nulllinux-live-setup.service nulllinux-machine-sync.service
 After=nulllinux-live-setup.service nulllinux-machine-sync.service
 
 [Service]
+# Keep stock agetty's SELinux transition into the login/user domains. A shell
+# wrapper here runs in the wrong service domain under enforcing SELinux.
+ExecCondition=/usr/libexec/nulllinux-live-check
 ExecStart=
-ExecStart=-/usr/libexec/nulllinux-live-getty %I $TERM
+ExecStart=-/sbin/agetty --autologin live --noclear %I $TERM
 AUTO
 
 cat > /etc/systemd/system/sddm.service.d/live.conf <<'LIVE'
@@ -175,7 +192,7 @@ url=$(sed -n 's/.*nulllinux\.sshkey=\([^ ]*\).*/\1/p' /proc/cmdline)
 install -d -m 0700 /root/.ssh
 temporary=$(mktemp /root/.ssh/.authorized_keys.XXXXXX)
 trap 'rm -f "$temporary"' EXIT
-curl -fsS --retry 5 --retry-delay 2 -o "$temporary" "$url"
+curl -fsS --retry 5 --retry-delay 2 --retry-connrefused -o "$temporary" "$url"
 ssh-keygen -l -f "$temporary" >/dev/null
 chmod 0600 "$temporary"
 mv -f "$temporary" /root/.ssh/authorized_keys
@@ -200,6 +217,8 @@ if [ -f /etc/ssh/sshd_config.d/60-nulllinux-test.conf ]; then
 fi
 rm -f /usr/share/applications/install-nulllinux.desktop
 rm -f /run/nulllinux-live /var/lib/nulllinux/surfaces-placed
+# Keep Anaconda's newly generated machine-id, but never copy a seed from media.
+rm -f /var/lib/systemd/random-seed
 # Remove only the blank temporary account. A user explicitly configured as
 # "live" by Anaconda has a new password and must survive installation.
 if account=$(getent passwd live); then
@@ -225,7 +244,7 @@ CLEANUP
 printf '%s\n' '%post --erroronfail --interpreter=/usr/bin/bash' \
   '/usr/libexec/nulllinux-live-cleanup' '%end' \
   > /usr/share/anaconda/post-scripts/99-nulllinux-live-cleanup.ks
-chmod 0755 /usr/libexec/nulllinux-live-{check,setup,getty,cleanup} /usr/libexec/nulllinux-testkey
+chmod 0755 /usr/libexec/nulllinux-live-{check,setup,cleanup} /usr/libexec/nulllinux-testkey
 chmod 0644 /usr/share/applications/install-nulllinux.desktop
 systemctl --root=/ enable nulllinux-live-setup.service nulllinux-testkey.service
 systemctl --root=/ enable nulllinux-machine-sync.service
@@ -254,4 +273,9 @@ mkdir -p /usr/share/nulllinux
 } > /usr/share/nulllinux/SOURCES.txt
 sed -i "s|RELEASEVER|$(/opt/nulllinux/bin/pkg distro-version)|g" /usr/share/nulllinux/SOURCES.txt
 /opt/nulllinux/bin/null-brand report
+
+# Each live boot must generate its own identity and entropy seed. Preserve the
+# Fedora /var/lib/dbus/machine-id symlink to this now-empty machine-id file.
+: > /etc/machine-id
+rm -f /var/lib/systemd/random-seed
 %end
